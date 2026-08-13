@@ -1,0 +1,10 @@
+build/
+scratch/
+generated/
+.env
+*.bin
+*.chd
+*.cue
+*.iso
+*.img
+*.pbp
