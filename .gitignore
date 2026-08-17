@@ -8,3 +8,7 @@ generated/
 *.iso
 *.img
 *.pbp
+
+# The framework. Not tracked: either a symlink to the workspace shared clone (local) or a
+# private clone at psxport.pin (fresh machine). Managed by tools/psxport_sync.py.
+/external/psxport
