@@ -28,6 +28,12 @@ set(PSXPORT_BUILD_SMOKE ON CACHE BOOL "Build the framework agnosticism smoke" FO
 add_subdirectory("${PSXPORT_DIR}" psxport_build)
 add_custom_target(tekken3_scaffold DEPENDS psxport_smoke)
 add_custom_target(
+  tekken3_tool_selftests
+  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/provision_executable.py" --selftest
+  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/verify_startup.py" --selftest
+  USES_TERMINAL
+  VERBATIM)
+add_custom_target(
   cpp_policy
   COMMAND
     "${Python3_EXECUTABLE}" "${PSXPORT_DIR}/tools/check_cpp_style.py"
@@ -40,6 +46,6 @@ add_custom_target(
   verify
   COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/psxport_sync.py" --check
   COMMAND "$<TARGET_FILE:psxport_smoke>"
-  DEPENDS cpp_policy psxport_smoke
+  DEPENDS cpp_policy psxport_smoke tekken3_tool_selftests
   USES_TERMINAL
   VERBATIM)

@@ -1,11 +1,11 @@
 ---
 id: 2
 title: crt0_extract labels Tekken 3 main loop as libcInit
-status: investigating
+status: resolved
 symptom: crt0_extract reports 0x80028BA0 under the generic libcInit field, but Ghidra decompiles it as the non-returning game main loop
 tags: tool,crt0,reverse-engineering
 created: 2026-08-20
-updated: 2026-08-20
+updated: 2026-08-21
 ---
 
 ## Root cause
@@ -18,4 +18,7 @@ Treating `COMPLETE (8 of 8)` or the derived heap plan as proof that the target i
 
 ## Resolution
 
-Unresolved in the shared framework. Tekken 3 documentation treats `0x80028BA0` as the measured first startup target and T3-03 explicitly requires a direct-to-main boot model. The proper framework change is to generalize the field/report vocabulary and extend the independent cross-validator for startup shapes that call main directly; no game-side semantic alias or guessed InitHeap call is permitted.
+Tekken now owns a direct-main startup manifest and verifier: real bytes prove the first entry call,
+return trap, and main-loop back-edge, while fresh Ghidra output proves the target semantics. No Tekken
+code consumes `crt0_extract`'s generic `libcInit` label. Generalizing the shared reporter remains
+separate framework work; no game-side semantic alias or guessed InitHeap call is permitted.

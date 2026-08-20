@@ -14,18 +14,25 @@ names an honest remaining gap; `todo` is not started. No hacks are tracked.
 - notes: All disc-derived files remain gitignored. The target hash is over the complete 0x121800-byte PS-X EXE, including its 0x800-byte header.
 
 ### T3-02 — Provision the selected disc and executable reproducibly
-- status: todo
+- status: re-verified
 - deps: T3-01
-- evidence: Not started.
-- where: future project-local provisioning tool; gitignored `.env` or root drop-in input
-- gap: Implement CLI argument > `PSXPORT_TEKKEN3_DISC` > `.env` > root-drop-in resolution, extract `TEKKEN3/SLUS_004.02` to `scratch/`, and verify its SHA-256 before any recompilation.
+- evidence: C002/I002. `tools/provision_executable.py` resolves CLI > `PSXPORT_TEKKEN3_DISC` > `.env` > one root CHD without falling through from a bad configured path, extracts the nested `TEKKEN3/SLUS_004.02`, and checks eight tracked identity/header facts from `titles/tekken3/executable.json`. Its shipping-path selftest passes 12/12 positive, byte-mismatch, malformed-executable, preservation, ambiguity, and refusal cases. A real USA CHD extraction produced 1,185,792 bytes with SHA-256 `fbda8b68e5799dbef4af39a161783bc670c15b0aa0e87dce65e210717da19b8c` under `scratch/bin/tekken3/`.
+- where: `tools/provision_executable.py`; `titles/tekken3/executable.json`; gitignored `.env` or root drop-in input
+- gap: None for reproducible executable provisioning. Disc provenance beyond the selected measured image remains outside this tool's claim.
+
+### T3-03A — Model Tekken's direct-to-main startup boundary
+- status: re-verified
+- deps: T3-02
+- evidence: C003/I003. `tools/verify_startup.py` checks the real executable's first entry call `0x80079D04 -> 0x80028BA0`, nop delay slot, immediate break-on-return guard, and `0x80028E0C -> 0x80028BCC` main-loop back-edge without using the framework's `libcInit` name. It passes 5/5 agreement/disagreement/refusal fixtures and 8/8 structural facts on the provisioned USA executable. A fresh Ghidra 12.0.4 decompile of `FUN_80079c70` and `FUN_80028ba0` on the same hashed RAM image shows the entry call followed by a trap and the target's one-time initialization followed by an infinite mode/frame loop.
+- where: `tools/verify_startup.py`; `titles/tekken3/executable.json`; `titles/tekken3/README.md`
+- gap: None for the executable startup boundary. This does not yet implement or run a PC boot seam.
 
 ### T3-03 — Bring up a deterministic psxport/oracle boot harness
 - status: todo
-- deps: T3-02
-- evidence: Not started; `tekken3_scaffold` only links `psxport_smoke` and runs no Tekken 3 code.
+- deps: T3-03A
+- evidence: The direct-main executable boundary is verified by T3-03A, but `tekken3_scaffold` only links `psxport_smoke` and runs no Tekken 3 code.
 - where: future `game/core/`, generated substrate, and project-owned gate
-- gap: Build the first game seam and oracle driver, model the direct-to-main startup shape rather than assuming the first JAL is InitHeap, then prove the harness reports both an intentional agreement and an intentional disagreement on permanent fixtures.
+- gap: Build the first game seam and oracle driver around T3-03A's direct-main shape, then prove the harness reports both an intentional agreement and an intentional disagreement on permanent fixtures.
 
 ### T3-04 — Recompile through the first real divergence
 - status: todo

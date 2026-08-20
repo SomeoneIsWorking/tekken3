@@ -1,0 +1,37 @@
+{
+  "title": "Tekken 3",
+  "region": "USA",
+  "serial": "SLUS-00402",
+  "disc_executable": "TEKKEN3/SLUS_004.02",
+  "output_name": "SLUS_004.02",
+  "file_size": 1185792,
+  "sha256": "fbda8b68e5799dbef4af39a161783bc670c15b0aa0e87dce65e210717da19b8c",
+  "header": {
+    "entry": "0x80079C70",
+    "gp": "0x00000000",
+    "text_address": "0x80010000",
+    "text_size": "0x00121000",
+    "stack_address": "0x801FFFF0",
+    "stack_offset": "0x00000000"
+  },
+  "startup": {
+    "shape": "direct_main",
+    "entry_call": {
+      "address": "0x80079D04",
+      "target": "0x80028BA0",
+      "delay_slot": "nop",
+      "return_guard_address": "0x80079D0C",
+      "return_guard": "break"
+    },
+    "main_loop": {
+      "back_edge_address": "0x80028E0C",
+      "back_edge_target": "0x80028BCC"
+    },
+    "ghidra": {
+      "program": "ram_boot.bin",
+      "entry_function": "FUN_80079c70",
+      "main_function": "FUN_80028ba0",
+      "finding": "entry calls FUN_80028ba0 and then traps; FUN_80028ba0 performs initialization followed by a non-returning game loop"
+    }
+  }
+}

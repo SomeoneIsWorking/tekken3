@@ -5,6 +5,8 @@ status: holds
 created: 2026-08-20
 tags: target,executable,t3-01
 depends: titles/tekken3/README.md
+reconfirmed: 2026-08-21
+verified_at: 2026-08-21 02:40:51
 ---
 
 ## Claim
@@ -18,3 +20,7 @@ SYSTEM.CNF and discdump identify the nested executable at LBA 25 with 1,185,792 
 ## What would falsify it
 
 A fresh extraction from the selected USA disc changes SYSTEM.CNF, size, SHA-256, pc0, t_addr, or t_size, or proves this image is not the intended region.
+
+## Re-confirmed 2026-08-21
+
+Reconfirmed on 2026-08-21 through the new shipping provisioner: fresh USA CHD extraction matched 8/8 identity/header facts including SHA-256, entry, load, and text extent; fresh Ghidra decomp of the same hashed RAM image reproduced the entry and game-main target.
