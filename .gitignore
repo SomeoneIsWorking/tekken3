@@ -1,6 +1,7 @@
 build/
 scratch/
 generated/
+__pycache__/
 .env
 *.bin
 *.chd
