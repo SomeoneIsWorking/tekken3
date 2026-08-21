@@ -36,11 +36,12 @@ names an honest remaining gap; `todo` is not started. No hacks are tracked.
 - gap: None for deterministic execution from the selected entry to the verified direct-main call boundary. This does not execute `game_main`, generated code, BIOS/devices, a frame, or gameplay; those remain T3-04 and later work.
 
 ### T3-04 — Recompile through the first real divergence
-- status: todo
+- status: re-partial
 - deps: T3-03
-- evidence: T3-03 reaches the correct entry-call boundary with two agreeing engines; no generated Tekken substrate exists yet.
-- where: future `generated/`, `game/recomp_seeds.json`, and divergence logs
-- gap: Recompile from the measured entry and advance only as far as executable evidence supports; never borrow another game's seeds or guess an overlay base.
+- evidence: C005/I005. The executable verifier identifies `0x80028BB0 -> 0x80079D10` as `game_main`'s first call and verifies its exact `0xAFB00010` delay word. `tools/recomp_boundary.py` asks psxport's shipping emitter to generate exactly six instructions `[0x80028BA0,0x80028BB8)`; the port executes the already-verified entry window in psxport's interpreter and that generated prefix, while independent Mednafen executes the whole window. Both agree on 35/35 CPU fields before `0x80079D10` at oracle step 106159. The permanent selftest detects an altered `a0`, altered generated source, and a trace that never reaches the requested call.
+- where: `tools/recomp_boundary.py`; `tests/recomp_boundary.cpp`; generated, gitignored `generated/boundary_prefix.c`; `scratch/raw/t3-04/oracle.trace`
+- gap: Execute the initializer at `0x80079D10`, re-compare its return state, then advance into the second initializer call at `0x800B0548` or the first earlier hardware stop. This prefix does not claim a whole resident substrate, BIOS/device execution, a frame, or gameplay.
+- notes: A whole-image trial discovered 593 roots and 1,884 functions, compiling downstream mode bodies irrelevant to this boundary. Issue #4 records why `emit.py --limit` is not a safe slice and why those pointer roots were not mislabeled as false positives.
 
 ## Native ownership and enhancements
 

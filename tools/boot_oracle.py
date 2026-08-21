@@ -346,7 +346,10 @@ def fixture_executable() -> bytearray:
     store(0x80010008, (3 << 26) | ((0x80010020 >> 2) & 0x03FFFFFF))
     store(0x8001000C, 0)  # jal delay slot
     store(0x80010010, 0x0000000D)  # return guard: break
-    store(0x80010030, (2 << 26) | ((0x80010020 >> 2) & 0x03FFFFFF))
+    store(0x80010020, 0x27BDFFF0)
+    store(0x80010024, (3 << 26) | ((0x80010038 >> 2) & 0x03FFFFFF))
+    store(0x80010028, 0xAFB00008)
+    store(0x80010030, (2 << 26) | ((0x8001002C >> 2) & 0x03FFFFFF))
     return data
 
 
@@ -376,9 +379,14 @@ def fixture_manifest(data: bytes) -> dict[str, Any]:
                 "return_guard_address": "0x80010010",
                 "return_guard": "break",
             },
+            "main_first_call": {
+                "address": "0x80010024",
+                "target": "0x80010038",
+                "delay_slot_word": "0xAFB00008",
+            },
             "main_loop": {
                 "back_edge_address": "0x80010030",
-                "back_edge_target": "0x80010020",
+                "back_edge_target": "0x8001002C",
             },
         },
     }

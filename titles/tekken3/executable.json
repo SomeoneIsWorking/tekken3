@@ -23,6 +23,11 @@
       "return_guard_address": "0x80079D0C",
       "return_guard": "break"
     },
+    "main_first_call": {
+      "address": "0x80028BB0",
+      "target": "0x80079D10",
+      "delay_slot_word": "0xAFB00010"
+    },
     "main_loop": {
       "back_edge_address": "0x80028E0C",
       "back_edge_target": "0x80028BCC"

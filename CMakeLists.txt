@@ -49,6 +49,58 @@ add_test(
     --selftest
     --probe "$<TARGET_FILE:tekken3_boot_probe>"
     --oracle "$<TARGET_FILE:oracle_trace>")
+
+set(TEKKEN3_EXE "${CMAKE_CURRENT_SOURCE_DIR}/scratch/bin/tekken3/SLUS_004.02")
+set(TEKKEN3_GENERATED "${CMAKE_CURRENT_SOURCE_DIR}/generated")
+add_custom_command(
+  OUTPUT "${TEKKEN3_GENERATED}/boundary_prefix.json"
+  COMMAND
+    "${CMAKE_COMMAND}" -E env "PSXPORT_DIR=${PSXPORT_DIR}" "PYTHONDONTWRITEBYTECODE=1"
+    "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tools/recomp_boundary.py"
+    --emit --exe "${TEKKEN3_EXE}" --output "${TEKKEN3_GENERATED}"
+  BYPRODUCTS
+    "${TEKKEN3_GENERATED}/boundary_prefix.c"
+  DEPENDS
+    "${TEKKEN3_EXE}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/titles/tekken3/executable.json"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/boot_oracle.py"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/provision_executable.py"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/recomp_boundary.py"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/verify_startup.py"
+    "${PSXPORT_DIR}/tools/recomp/decode.py"
+    "${PSXPORT_DIR}/tools/recomp/emit.py"
+    "${PSXPORT_DIR}/tools/recomp/psexe.py"
+  COMMENT "Tekken 3: emitting the verified game_main boundary prefix"
+  VERBATIM)
+add_custom_target(
+  tekken3_recomp_generate DEPENDS "${TEKKEN3_GENERATED}/boundary_prefix.json")
+add_executable(
+  tekken3_recomp_boundary EXCLUDE_FROM_ALL
+  tests/recomp_boundary.cpp
+  "${TEKKEN3_GENERATED}/boundary_prefix.c")
+add_dependencies(tekken3_recomp_boundary tekken3_recomp_generate)
+set_source_files_properties("${TEKKEN3_GENERATED}/boundary_prefix.c" PROPERTIES LANGUAGE CXX)
+target_include_directories(tekken3_recomp_boundary PRIVATE "${TEKKEN3_GENERATED}")
+target_compile_features(tekken3_recomp_boundary PRIVATE cxx_std_20)
+target_compile_options(
+  tekken3_recomp_boundary PRIVATE -O0 -fno-strict-aliasing -fwrapv)
+target_link_libraries(tekken3_recomp_boundary PRIVATE psxport)
+add_custom_target(
+  tekken3_recomp_boundary_check
+  COMMAND
+    "${CMAKE_COMMAND}" -E env "PSXPORT_DIR=${PSXPORT_DIR}" "PYTHONDONTWRITEBYTECODE=1"
+    "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tools/recomp_boundary.py"
+    --selftest --exe "${TEKKEN3_EXE}" --build "${CMAKE_BINARY_DIR}"
+    --runner "$<TARGET_FILE:tekken3_recomp_boundary>"
+  DEPENDS tekken3_recomp_boundary oracle_trace
+  USES_TERMINAL
+  VERBATIM)
+add_test(
+  NAME tekken3_recomp_boundary_selftest
+  COMMAND
+    "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tools/recomp_boundary.py"
+    --selftest --exe "${TEKKEN3_EXE}" --build "${CMAKE_BINARY_DIR}"
+    --runner "$<TARGET_FILE:tekken3_recomp_boundary>")
 add_custom_target(
   tekken3_tool_selftests
   COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/provision_executable.py" --selftest
@@ -68,6 +120,11 @@ add_custom_target(
   verify
   COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/psxport_sync.py" --check
   COMMAND "$<TARGET_FILE:psxport_smoke>"
-  DEPENDS cpp_policy psxport_smoke tekken3_boot_oracle_selftest tekken3_tool_selftests
+  DEPENDS
+    cpp_policy
+    psxport_smoke
+    tekken3_boot_oracle_selftest
+    tekken3_recomp_boundary_check
+    tekken3_tool_selftests
   USES_TERMINAL
   VERBATIM)

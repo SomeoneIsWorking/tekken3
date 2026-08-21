@@ -55,9 +55,17 @@ def startup_fields(manifest: Mapping[str, Any]) -> dict[str, int | str]:
     if not isinstance(startup, dict):
         raise Refused("manifest field startup must be an object")
     entry_call = startup.get("entry_call")
+    main_first_call = startup.get("main_first_call")
     main_loop = startup.get("main_loop")
-    if not isinstance(entry_call, dict) or not isinstance(main_loop, dict):
-        raise Refused("startup.entry_call and startup.main_loop must be objects")
+    if (
+        not isinstance(entry_call, dict)
+        or not isinstance(main_first_call, dict)
+        or not isinstance(main_loop, dict)
+    ):
+        raise Refused(
+            "startup.entry_call, startup.main_first_call, and startup.main_loop "
+            "must be objects"
+        )
     shape = startup.get("shape")
     if shape != "direct_main":
         raise Refused(f"unsupported startup shape {shape!r}; expected 'direct_main'")
@@ -73,6 +81,16 @@ def startup_fields(manifest: Mapping[str, Any]) -> dict[str, int | str]:
             "startup.entry_call.return_guard_address",
         ),
         "return_guard": str(entry_call.get("return_guard")),
+        "main_call_address": parse_hex(
+            main_first_call.get("address"), "startup.main_first_call.address"
+        ),
+        "main_call_target": parse_hex(
+            main_first_call.get("target"), "startup.main_first_call.target"
+        ),
+        "main_call_delay_word": parse_hex(
+            main_first_call.get("delay_slot_word"),
+            "startup.main_first_call.delay_slot_word",
+        ),
         "back_edge_address": parse_hex(
             main_loop.get("back_edge_address"),
             "startup.main_loop.back_edge_address",
@@ -94,6 +112,9 @@ def verify_startup(manifest: Mapping[str, Any], executable: pathlib.Path) -> Non
     call_address = int(fields["call_address"])
     call_target = int(fields["call_target"])
     guard_address = int(fields["guard_address"])
+    main_call_address = int(fields["main_call_address"])
+    main_call_target = int(fields["main_call_target"])
+    main_call_delay_word = int(fields["main_call_delay_word"])
     back_edge_address = int(fields["back_edge_address"])
     back_edge_target = int(fields["back_edge_target"])
 
@@ -133,6 +154,40 @@ def verify_startup(manifest: Mapping[str, Any], executable: pathlib.Path) -> Non
             f"game_main return guard at 0x{guard_address:08X} is not a MIPS break"
         )
 
+    if not call_target <= main_call_address < back_edge_address:
+        raise Mismatch("game_main first call is outside the one-time initialization prefix")
+    earlier_main_calls = [
+        address
+        for address in range(call_target, main_call_address, 4)
+        if is_call(image.word(address))
+    ]
+    if earlier_main_calls:
+        raise Mismatch(
+            "tracked initializer is not game_main's first call; earlier call(s): "
+            + ", ".join(f"0x{address:08X}" for address in earlier_main_calls)
+        )
+    measured_main_target = jump_target(
+        main_call_address,
+        image.word(main_call_address),
+        3,
+        "game_main first call",
+    )
+    if measured_main_target != main_call_target:
+        raise Mismatch(
+            f"game_main first call targets 0x{measured_main_target:08X}, "
+            f"expected 0x{main_call_target:08X}"
+        )
+    if not image.load <= main_call_target < image.text_end:
+        raise Mismatch(
+            f"game_main first-call target 0x{main_call_target:08X} is outside the image"
+        )
+    measured_delay_word = image.word(main_call_address + 4)
+    if measured_delay_word != main_call_delay_word:
+        raise Mismatch(
+            f"game_main first-call delay word is 0x{measured_delay_word:08X}, "
+            f"expected 0x{main_call_delay_word:08X}"
+        )
+
     measured_back_target = jump_target(
         back_edge_address,
         image.word(back_edge_address),
@@ -150,8 +205,9 @@ def verify_startup(manifest: Mapping[str, Any], executable: pathlib.Path) -> Non
         )
 
     print(
-        "[startup] MATCH 8/8 direct-main structural facts: "
+        "[startup] MATCH 12/12 direct-main structural facts: "
         f"entry first-call 0x{call_address:08X}->0x{call_target:08X}, "
+        f"main first-call 0x{main_call_address:08X}->0x{main_call_target:08X}, "
         f"return guard break, loop 0x{back_edge_address:08X}->0x{back_edge_target:08X}"
     )
     print(
@@ -177,7 +233,12 @@ def fixture_executable() -> bytearray:
     store(0x80010010, (3 << 26) | ((0x80010040 >> 2) & 0x03FFFFFF))
     store(0x80010014, 0)
     store(0x80010018, 0x0000000D)
+    store(0x80010040, 0x27BDFFE0)
+    store(0x80010044, 0xAFBF001C)
+    store(0x80010048, (3 << 26) | ((0x800100A0 >> 2) & 0x03FFFFFF))
+    store(0x8001004C, 0xAFB00010)
     store(0x80010080, (2 << 26) | ((0x80010050 >> 2) & 0x03FFFFFF))
+    store(0x800100A0, 0x03E00008)
     return data
 
 
@@ -206,6 +267,11 @@ def fixture_manifest(data: bytes) -> dict[str, Any]:
                 "delay_slot": "nop",
                 "return_guard_address": "0x80010018",
                 "return_guard": "break",
+            },
+            "main_first_call": {
+                "address": "0x80010048",
+                "target": "0x800100A0",
+                "delay_slot_word": "0xAFB00010",
             },
             "main_loop": {
                 "back_edge_address": "0x80010080",
@@ -263,6 +329,18 @@ def selftest() -> bool:
         wrong_loop["startup"]["main_loop"]["back_edge_target"] = "0x80010030"
         results.append(
             ("wrong loop back-edge is rejected", check(wrong_loop) is Mismatch)
+        )
+
+        wrong_main_call = copy.deepcopy(manifest)
+        wrong_main_call["startup"]["main_first_call"]["target"] = "0x800100A4"
+        results.append(
+            ("wrong game_main first-call target is rejected", check(wrong_main_call) is Mismatch)
+        )
+
+        wrong_main_delay = copy.deepcopy(manifest)
+        wrong_main_delay["startup"]["main_first_call"]["delay_slot_word"] = "0x00000000"
+        results.append(
+            ("wrong game_main call delay is rejected", check(wrong_main_delay) is Mismatch)
         )
 
         wrong_shape = copy.deepcopy(manifest)
