@@ -6,7 +6,7 @@ created: 2026-08-20
 tags: target,executable,t3-01
 depends: titles/tekken3/executable.json
 reconfirmed: 2026-08-21
-verified_at: 2026-08-21 03:30:05
+verified_at: 2026-08-21 11:21:50
 ---
 
 ## Claim
@@ -25,3 +25,7 @@ A fresh extraction from the selected USA disc changes SYSTEM.CNF, size, SHA-256,
 
 Real-disc provisioning matched all 8/8 tracked identity/header facts, including the complete executable
 SHA-256 and entry/text map; fresh Ghidra analysis of that image reproduced the entry and game-main target.
+
+## Re-confirmed 2026-08-21
+
+Post-landing provisioning and startup verification passed the selected USA executable identity and manifest, including the newly recorded first game_main edge.

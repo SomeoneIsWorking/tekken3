@@ -6,7 +6,7 @@ created: 2026-08-21
 tags: crt0,direct-main,t3-03a
 depends: tools/verify_startup.py#verify_startup
 reconfirmed: 2026-08-21
-verified_at: 2026-08-21 03:33:06
+verified_at: 2026-08-21 11:21:50
 ---
 
 ## Claim
@@ -20,3 +20,7 @@ tools/verify_startup.py matched 12/12 machine-code structural facts on the provi
 ## What would falsify it
 
 The selected executable changes; an earlier entry or `game_main` call appears; either call, delay slot, return guard, or loop back-edge changes; or independent control-flow analysis shows 0x80028BA0 is not the game main loop.
+
+## Re-confirmed 2026-08-21
+
+Post-landing Clang verify passed startup 12/12, startup selftest 7/7, direct-main oracle 3/3, and T3-04 generated boundary 35/35 at step 106159 against psxport 9f1bb927.
