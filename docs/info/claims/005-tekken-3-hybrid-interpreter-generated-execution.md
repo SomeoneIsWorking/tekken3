@@ -5,6 +5,8 @@ status: holds
 created: 2026-08-21
 tags: t3-04,oracle,recompiler,first-initializer
 depends: tools/recomp_boundary.py#render_slices, tools/recomp_boundary.py#compare_boundary, tests/recomp_boundary.cpp#main, tools/verify_startup.py#verify_startup
+reconfirmed: 2026-08-21
+verified_at: 2026-08-21 12:06:07
 ---
 
 ## Claim
@@ -18,3 +20,7 @@ C005/I005: provisioned USA executable SHA-256 fbda8b68e5799dbef4af39a161783bc670
 ## What would falsify it
 
 The selected executable/hash, startup first-call bytes, psxport emitter/decoder, interpreter state at direct-main, oracle trace semantics, generated runner, or comparator changes; or a repeat ceases to agree 35/35 at the measured edge.
+
+## Re-confirmed 2026-08-21
+
+Post-landing verify emitted exact 6+28+2 instruction slices, matched Mednafen 35/35 at first initializer entry, return, and next initializer entry, and passed the 6/6 falsifier suite.

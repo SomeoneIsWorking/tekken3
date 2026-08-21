@@ -6,7 +6,7 @@ created: 2026-08-21
 tags: crt0,direct-main,t3-03a
 depends: tools/verify_startup.py#verify_startup
 reconfirmed: 2026-08-21
-verified_at: 2026-08-21 11:21:50
+verified_at: 2026-08-21 12:06:07
 ---
 
 ## Claim
@@ -20,3 +20,7 @@ tools/verify_startup.py matched 18/18 machine-code structural facts on the provi
 ## What would falsify it
 
 The selected executable changes; an earlier entry or `game_main` call appears; either call, delay slot, initializer return, return guard, or loop back-edge changes; or independent control-flow analysis shows 0x80028BA0 is not the game main loop.
+
+## Re-confirmed 2026-08-21
+
+Post-landing verify passed the expanded startup structure gate 18/18 and all 10/10 opposite/refusal fixtures, including the first initializer return and next initializer call.

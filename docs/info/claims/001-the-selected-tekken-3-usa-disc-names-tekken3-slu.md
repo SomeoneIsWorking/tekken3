@@ -6,7 +6,7 @@ created: 2026-08-20
 tags: target,executable,t3-01
 depends: titles/tekken3/executable.json
 reconfirmed: 2026-08-21
-verified_at: 2026-08-21 11:21:50
+verified_at: 2026-08-21 12:06:07
 ---
 
 ## Claim
@@ -29,3 +29,7 @@ SHA-256 and entry/text map; fresh Ghidra analysis of that image reproduced the e
 ## Re-confirmed 2026-08-21
 
 Post-landing provisioning and startup verification passed the selected USA executable identity and manifest, including the newly recorded first game_main edge.
+
+## Re-confirmed 2026-08-21
+
+Post-landing verify reprovisioned SLUS_004.02 with all 8/8 identity facts and the provisioning selftest passed 12/12 against psxport 692b9b20.
