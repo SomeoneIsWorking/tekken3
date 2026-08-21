@@ -13,7 +13,7 @@ Tekken 3 psxport and independent Mednafen execution are deterministic and agree 
 
 ## Evidence
 
-On the real hashed USA SLUS_004.02 with verified psxport pin ce2c83adb0fce89c44eb764f2abf3e4f999d32a8, two psxport interpreter runs and two oracle_trace runs agreed 35/35 at oracle step 106153. The 3/3 permanent selftest uses both real engines, detects a forced a0 disagreement, and refuses a one-step window.
+On the real hashed USA SLUS_004.02 with verified psxport pin 3418a79b624765614f3f198dc1e89632e1e650f0, two psxport interpreter runs and two oracle_trace runs agreed 35/35 at oracle step 106153. The 3/3 permanent selftest uses both real engines, detects a forced a0 disagreement, and refuses a one-step window.
 
 ## What would falsify it
 

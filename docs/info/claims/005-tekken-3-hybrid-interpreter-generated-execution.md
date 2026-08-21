@@ -15,7 +15,7 @@ Tekken 3 hybrid interpreter/generated execution agrees with independent Mednafen
 
 ## Evidence
 
-C005/I005: provisioned USA executable SHA-256 fbda8b68e5799dbef4af39a161783bc670c15b0aa0e87dce65e210717da19b8c; verify_startup matches 18/18 structural facts. With verified psxport pin ce2c83adb0fce89c44eb764f2abf3e4f999d32a8, tools/recomp_boundary.py regenerates exact shipping-emitter slices and the hybrid port still agrees 35/35 with independent Mednafen before 0x80079D10 at oracle step 106159. The expanded permanent 6/6 selftest detects altered a0, altered generated source, missing boundary traces, and unmeasured runner targets.
+C005/I005: provisioned USA executable SHA-256 fbda8b68e5799dbef4af39a161783bc670c15b0aa0e87dce65e210717da19b8c; verify_startup matches 18/18 structural facts. With verified psxport pin 3418a79b624765614f3f198dc1e89632e1e650f0, tools/recomp_boundary.py regenerates exact shipping-emitter slices and the hybrid port still agrees 35/35 with independent Mednafen before 0x80079D10 at oracle step 106159. The expanded permanent 6/6 selftest detects altered a0, altered generated source, missing boundary traces, and unmeasured runner targets.
 
 ## What would falsify it
 
