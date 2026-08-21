@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 project(tekken3_port LANGUAGES C CXX)
 
+enable_testing()
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -27,6 +28,27 @@ file(WRITE "${CMAKE_BINARY_DIR}/psxport_resolved.txt"
 set(PSXPORT_BUILD_SMOKE ON CACHE BOOL "Build the framework agnosticism smoke" FORCE)
 add_subdirectory("${PSXPORT_DIR}" psxport_build)
 add_custom_target(tekken3_scaffold DEPENDS psxport_smoke)
+add_executable(tekken3_boot_probe tools/boot_probe.cpp)
+target_link_libraries(tekken3_boot_probe PRIVATE psxport)
+set_target_properties(
+  tekken3_boot_probe PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/scratch/bin")
+add_custom_target(
+  tekken3_boot_oracle_selftest
+  COMMAND
+    "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/boot_oracle.py"
+    --selftest
+    --probe "$<TARGET_FILE:tekken3_boot_probe>"
+    --oracle "$<TARGET_FILE:oracle_trace>"
+  DEPENDS oracle_trace tekken3_boot_probe
+  USES_TERMINAL
+  VERBATIM)
+add_test(
+  NAME tekken3_boot_oracle_selftest
+  COMMAND
+    "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/boot_oracle.py"
+    --selftest
+    --probe "$<TARGET_FILE:tekken3_boot_probe>"
+    --oracle "$<TARGET_FILE:oracle_trace>")
 add_custom_target(
   tekken3_tool_selftests
   COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/provision_executable.py" --selftest
@@ -46,6 +68,6 @@ add_custom_target(
   verify
   COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/psxport_sync.py" --check
   COMMAND "$<TARGET_FILE:psxport_smoke>"
-  DEPENDS cpp_policy psxport_smoke tekken3_tool_selftests
+  DEPENDS cpp_policy psxport_smoke tekken3_boot_oracle_selftest tekken3_tool_selftests
   USES_TERMINAL
   VERBATIM)

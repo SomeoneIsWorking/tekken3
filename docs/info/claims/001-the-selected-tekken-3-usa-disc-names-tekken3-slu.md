@@ -4,9 +4,9 @@ kind: claim
 status: holds
 created: 2026-08-20
 tags: target,executable,t3-01
-depends: titles/tekken3/README.md
+depends: titles/tekken3/executable.json
 reconfirmed: 2026-08-21
-verified_at: 2026-08-21 02:40:51
+verified_at: 2026-08-21 03:30:05
 ---
 
 ## Claim
@@ -23,4 +23,5 @@ A fresh extraction from the selected USA disc changes SYSTEM.CNF, size, SHA-256,
 
 ## Re-confirmed 2026-08-21
 
-Reconfirmed on 2026-08-21 through the new shipping provisioner: fresh USA CHD extraction matched 8/8 identity/header facts including SHA-256, entry, load, and text extent; fresh Ghidra decomp of the same hashed RAM image reproduced the entry and game-main target.
+Real-disc provisioning matched all 8/8 tracked identity/header facts, including the complete executable
+SHA-256 and entry/text map; fresh Ghidra analysis of that image reproduced the entry and game-main target.

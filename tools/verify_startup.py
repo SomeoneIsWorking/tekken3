@@ -159,8 +159,8 @@ def verify_startup(manifest: Mapping[str, Any], executable: pathlib.Path) -> Non
         "FUN_80028ba0 initializes once and loops forever (titles/tekken3/README.md)"
     )
     print(
-        "[startup] blind spot: this models the executable boundary; it does not yet prove a "
-        "recompiled or oracle boot harness"
+        "[startup] blind spot: this verifier models structure only; tools/boot_oracle.py separately "
+        "tests execution to the call boundary, not a generated substrate or gameplay"
     )
 
 

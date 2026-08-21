@@ -32,8 +32,10 @@ A fresh Ghidra 12.0.4 decompile of the provisioned image (SHA-256 above) confirm
 `FUN_80079c70` calls `FUN_80028ba0` and then traps, while `FUN_80028ba0` performs one-time calls and
 then loops forever around the mode dispatch and two `FUN_8007bab0` calls. The tracked executable and
 startup facts live in `executable.json`; `tools/verify_startup.py` checks those shipping facts against
-the real executable and has agreement/disagreement fixtures. These are inputs for the future seam,
-not a claim that a game harness boots.
+the real executable and has agreement/disagreement fixtures. `tools/boot_oracle.py` then executes the
+entry window in psxport and an independent Mednafen CPU, requiring two deterministic runs per leg to
+agree on all 35 CPU fields at `0x80028BA0`. This is not a claim that `game_main`, a generated substrate,
+devices, frames, or gameplay run.
 
 ## Reproduce the identity measurement
 
@@ -43,9 +45,11 @@ After the root README's Clang configure, run the project-owned provisioner:
 CCACHE_DISABLE=1 cmake --build build --target discdump
 python3 tools/provision_executable.py "/path/to/disc.chd"
 python3 tools/verify_startup.py
+python3 tools/boot_oracle.py
 ```
 
 Resolution is CLI argument > `PSXPORT_TEKKEN3_DISC` > `.env` > one root `*.chd` drop-in. A selected
 path that does not exist refuses rather than falling through to another disc, and ambiguous drop-ins
-also refuse. No disc-derived file belongs in git. This measurement does not establish that a Tekken 3
-port boots or that a recompiled substrate exists.
+also refuse. No disc-derived file belongs in git. The boundary comparison establishes execution only
+from the selected entry to the direct-main call; it does not establish that a Tekken 3 port boots a
+frame or that a recompiled substrate exists.

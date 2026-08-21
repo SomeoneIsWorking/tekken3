@@ -6,7 +6,7 @@ created: 2026-08-21
 tags: crt0,direct-main,t3-03a
 depends: tools/verify_startup.py#verify_startup
 reconfirmed: 2026-08-21
-verified_at: 2026-08-21 02:47:16
+verified_at: 2026-08-21 03:30:05
 ---
 
 ## Claim
@@ -23,4 +23,5 @@ The selected executable changes; an earlier entry call appears; the call, delay 
 
 ## Re-confirmed 2026-08-21
 
-Post-landing startup verifier passed 5/5 and remains bound to the real executable direct-main 8/8 structure plus Ghidra semantic witness.
+The startup verifier passed 5/5 fixtures and matched 8/8 structural facts on the real hashed executable;
+the downstream two-engine harness reached its recorded direct-main target.

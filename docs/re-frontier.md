@@ -25,19 +25,20 @@ names an honest remaining gap; `todo` is not started. No hacks are tracked.
 - deps: T3-02
 - evidence: C003/I003. `tools/verify_startup.py` checks the real executable's first entry call `0x80079D04 -> 0x80028BA0`, nop delay slot, immediate break-on-return guard, and `0x80028E0C -> 0x80028BCC` main-loop back-edge without using the framework's `libcInit` name. It passes 5/5 agreement/disagreement/refusal fixtures and 8/8 structural facts on the provisioned USA executable. A fresh Ghidra 12.0.4 decompile of `FUN_80079c70` and `FUN_80028ba0` on the same hashed RAM image shows the entry call followed by a trap and the target's one-time initialization followed by an infinite mode/frame loop.
 - where: `tools/verify_startup.py`; `titles/tekken3/executable.json`; `titles/tekken3/README.md`
-- gap: None for the executable startup boundary. This does not yet implement or run a PC boot seam.
+- gap: None for executable structure. T3-03 separately tests execution to this boundary; neither step
+  proves a generated substrate or a booted frame.
 
 ### T3-03 — Bring up a deterministic psxport/oracle boot harness
-- status: todo
+- status: re-verified
 - deps: T3-03A
-- evidence: The direct-main executable boundary is verified by T3-03A, but `tekken3_scaffold` only links `psxport_smoke` and runs no Tekken 3 code.
-- where: future `game/core/`, generated substrate, and project-owned gate
-- gap: Build the first game seam and oracle driver around T3-03A's direct-main shape, then prove the harness reports both an intentional agreement and an intentional disagreement on permanent fixtures.
+- evidence: C004/I004. `tools/boot_oracle.py` runs the selected entry window twice through the game-owned psxport interpreter probe and twice through the independent vendored-Mednafen `oracle_trace`, stopping after the first JAL delay slot and before direct-main executes. On the provisioned USA executable, both legs were deterministic and agreed on all 32 GPRs, HI, LO, and PC (35/35 fields) at `0x80028BA0`; the independent oracle reached it at step 106153. The permanent 3/3 selftest uses both real engines, detects a forced `a0` disagreement, and refuses a window too short to reach a call. Real-data forced-negative and one-step refusal gates also return mismatch/refusal rather than agreement.
+- where: `tools/boot_probe.cpp`; `tools/boot_oracle.py`; `CMakeLists.txt` (`tekken3_boot_oracle_selftest`)
+- gap: None for deterministic execution from the selected entry to the verified direct-main call boundary. This does not execute `game_main`, generated code, BIOS/devices, a frame, or gameplay; those remain T3-04 and later work.
 
 ### T3-04 — Recompile through the first real divergence
 - status: todo
 - deps: T3-03
-- evidence: Not started.
+- evidence: T3-03 reaches the correct entry-call boundary with two agreeing engines; no generated Tekken substrate exists yet.
 - where: future `generated/`, `game/recomp_seeds.json`, and divergence logs
 - gap: Recompile from the measured entry and advance only as far as executable evidence supports; never borrow another game's seeds or guess an overlay base.
 
