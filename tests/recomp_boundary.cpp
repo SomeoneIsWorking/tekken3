@@ -13,7 +13,11 @@
 
 void load_exe(const char *path, Core *core);
 void interp_coro_run(Core *core, std::uint32_t pc);
-void tekken3_main_prefix(Core *core);
+void tekken3_main_first_initializer(Core *core);
+void tekken3_main_next_initializer_call(Core *core);
+std::uint32_t tekken3_initializer_entry_boundary();
+std::uint32_t tekken3_initializer_return_boundary();
+std::uint32_t tekken3_next_initializer_boundary();
 
 namespace {
 
@@ -37,6 +41,8 @@ std::uint32_t parseAddress(std::string_view text, const char *label) {
 
 struct DirectMainReached final {};
 
+std::uint32_t requestedBoundary = 0;
+
 void stopAtDirectMain(Core *, std::uint64_t, std::uint32_t, void *) {
   throw DirectMainReached{};
 }
@@ -57,12 +63,11 @@ void stopAtDirectMain(Core *, std::uint64_t, std::uint32_t, void *) {
 
 } // namespace
 
-// The shipping emitter derives this symbol from the executable's measured first-call target. If
-// that target changes, the generated TU names a different symbol and the link refuses instead of
-// silently capturing the old boundary.
-void func_80079D10(Core *core) {
-  core->pc = 0x80079D10U;
-  captureBoundary(core);
+void tekken3_boundary_hook(Core *core, std::uint32_t boundary) {
+  if (boundary == requestedBoundary) {
+    core->pc = boundary;
+    captureBoundary(core);
+  }
 }
 
 int main(int argc, char **argv) {
@@ -73,7 +78,13 @@ int main(int argc, char **argv) {
 
   const std::uint32_t entry = parseAddress(argv[2], "entry");
   const std::uint32_t directMain = parseAddress(argv[3], "direct-main");
-  const std::uint32_t boundary = parseAddress(argv[4], "boundary");
+  requestedBoundary = parseAddress(argv[4], "boundary");
+  if (requestedBoundary != tekken3_initializer_entry_boundary() &&
+      requestedBoundary != tekken3_initializer_return_boundary() &&
+      requestedBoundary != tekken3_next_initializer_boundary()) {
+    std::fprintf(stderr, "REFUSED: unsupported generated boundary 0x%08X\n", requestedBoundary);
+    return 2;
+  }
 
   static const GameConfig config{};
   static const GameHooks hooks{};
@@ -97,7 +108,9 @@ int main(int argc, char **argv) {
     return 2;
   }
 
-  tekken3_main_prefix(core);
-  std::fprintf(stderr, "FAIL: generated prefix returned without reaching boundary 0x%08X\n", boundary);
+  tekken3_main_first_initializer(core);
+  tekken3_boundary_hook(core, tekken3_initializer_return_boundary());
+  tekken3_main_next_initializer_call(core);
+  std::fprintf(stderr, "FAIL: generated slices returned without reaching boundary 0x%08X\n", requestedBoundary);
   return 1;
 }

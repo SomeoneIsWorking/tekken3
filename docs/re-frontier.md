@@ -23,7 +23,7 @@ names an honest remaining gap; `todo` is not started. No hacks are tracked.
 ### T3-03A — Model Tekken's direct-to-main startup boundary
 - status: re-verified
 - deps: T3-02
-- evidence: C003/I003. `tools/verify_startup.py` checks the real executable's first entry call `0x80079D04 -> 0x80028BA0`, nop delay slot, immediate break-on-return guard, and `0x80028E0C -> 0x80028BCC` main-loop back-edge without using the framework's `libcInit` name. It passes 5/5 agreement/disagreement/refusal fixtures and 8/8 structural facts on the provisioned USA executable. A fresh Ghidra 12.0.4 decompile of `FUN_80079c70` and `FUN_80028ba0` on the same hashed RAM image shows the entry call followed by a trap and the target's one-time initialization followed by an infinite mode/frame loop.
+- evidence: C003/I003. `tools/verify_startup.py` checks the real executable's first entry call `0x80079D04 -> 0x80028BA0`, nop delay slot, immediate break-on-return guard, both initializer calls and delay words, the first initializer's exact return, and `0x80028E0C -> 0x80028BCC` main-loop back-edge without using the framework's `libcInit` name. It passes 10/10 agreement/disagreement/refusal fixtures and 18/18 structural facts on the provisioned USA executable. A fresh Ghidra 12.0.4 decompile of `FUN_80079c70`, `FUN_80028ba0`, and `FUN_80079d10` on the same hashed RAM image confirms the entry/main relationship and first initializer semantics.
 - where: `tools/verify_startup.py`; `titles/tekken3/executable.json`; `titles/tekken3/README.md`
 - gap: None for executable structure. T3-03 separately tests execution to this boundary; neither step
   proves a generated substrate or a booted frame.
@@ -38,9 +38,9 @@ names an honest remaining gap; `todo` is not started. No hacks are tracked.
 ### T3-04 — Recompile through the first real divergence
 - status: re-partial
 - deps: T3-03
-- evidence: C005/I005. The executable verifier identifies `0x80028BB0 -> 0x80079D10` as `game_main`'s first call and verifies its exact `0xAFB00010` delay word. `tools/recomp_boundary.py` asks psxport's shipping emitter to generate exactly six instructions `[0x80028BA0,0x80028BB8)`; the port executes the already-verified entry window in psxport's interpreter and that generated prefix, while independent Mednafen executes the whole window. Both agree on 35/35 CPU fields before `0x80079D10` at oracle step 106159. The permanent selftest detects an altered `a0`, altered generated source, and a trace that never reaches the requested call.
-- where: `tools/recomp_boundary.py`; `tests/recomp_boundary.cpp`; generated, gitignored `generated/boundary_prefix.c`; `scratch/raw/t3-04/oracle.trace`
-- gap: Execute the initializer at `0x80079D10`, re-compare its return state, then advance into the second initializer call at `0x800B0548` or the first earlier hardware stop. This prefix does not claim a whole resident substrate, BIOS/device execution, a frame, or gameplay.
+- evidence: C005/C006/I005. The verifier proves the exact first initializer range and return plus the next call. `tools/recomp_boundary.py` asks psxport's shipping emitter for exact 6 + 28 + 2 instruction slices; the port executes the verified entry window in the interpreter and those generated slices while independent Mednafen executes the whole window. Both agree on 35/35 CPU fields at `0x80079D10` step 106159, after return at `0x80028BB8` step 106181, and at next initializer `0x800B0548` step 106183. The permanent 6/6 selftest detects altered `a0`, altered generated source, missing trace boundaries, and unmeasured runner targets.
+- where: `tools/recomp_boundary.py`; `tests/recomp_boundary.cpp`; generated, gitignored `generated/boundary_slices.c`; `scratch/raw/t3-04/oracle.trace`
+- gap: Execute the second initializer from `0x800B0548` toward the independently observed first hardware stop at `0x1F801074`, preserving its measured indirect-call path rather than inventing whole-image seeds. This slice does not claim second-initializer completion, BIOS/device execution, a frame, or gameplay.
 - notes: A whole-image trial discovered 593 roots and 1,884 functions, compiling downstream mode bodies irrelevant to this boundary. Issue #4 records why `emit.py --limit` is not a safe slice and why those pointer roots were not mislabeled as false positives.
 
 ## Native ownership and enhancements

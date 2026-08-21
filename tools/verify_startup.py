@@ -56,15 +56,19 @@ def startup_fields(manifest: Mapping[str, Any]) -> dict[str, int | str]:
         raise Refused("manifest field startup must be an object")
     entry_call = startup.get("entry_call")
     main_first_call = startup.get("main_first_call")
+    first_initializer = startup.get("first_initializer")
+    main_next_call = startup.get("main_next_call")
     main_loop = startup.get("main_loop")
     if (
         not isinstance(entry_call, dict)
         or not isinstance(main_first_call, dict)
+        or not isinstance(first_initializer, dict)
+        or not isinstance(main_next_call, dict)
         or not isinstance(main_loop, dict)
     ):
         raise Refused(
-            "startup.entry_call, startup.main_first_call, and startup.main_loop "
-            "must be objects"
+            "startup entry_call, main_first_call, first_initializer, main_next_call, "
+            "and main_loop must be objects"
         )
     shape = startup.get("shape")
     if shape != "direct_main":
@@ -91,6 +95,28 @@ def startup_fields(manifest: Mapping[str, Any]) -> dict[str, int | str]:
             main_first_call.get("delay_slot_word"),
             "startup.main_first_call.delay_slot_word",
         ),
+        "initializer_end": parse_hex(
+            first_initializer.get("end_address"),
+            "startup.first_initializer.end_address",
+        ),
+        "initializer_return": parse_hex(
+            first_initializer.get("return_address"),
+            "startup.first_initializer.return_address",
+        ),
+        "initializer_return_delay_word": parse_hex(
+            first_initializer.get("return_delay_slot_word"),
+            "startup.first_initializer.return_delay_slot_word",
+        ),
+        "next_call_address": parse_hex(
+            main_next_call.get("address"), "startup.main_next_call.address"
+        ),
+        "next_call_target": parse_hex(
+            main_next_call.get("target"), "startup.main_next_call.target"
+        ),
+        "next_call_delay_word": parse_hex(
+            main_next_call.get("delay_slot_word"),
+            "startup.main_next_call.delay_slot_word",
+        ),
         "back_edge_address": parse_hex(
             main_loop.get("back_edge_address"),
             "startup.main_loop.back_edge_address",
@@ -115,6 +141,12 @@ def verify_startup(manifest: Mapping[str, Any], executable: pathlib.Path) -> Non
     main_call_address = int(fields["main_call_address"])
     main_call_target = int(fields["main_call_target"])
     main_call_delay_word = int(fields["main_call_delay_word"])
+    initializer_end = int(fields["initializer_end"])
+    initializer_return = int(fields["initializer_return"])
+    initializer_return_delay_word = int(fields["initializer_return_delay_word"])
+    next_call_address = int(fields["next_call_address"])
+    next_call_target = int(fields["next_call_target"])
+    next_call_delay_word = int(fields["next_call_delay_word"])
     back_edge_address = int(fields["back_edge_address"])
     back_edge_target = int(fields["back_edge_target"])
 
@@ -188,6 +220,44 @@ def verify_startup(manifest: Mapping[str, Any], executable: pathlib.Path) -> Non
             f"expected 0x{main_call_delay_word:08X}"
         )
 
+    if not main_call_target <= initializer_return < initializer_end <= image.text_end:
+        raise Refused("first initializer return range is empty or outside the image")
+    if initializer_end != initializer_return + 8:
+        raise Refused("first initializer end must follow its return delay slot")
+    if image.word(initializer_return) != 0x03E00008:
+        raise Mismatch(
+            f"first initializer instruction at 0x{initializer_return:08X} is not jr ra"
+        )
+    measured_initializer_delay = image.word(initializer_return + 4)
+    if measured_initializer_delay != initializer_return_delay_word:
+        raise Mismatch(
+            "first initializer return delay word is "
+            f"0x{measured_initializer_delay:08X}, expected "
+            f"0x{initializer_return_delay_word:08X}"
+        )
+
+    if next_call_address != main_call_address + 8:
+        raise Refused("game_main next call must immediately follow the first call delay slot")
+    measured_next_target = jump_target(
+        next_call_address,
+        image.word(next_call_address),
+        3,
+        "game_main next call",
+    )
+    if measured_next_target != next_call_target:
+        raise Mismatch(
+            f"game_main next call targets 0x{measured_next_target:08X}, "
+            f"expected 0x{next_call_target:08X}"
+        )
+    if not image.load <= next_call_target < image.text_end:
+        raise Mismatch(f"game_main next-call target 0x{next_call_target:08X} is outside the image")
+    measured_next_delay = image.word(next_call_address + 4)
+    if measured_next_delay != next_call_delay_word:
+        raise Mismatch(
+            f"game_main next-call delay word is 0x{measured_next_delay:08X}, "
+            f"expected 0x{next_call_delay_word:08X}"
+        )
+
     measured_back_target = jump_target(
         back_edge_address,
         image.word(back_edge_address),
@@ -205,10 +275,12 @@ def verify_startup(manifest: Mapping[str, Any], executable: pathlib.Path) -> Non
         )
 
     print(
-        "[startup] MATCH 12/12 direct-main structural facts: "
+        "[startup] MATCH 18/18 direct-main structural facts: "
         f"entry first-call 0x{call_address:08X}->0x{call_target:08X}, "
         f"main first-call 0x{main_call_address:08X}->0x{main_call_target:08X}, "
-        f"return guard break, loop 0x{back_edge_address:08X}->0x{back_edge_target:08X}"
+        f"initializer return 0x{initializer_return:08X}->0x{next_call_address:08X}, "
+        f"next call ->0x{next_call_target:08X}, return guard break, "
+        f"loop 0x{back_edge_address:08X}->0x{back_edge_target:08X}"
     )
     print(
         "[startup] semantic witness: Ghidra FUN_80079c70 calls FUN_80028ba0 then traps; "
@@ -237,8 +309,12 @@ def fixture_executable() -> bytearray:
     store(0x80010044, 0xAFBF001C)
     store(0x80010048, (3 << 26) | ((0x800100A0 >> 2) & 0x03FFFFFF))
     store(0x8001004C, 0xAFB00010)
+    store(0x80010050, (3 << 26) | ((0x800100C0 >> 2) & 0x03FFFFFF))
+    store(0x80010054, 0xAFB1000C)
     store(0x80010080, (2 << 26) | ((0x80010050 >> 2) & 0x03FFFFFF))
-    store(0x800100A0, 0x03E00008)
+    store(0x800100A0, 0x27BDFFF0)
+    store(0x800100B8, 0x03E00008)
+    store(0x800100BC, 0x00000000)
     return data
 
 
@@ -272,6 +348,16 @@ def fixture_manifest(data: bytes) -> dict[str, Any]:
                 "address": "0x80010048",
                 "target": "0x800100A0",
                 "delay_slot_word": "0xAFB00010",
+            },
+            "first_initializer": {
+                "end_address": "0x800100C0",
+                "return_address": "0x800100B8",
+                "return_delay_slot_word": "0x00000000",
+            },
+            "main_next_call": {
+                "address": "0x80010050",
+                "target": "0x800100C0",
+                "delay_slot_word": "0xAFB1000C",
             },
             "main_loop": {
                 "back_edge_address": "0x80010080",
@@ -341,6 +427,29 @@ def selftest() -> bool:
         wrong_main_delay["startup"]["main_first_call"]["delay_slot_word"] = "0x00000000"
         results.append(
             ("wrong game_main call delay is rejected", check(wrong_main_delay) is Mismatch)
+        )
+
+        wrong_initializer_return = copy.deepcopy(manifest)
+        wrong_initializer_return["startup"]["first_initializer"]["return_address"] = (
+            "0x800100B4"
+        )
+        results.append(
+            (
+                "wrong initializer return is rejected",
+                check(wrong_initializer_return) is Refused,
+            )
+        )
+
+        wrong_next_call = copy.deepcopy(manifest)
+        wrong_next_call["startup"]["main_next_call"]["target"] = "0x800100C4"
+        results.append(
+            ("wrong next initializer target is rejected", check(wrong_next_call) is Mismatch)
+        )
+
+        wrong_next_delay = copy.deepcopy(manifest)
+        wrong_next_delay["startup"]["main_next_call"]["delay_slot_word"] = "0x00000000"
+        results.append(
+            ("wrong next initializer delay is rejected", check(wrong_next_delay) is Mismatch)
         )
 
         wrong_shape = copy.deepcopy(manifest)

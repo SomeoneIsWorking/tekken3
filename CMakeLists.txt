@@ -53,13 +53,13 @@ add_test(
 set(TEKKEN3_EXE "${CMAKE_CURRENT_SOURCE_DIR}/scratch/bin/tekken3/SLUS_004.02")
 set(TEKKEN3_GENERATED "${CMAKE_CURRENT_SOURCE_DIR}/generated")
 add_custom_command(
-  OUTPUT "${TEKKEN3_GENERATED}/boundary_prefix.json"
+  OUTPUT "${TEKKEN3_GENERATED}/boundary_slices.json"
   COMMAND
     "${CMAKE_COMMAND}" -E env "PSXPORT_DIR=${PSXPORT_DIR}" "PYTHONDONTWRITEBYTECODE=1"
     "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tools/recomp_boundary.py"
     --emit --exe "${TEKKEN3_EXE}" --output "${TEKKEN3_GENERATED}"
   BYPRODUCTS
-    "${TEKKEN3_GENERATED}/boundary_prefix.c"
+    "${TEKKEN3_GENERATED}/boundary_slices.c"
   DEPENDS
     "${TEKKEN3_EXE}"
     "${CMAKE_CURRENT_SOURCE_DIR}/titles/tekken3/executable.json"
@@ -70,16 +70,16 @@ add_custom_command(
     "${PSXPORT_DIR}/tools/recomp/decode.py"
     "${PSXPORT_DIR}/tools/recomp/emit.py"
     "${PSXPORT_DIR}/tools/recomp/psexe.py"
-  COMMENT "Tekken 3: emitting the verified game_main boundary prefix"
+  COMMENT "Tekken 3: emitting verified startup boundary slices"
   VERBATIM)
 add_custom_target(
-  tekken3_recomp_generate DEPENDS "${TEKKEN3_GENERATED}/boundary_prefix.json")
+  tekken3_recomp_generate DEPENDS "${TEKKEN3_GENERATED}/boundary_slices.json")
 add_executable(
   tekken3_recomp_boundary EXCLUDE_FROM_ALL
   tests/recomp_boundary.cpp
-  "${TEKKEN3_GENERATED}/boundary_prefix.c")
+  "${TEKKEN3_GENERATED}/boundary_slices.c")
 add_dependencies(tekken3_recomp_boundary tekken3_recomp_generate)
-set_source_files_properties("${TEKKEN3_GENERATED}/boundary_prefix.c" PROPERTIES LANGUAGE CXX)
+set_source_files_properties("${TEKKEN3_GENERATED}/boundary_slices.c" PROPERTIES LANGUAGE CXX)
 target_include_directories(tekken3_recomp_boundary PRIVATE "${TEKKEN3_GENERATED}")
 target_compile_features(tekken3_recomp_boundary PRIVATE cxx_std_20)
 target_compile_options(

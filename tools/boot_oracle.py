@@ -332,10 +332,10 @@ def run_harness(
 
 
 def fixture_executable() -> bytearray:
-    data = bytearray(0x840)
+    data = bytearray(0x880)
     data[:8] = b"PS-X EXE"
     struct.pack_into("<II", data, 0x10, 0x80010000, 0)
-    struct.pack_into("<II", data, 0x18, 0x80010000, 0x40)
+    struct.pack_into("<II", data, 0x18, 0x80010000, 0x80)
     struct.pack_into("<II", data, 0x30, 0x801FFF00, 0)
 
     def store(address: int, word: int) -> None:
@@ -347,9 +347,13 @@ def fixture_executable() -> bytearray:
     store(0x8001000C, 0)  # jal delay slot
     store(0x80010010, 0x0000000D)  # return guard: break
     store(0x80010020, 0x27BDFFF0)
-    store(0x80010024, (3 << 26) | ((0x80010038 >> 2) & 0x03FFFFFF))
+    store(0x80010024, (3 << 26) | ((0x80010040 >> 2) & 0x03FFFFFF))
     store(0x80010028, 0xAFB00008)
-    store(0x80010030, (2 << 26) | ((0x8001002C >> 2) & 0x03FFFFFF))
+    store(0x8001002C, (3 << 26) | ((0x80010060 >> 2) & 0x03FFFFFF))
+    store(0x80010030, 0xAFB1000C)
+    store(0x80010034, (2 << 26) | ((0x8001002C >> 2) & 0x03FFFFFF))
+    store(0x80010050, 0x03E00008)
+    store(0x80010054, 0x00000000)
     return data
 
 
@@ -366,7 +370,7 @@ def fixture_manifest(data: bytes) -> dict[str, Any]:
             "entry": "0x80010000",
             "gp": "0x00000000",
             "text_address": "0x80010000",
-            "text_size": "0x00000040",
+            "text_size": "0x00000080",
             "stack_address": "0x801FFF00",
             "stack_offset": "0x00000000",
         },
@@ -381,11 +385,21 @@ def fixture_manifest(data: bytes) -> dict[str, Any]:
             },
             "main_first_call": {
                 "address": "0x80010024",
-                "target": "0x80010038",
+                "target": "0x80010040",
                 "delay_slot_word": "0xAFB00008",
             },
+            "first_initializer": {
+                "end_address": "0x80010058",
+                "return_address": "0x80010050",
+                "return_delay_slot_word": "0x00000000",
+            },
+            "main_next_call": {
+                "address": "0x8001002C",
+                "target": "0x80010060",
+                "delay_slot_word": "0xAFB1000C",
+            },
             "main_loop": {
-                "back_edge_address": "0x80010030",
+                "back_edge_address": "0x80010034",
                 "back_edge_target": "0x8001002C",
             },
         },

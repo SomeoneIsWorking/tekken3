@@ -15,12 +15,8 @@ Tekken 3 startup is direct-to-game_main: entry first-calls 0x80028BA0, traps if 
 
 ## Evidence
 
-tools/verify_startup.py matched 12/12 machine-code structural facts on the provisioned hashed executable and passed 7/7 agreement/disagreement/refusal fixtures. This includes `game_main`'s first call at 0x80028BB0, its 0x80079D10 target, and exact 0xAFB00010 delay word. A fresh Ghidra 12.0.4 decompile of FUN_80079c70 and FUN_80028ba0 shows the entry call then trap and the target initialization followed by an infinite mode/frame loop.
+tools/verify_startup.py matched 18/18 machine-code structural facts on the provisioned hashed executable and passed 10/10 agreement/disagreement/refusal fixtures. This includes both `game_main` initializer calls and delay words plus the first initializer's exact `jr ra` return. Fresh Ghidra 12.0.4 decompilation of FUN_80079c70, FUN_80028ba0, and FUN_80079d10 confirms the entry/main relationship and first initializer semantics.
 
 ## What would falsify it
 
-The selected executable changes; an earlier entry or `game_main` call appears; either call, delay slot, return guard, or loop back-edge changes; or independent control-flow analysis shows 0x80028BA0 is not the game main loop.
-
-## Re-confirmed 2026-08-21
-
-Post-landing Clang verify passed startup 12/12, startup selftest 7/7, direct-main oracle 3/3, and T3-04 generated boundary 35/35 at step 106159 against psxport 9f1bb927.
+The selected executable changes; an earlier entry or `game_main` call appears; either call, delay slot, initializer return, return guard, or loop back-edge changes; or independent control-flow analysis shows 0x80028BA0 is not the game main loop.

@@ -14,7 +14,7 @@ Binary-wide emission measured 593 executable roots and 1,884 discovered function
 
 ## Resolution
 
-T3-04 now preserves the already-verified interpreter entry-to-main state and invokes psxport tools/recomp/emit.py emit_func for only the executable-derived range [0x80028BA0,0x80028BB8). The six-instruction generated prefix executes through the call delay slot and an independently traced Mednafen run agrees on 35/35 CPU fields at 0x80079D10. Generated-source integrity recomputes the expected bytes through the shipping emitter, so this is a scoped boundary substrate, not a handwritten game_main clone.
+T3-04 preserves the verified interpreter entry-to-main state and invokes psxport tools/recomp/emit.py emit_func only for measured executable slices. The substrate has since grown to exact 6 + 28 + 2 instruction ranges through the first initializer return and next call; independently traced Mednafen agrees on 35/35 CPU fields at all three edges. Generated-source integrity recomputes every slice through the shipping emitter, so this remains a scoped boundary substrate, not a handwritten game_main clone or guessed whole-image seed set.
 
 ## Dead end
 

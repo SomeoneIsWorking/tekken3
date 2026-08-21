@@ -32,6 +32,12 @@ The first six instructions of `game_main` allocate its 32-byte frame, save `ra/s
 `0x80079D10` at `0x80028BB0`; its delay slot saves `s0` with word `0xAFB00010`. The tracked manifest
 records those facts and `tools/verify_startup.py` checks that no earlier call exists in `game_main`.
 
+`FUN_80079d10` is a 28-instruction executable function `[0x80079D10,0x80079D80)`. Ghidra and narrow
+instruction inspection agree that it guards and sets the word at `0x80098A64`, contains a
+zero-count constructor-loop path on this boot, restores its frame, and returns through `jr ra` at
+`0x80079D78` with a nop delay slot. The continuation at `0x80028BB8` immediately calls
+`0x800B0548`; its delay word `0x3C11800B` loads `s1`'s high half.
+
 A fresh Ghidra 12.0.4 decompile of the provisioned image (SHA-256 above) confirms both semantics:
 `FUN_80079c70` calls `FUN_80028ba0` and then traps, while `FUN_80028ba0` performs one-time calls and
 then loops forever around the mode dispatch and two `FUN_8007bab0` calls. The tracked executable and
@@ -41,13 +47,14 @@ entry window in psxport and an independent Mednafen CPU, requiring two determini
 agree on all 35 CPU fields at `0x80028BA0`. This is not a claim that `game_main`, a generated substrate,
 devices, frames, or gameplay run.
 
-`tools/recomp_boundary.py` advances one measured boundary farther without compiling unrelated mode
-bodies: psxport's interpreter reproduces the already-verified entry-to-main state, then the shipping
-recompiler emits and executes exactly `[0x80028BA0,0x80028BB8)`. Independent Mednafen executes the
-whole window. They agree on 35/35 CPU fields before `0x80079D10` at oracle step 106159. Generated
-source is recomputed through the shipping emitter during the integrity gate, and deliberate register,
-source, and missing-boundary changes must fail. This does not execute inside `0x80079D10` or claim a
-whole resident substrate.
+`tools/recomp_boundary.py` advances without compiling unrelated mode bodies: psxport's interpreter
+reproduces the already-verified entry-to-main state, then the shipping recompiler emits exact slices
+for `[0x80028BA0,0x80028BB8)`, `[0x80079D10,0x80079D80)`, and
+`[0x80028BB8,0x80028BC0)`. Independent Mednafen executes the whole window. Both agree on 35/35 CPU
+fields at first-initializer entry step 106159, after its return at `0x80028BB8` step 106181, and at
+next-initializer entry `0x800B0548` step 106183. Generated source is recomputed through the shipping
+emitter, and deliberate register/source/boundary changes must fail. This does not execute inside
+`0x800B0548` or claim a whole resident substrate.
 
 ## Reproduce the identity measurement
 
@@ -63,6 +70,7 @@ cmake --build build --target tekken3_recomp_boundary_check -j16
 
 Resolution is CLI argument > `PSXPORT_TEKKEN3_DISC` > `.env` > one root `*.chd` drop-in. A selected
 path that does not exist refuses rather than falling through to another disc, and ambiguous drop-ins
-also refuse. No disc-derived file belongs in git. The latest comparison establishes execution only
-through `game_main`'s first call delay slot; it does not establish execution inside the initializer,
-that a Tekken 3 port boots a frame, or that a whole recompiled substrate exists.
+also refuse. No disc-derived file belongs in git. The latest comparison establishes generated
+execution only through the first initializer return and the next initializer call delay slot; it
+does not establish execution inside the second initializer, that a Tekken 3 port boots a frame, or
+that a whole recompiled substrate exists.
