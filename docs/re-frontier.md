@@ -43,25 +43,18 @@ names an honest remaining gap; `todo` is not started. No hacks are tracked.
 - gap: Execute the I_MASK write at 0x1F801074 with faithful device semantics, then continue toward the next independently observed hardware boundary or first divergence. This still does not claim later initialization, a frame, or gameplay.
 - notes: Ghidra identifies the observed path as `FUN_800b0548 -> FUN_80055884 -> FUN_80079964/FUN_800799a8`, then indirect `FUN_80085bc8 -> FUN_80085d5c`. The generated leg preserves that indirect dispatch instead of replacing it with a direct call. `Tekken3Runtime` now owns the framework seam without advancing or bypassing this boundary; its bounded legacy view carries only the measured resident range still consumed by psxport's router. A whole-image trial discovered 593 roots and 1,884 functions, compiling downstream mode bodies irrelevant to this boundary. Issue #4 records why `emit.py --limit` is not a safe slice and why those pointer roots were not mislabeled as false positives.
 
-## Native ownership and enhancements
+## Widescreen ownership and enhancement
 
-### T3-05 — Identify camera state and graphics submitters
+### T3-05 — Identify the widescreen projection owner
 - status: todo
 - deps: T3-04
 - evidence: Not started.
 - where: future Ghidra project and readable native ownership under `game/`
-- gap: Decompile the game code that submits camera/transforms/geometry before creating any native producer. OT, GP0, and GTE output are diagnostic evidence, never producer input.
+- gap: Decompile the camera, projection, display bounds, and relevant geometry-submit path. Determine the smallest game-state owner that can produce a true wide picture; do not add native producers merely as prerequisites for interpolation. OT, GP0, and GTE output are diagnostic evidence, never producer input.
 
-### T3-06 — Native widescreen
+### T3-06 — Owned widescreen
 - status: todo
 - deps: T3-05
 - evidence: Not started.
-- where: future native camera and render producers
-- gap: Enable only after the PC owns the relevant camera/projection and display-list producers.
-
-### T3-07 — Transform interpolation
-- status: todo
-- deps: T3-05
-- evidence: Not started.
-- where: future PC-owned transform producers
-- gap: Interpolate only values computed by native producers; do not interpolate or invert quantised GTE results.
+- where: future camera/projection owner and any render producer the T3-05 evidence proves necessary
+- gap: Tekken 3 already runs at 60 fps. Implement only true widescreen from persistent game state; there is no fps60, interpolation/lerp, or interpolation-supporting temporal pipeline in this title's target scope.

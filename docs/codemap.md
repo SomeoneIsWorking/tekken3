@@ -15,9 +15,8 @@ initialization.
 | Startup model | ✅ RE-verified | `tools/verify_startup.py`, `titles/tekken3/README.md` | Direct `entry -> game_main`, return trap, first initializer range/return, next call, exact delay words, and main-loop back-edge match real bytes and Ghidra |
 | Project tooling | 🟡 boundary-complete | `CMakeLists.txt` (`verify`, `cpp_policy`, `tekken3_recomp_boundary_check`) | Normal verifier covers identity/startup/oracle checks, generated-source integrity, opposite-answer/refusal cases, Clang format/tidy, and framework smoke; no whole resident substrate or game executable yet |
 | Native runtime | 🟡 seam only | `game/core/tekken3_runtime.h`, `game/core/tekken3_runtime.cpp`, `tests/runtime_seam.cpp` | Inherited behavior seam is verified; bounded legacy debt is only the resident text range needed by psxport's generated-code router; no native engine/frame owners |
-| Native graphics producers | ⬜ missing | — | No producer exists |
-| Widescreen | ⬜ missing | — | Blocked on native camera and producers |
-| Interpolation | ⬜ missing | — | Blocked on PC ownership of transform producers |
+| Native graphics ownership | ⬜ needs RE decision | — | Not a goal by itself; add only the camera/projection or producer ownership the measured widescreen path requires |
+| Widescreen | ⬜ missing | — | Sole rendering enhancement; blocked on faithful boot plus RE of the camera/projection owner |
 | Differential harness | ✅ first hardware boundary | `tools/boot_oracle.py`, `tools/recomp_boundary.py`, `tests/recomp_boundary.cpp` | True Mednafen and hybrid generated execution agree 35/35 at four boundaries through `0x80085D98`; no I_MASK write/device response, frame, or gameplay coverage |
 
 ## Where is X?
@@ -27,6 +26,7 @@ initialization.
 - Direct-main executable verification: `tools/verify_startup.py`
 - Framework smoke and game-owned boundary probe: `CMakeLists.txt` (`tekken3_scaffold`, `tekken3_boot_probe`)
 - Process-lifetime game owner and bounded migration debt: `game/core/tekken3_runtime.h`, `game/core/tekken3_runtime.cpp`
+- Rendering-enhancement policy (already 60 fps; widescreen only): `CLAUDE.md`, `docs/re-frontier.md` (`T3-05`, `T3-06`)
 - Deterministic two-engine call-boundary comparison: `tools/boot_oracle.py`
 - Generated startup/hardware-frontier slices and true-oracle comparison: `tools/recomp_boundary.py`, `tests/recomp_boundary.cpp`
 - Normal build/style/lint/smoke gate: `CMakeLists.txt` (`verify`)

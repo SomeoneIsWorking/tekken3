@@ -10,9 +10,11 @@ framework clone when one exists, or a private clone at this repo's `psxport.pin`
 framework commit this game is built and VERIFIED against, and `--check` fails when the built framework
 is not the recorded pin. Framework edits happen in the shared clone (`$PSX/psxport`), never here.
 
-All picture work is RE-driven. Widescreen and interpolation require PC-native graphics producers
-reading game state; do not reconstruct pictures from GTE/OT/GP0 output. Establish a faithful,
-measurable base before enhancements.
+Tekken 3 (`SLUS_004.02`) already runs at 60 fps. Its rendering-enhancement scope is widescreen only: do not add an
+fps60 mode, interpolation/lerp, or temporal state maintained solely for interpolation. Widescreen
+work remains RE-driven; identify the game's camera/projection owner first, add only the native
+ownership the measured wide path requires, and never reconstruct pictures from GTE/OT/GP0 output.
+Establish a faithful, measurable base before the widescreen enhancement.
 
 Host ownership follows Dusklight's composition boundary: `game/core/tekken3_runtime.*` is the one
 process-lifetime game owner, while the probe entry points only parse their inputs, install that

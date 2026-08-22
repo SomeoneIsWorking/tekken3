@@ -8,7 +8,9 @@ verified, and independent Mednafen agrees with generated execution at four bound
 first PSX hardware access: 35/35 CPU fields match immediately before the interrupt-mask write at
 `0x80085D98`. Both harnesses install one process-lifetime `Tekken3Runtime` through psxport's derived
 runtime seam. No extracted executable is tracked, and no hardware response, whole generated
-substrate, frame, gameplay, native producer, widescreen path, or interpolation path is claimed yet.
+substrate, frame, gameplay, native producer, or widescreen path is claimed yet. Tekken 3
+(`SLUS_004.02`) already
+runs at 60 fps, so this port deliberately has no fps60 or interpolation target.
 
 ## Configure the framework scaffold
 
