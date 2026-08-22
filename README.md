@@ -6,7 +6,8 @@ PC-native PlayStation port of Tekken 3, built on
 Current status: the USA target executable can be provisioned, its direct-to-main startup shape is
 verified, and independent Mednafen agrees with generated execution at four boundaries through the
 first PSX hardware access: 35/35 CPU fields match immediately before the interrupt-mask write at
-`0x80085D98`. No extracted executable is tracked, and no hardware response, whole generated
+`0x80085D98`. Both harnesses install one process-lifetime `Tekken3Runtime` through psxport's derived
+runtime seam. No extracted executable is tracked, and no hardware response, whole generated
 substrate, frame, gameplay, native producer, widescreen path, or interpolation path is claimed yet.
 
 ## Configure the framework scaffold
@@ -31,6 +32,9 @@ CCACHE_DISABLE=1 cmake --build build --target verify
 
 The game-owned interpreter and generated-slice probes are first-party C++ translation units, so the
 shared policy checks both with tracked Clang format/tidy configuration and real compile commands.
+`game/core/tekken3_runtime.*` owns framework-facing game behavior. Its temporary legacy adapter view
+contains only `recMainLo` and `recMainHi`, which psxport's resident-code router has not yet migrated;
+neither harness installs a raw `GameConfig`/`GameHooks` pair and no behavior uses legacy callbacks.
 
 `tekken3_scaffold` and its smoke test only prove that the game-agnostic framework links. The separate
 boundary probes run real Tekken instructions through the first initializer and the measured

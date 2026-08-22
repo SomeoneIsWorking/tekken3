@@ -5,8 +5,8 @@ status: holds
 created: 2026-08-20
 tags: target,executable,t3-01
 depends: titles/tekken3/executable.json
-reconfirmed: 2026-08-21
-verified_at: 2026-08-21 12:06:07
+reconfirmed: 2026-08-22
+verified_at: 2026-08-22 14:18:45
 ---
 
 ## Claim
@@ -33,3 +33,7 @@ Post-landing provisioning and startup verification passed the selected USA execu
 ## Re-confirmed 2026-08-21
 
 Post-landing verify reprovisioned SLUS_004.02 with all 8/8 identity facts and the provisioning selftest passed 12/12 against psxport 3418a79b624765614f3f198dc1e89632e1e650f0.
+
+## Re-confirmed 2026-08-22
+
+2026-08-22 Clang verify against psxport 7f5d3f13 reprovisioned the selected USA executable and matched all 8/8 identity/header facts; provisioning selftest passed 12/12.

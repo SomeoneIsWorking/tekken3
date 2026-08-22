@@ -1,7 +1,7 @@
 #include "core.h"
 #include "game.h"
-#include "game_iface.h"
 #include "recomp_iface.h"
+#include "tekken3_runtime.h"
 
 #include <array>
 #include <charconv>
@@ -96,10 +96,7 @@ int main(int argc, char **argv) {
     return 2;
   }
 
-  static GameConfig config{};
-  config.recMainLo = mainLo;
-  config.recMainHi = mainHi;
-  static const GameHooks hooks{};
+  static tekken3::Tekken3Runtime runtime{{mainLo, mainHi}};
   static const RecompRegistry recomp = {
       tekken3_boundary_main_dispatch,
       tekken3_boundary_func_index,
@@ -110,7 +107,7 @@ int main(int argc, char **argv) {
       nullptr,
       nullptr,
   };
-  psxport_install_game(&config, &hooks);
+  psxport_install_game(runtime);
   psxport_install_recomp(&recomp);
 
   auto game = std::make_unique<Game>();

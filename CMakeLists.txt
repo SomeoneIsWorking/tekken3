@@ -28,8 +28,14 @@ file(WRITE "${CMAKE_BINARY_DIR}/psxport_resolved.txt"
 set(PSXPORT_BUILD_SMOKE ON CACHE BOOL "Build the framework agnosticism smoke" FORCE)
 add_subdirectory("${PSXPORT_DIR}" psxport_build)
 add_custom_target(tekken3_scaffold DEPENDS psxport_smoke)
+
+add_library(tekken3_runtime STATIC game/core/tekken3_runtime.cpp)
+target_include_directories(tekken3_runtime PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/game/core")
+target_compile_features(tekken3_runtime PUBLIC cxx_std_20)
+target_link_libraries(tekken3_runtime PUBLIC psxport)
+
 add_executable(tekken3_boot_probe tools/boot_probe.cpp)
-target_link_libraries(tekken3_boot_probe PRIVATE psxport)
+target_link_libraries(tekken3_boot_probe PRIVATE tekken3_runtime)
 set_target_properties(
   tekken3_boot_probe PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/scratch/bin")
 add_custom_target(
@@ -84,7 +90,17 @@ target_include_directories(tekken3_recomp_boundary PRIVATE "${TEKKEN3_GENERATED}
 target_compile_features(tekken3_recomp_boundary PRIVATE cxx_std_20)
 target_compile_options(
   tekken3_recomp_boundary PRIVATE -O0 -fno-strict-aliasing -fwrapv)
-target_link_libraries(tekken3_recomp_boundary PRIVATE psxport)
+target_link_libraries(tekken3_recomp_boundary PRIVATE tekken3_runtime)
+
+add_executable(tekken3_runtime_seam tests/runtime_seam.cpp)
+target_link_libraries(tekken3_runtime_seam PRIVATE tekken3_runtime)
+add_test(NAME tekken3_runtime_seam COMMAND tekken3_runtime_seam)
+add_custom_target(
+  tekken3_runtime_seam_check
+  COMMAND "$<TARGET_FILE:tekken3_runtime_seam>"
+  DEPENDS tekken3_runtime_seam
+  USES_TERMINAL
+  VERBATIM)
 add_custom_target(
   tekken3_recomp_boundary_check
   COMMAND
@@ -125,6 +141,7 @@ add_custom_target(
     psxport_smoke
     tekken3_boot_oracle_selftest
     tekken3_recomp_boundary_check
+    tekken3_runtime_seam_check
     tekken3_tool_selftests
   USES_TERMINAL
   VERBATIM)

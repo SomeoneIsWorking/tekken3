@@ -3,7 +3,7 @@
 // game-owned executable manifest; this probe deliberately knows no libc/InitHeap vocabulary.
 #include "core.h"
 #include "game.h"
-#include "game_iface.h"
+#include "tekken3_runtime.h"
 
 #include <array>
 #include <cerrno>
@@ -91,9 +91,10 @@ int main(int argc, char **argv) {
     return 2;
   }
 
-  static const GameConfig config{};
-  static const GameHooks hooks{};
-  psxport_install_game(&config, &hooks);
+  // This interpreter-only probe needs no resident generated-code range, but it still installs the
+  // same derived runtime owner as every Tekken executable before constructing a Core.
+  static tekken3::Tekken3Runtime runtime;
+  psxport_install_game(runtime);
 
   auto game = std::make_unique<Game>();
   Core *const core = &game->core;

@@ -5,6 +5,8 @@ status: holds
 created: 2026-08-21
 tags: t3-04,oracle,initializer-return
 depends: tools/recomp_boundary.py#render_slices, tools/recomp_boundary.py#compare_boundary, tests/recomp_boundary.cpp#main, tools/verify_startup.py#verify_startup
+reconfirmed: 2026-08-22
+verified_at: 2026-08-22 14:18:45
 ---
 
 ## Claim
@@ -18,3 +20,7 @@ On the real hashed USA SLUS_004.02 with psxport 3418a79b624765614f3f198dc1e89632
 ## What would falsify it
 
 The executable/hash, verified slice ranges or bytes, psxport emitter/interpreter, oracle trace semantics, generated runner, or comparator changes; or a repeat ceases to agree 35/35 at either measured edge.
+
+## Re-confirmed 2026-08-22
+
+2026-08-22 Clang verify against psxport 7f5d3f13 matched Mednafen 35/35 at the first-initializer return and next-initializer entry, with SELFTEST 7/7 opposite-answer/refusal coverage.

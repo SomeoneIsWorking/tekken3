@@ -13,3 +13,9 @@ is not the recorded pin. Framework edits happen in the shared clone (`$PSX/psxpo
 All picture work is RE-driven. Widescreen and interpolation require PC-native graphics producers
 reading game state; do not reconstruct pictures from GTE/OT/GP0 output. Establish a faithful,
 measurable base before enhancements.
+
+Host ownership follows Dusklight's composition boundary: `game/core/tekken3_runtime.*` is the one
+process-lifetime game owner, while the probe entry points only parse their inputs, install that
+owner, and drive the framework. The runtime derives through psxport's bounded legacy adapter only
+because the generated-code router still consumes the measured resident-text range; no Tekken
+behavior belongs in `GameConfig` or `GameHooks`, and no new field or callback may be added there.
