@@ -6,7 +6,7 @@ created: 2026-08-20
 tags: target,executable,t3-01
 depends: titles/tekken3/executable.json
 reconfirmed: 2026-08-22
-verified_at: 2026-08-22 19:13:26
+verified_at: 2026-08-22 19:41:45
 ---
 
 ## Claim
@@ -45,3 +45,7 @@ Post-landing verify reprovisioned SLUS_004.02 with all 8/8 identity facts and th
 ## Re-confirmed 2026-08-22
 
 Post-commit 1022430 authoritative verify passes real SLUS_004.02 identity 8/8 and full CTest 6/6 against psxport 57a17a14.
+
+## Re-confirmed 2026-08-22
+
+Post-change authoritative verify remained green: serial identity, five-boundary 35/35 oracle/generated comparison through DPCR, IRQ controls, projection 7/7, Clang format/size/tidy, runtime seam, pin and smoke gates passed on 2026-08-22.

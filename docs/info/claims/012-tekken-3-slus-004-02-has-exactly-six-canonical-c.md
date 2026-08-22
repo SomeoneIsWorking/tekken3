@@ -6,7 +6,7 @@ created: 2026-08-22
 tags: rendering,widescreen,reverse-engineering
 depends: tools/verify_projection.py#verify_projection, titles/tekken3/executable.json#projection, psxport.pin
 reconfirmed: 2026-08-22
-verified_at: 2026-08-22 19:13:26
+verified_at: 2026-08-22 19:41:47
 ---
 
 ## Claim
@@ -28,3 +28,7 @@ Falsified if the selected executable identity changes; the complete canonical de
 ## Re-confirmed 2026-08-22
 
 Post-commit 1022430 shared-decoder-backed real-executable projection gate passes 33/33 facts and 7/7 positive, disagreement, and refusal cases; full Clang verify and CTest 6/6 pass against psxport 57a17a14.
+
+## Re-confirmed 2026-08-22
+
+Post-change authoritative verify remained green: serial identity, five-boundary 35/35 oracle/generated comparison through DPCR, IRQ controls, projection 7/7, Clang format/size/tidy, runtime seam, pin and smoke gates passed on 2026-08-22.

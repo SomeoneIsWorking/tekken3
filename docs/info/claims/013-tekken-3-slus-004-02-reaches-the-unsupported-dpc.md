@@ -6,7 +6,7 @@ created: 2026-08-22
 tags: t3-04,oracle,dma,dpcr
 depends: tools/recomp_boundary.py#compare_boundary, tests/recomp_boundary.cpp#main, titles/tekken3/executable.json
 reconfirmed: 2026-08-22
-verified_at: 2026-08-22 19:37:34
+verified_at: 2026-08-22 19:41:47
 ---
 
 ## Claim
@@ -32,3 +32,7 @@ Authoritative verify target passed on the complete integration against recorded 
 ## Re-confirmed 2026-08-22
 
 Post-framework-cleanup authoritative verify remained green: 35/35 at all five real boundaries through DPCR stop 0x80085DB4; generated DPCR=0x33333333; IRQ 3/3, IRQ SELFTEST 2/2, boundary SELFTEST 9/9, Clang policy, projection 7/7, runtime contract/seam, boot oracle 3/3, pin check, and smoke 8/8.
+
+## Re-confirmed 2026-08-22
+
+Post-change authoritative verify remained green: serial identity, five-boundary 35/35 oracle/generated comparison through DPCR, IRQ controls, projection 7/7, Clang format/size/tidy, runtime seam, pin and smoke gates passed on 2026-08-22.

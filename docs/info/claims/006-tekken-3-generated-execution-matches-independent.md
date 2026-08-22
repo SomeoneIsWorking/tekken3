@@ -6,7 +6,7 @@ created: 2026-08-21
 tags: t3-04,oracle,initializer-return
 depends: tools/recomp_boundary.py#render_slices, tools/recomp_boundary.py#compare_boundary, tests/recomp_boundary.cpp#main, tools/verify_startup.py#verify_startup
 reconfirmed: 2026-08-22
-verified_at: 2026-08-22 19:08:18
+verified_at: 2026-08-22 19:41:46
 ---
 
 ## Claim
@@ -28,3 +28,7 @@ The executable/hash, verified slice ranges or bytes, psxport emitter/interpreter
 ## Re-confirmed 2026-08-22
 
 2026-08-22 full Clang verify passed 35/35 CPU-field agreement at first-initializer return 0x80028BB8 and next-initializer entry 0x800B0548; CTest 6/6 passed.
+
+## Re-confirmed 2026-08-22
+
+Post-change authoritative verify remained green: serial identity, five-boundary 35/35 oracle/generated comparison through DPCR, IRQ controls, projection 7/7, Clang format/size/tidy, runtime seam, pin and smoke gates passed on 2026-08-22.
