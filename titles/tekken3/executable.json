@@ -127,6 +127,13 @@
         "status_write_word": "0xA4620000",
         "boundary": "0x80085DA4"
       },
+      "dma_control_write": {
+        "address": "0x80085DB0",
+        "word": "0xAC450000",
+        "register": "0x1F8010F0",
+        "value": "0x33333333",
+        "boundary": "0x80085DB4"
+      },
       "second_initializer_prefix_end": "0x800B0564",
       "arena_initializer": {
         "start": "0x80055884",

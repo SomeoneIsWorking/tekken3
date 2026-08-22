@@ -4,12 +4,14 @@ PC-native PlayStation port of Tekken 3, built on
 [psxport](https://github.com/SomeoneIsWorking/psxport).
 
 Current status: the USA target executable can be provisioned, its direct-to-main startup shape is
-verified, and independent Mednafen agrees with generated execution at four boundaries through the
-first PSX hardware access: 35/35 CPU fields match at `0x80085D98`, after the instruction at
-`0x80085D94` touches I_MASK. A separate-process build of Mednafen's IRQ controller agrees with the
-shipping-emitted write/read/write reset sequence on 3/3 device observations through `0x80085DA4`.
+verified, and independent Mednafen agrees with generated execution at five boundaries through the
+first unsupported device access. The shared oracle's real IRQ controller keeps the same CPU running
+through Tekken's I_MASK-write/read and I_STAT-write sequence, then both paths agree on 35/35 CPU
+fields at `0x80085DB4`, where the oracle reports Tekken's `0x33333333` write to DPCR
+(`0x1F8010F0`) instead of inventing DMA behavior. The generated path independently proves that exact
+DPCR value, and the isolated IRQ comparison still agrees on 3/3 device observations at `0x80085DA4`.
 Both harnesses install one process-lifetime `Tekken3Runtime` through psxport's direct runtime seam.
-No extracted executable is tracked, and no independent CPU execution after that hardware access,
+No extracted executable is tracked, and no independent CPU execution after that DPCR access,
 whole generated substrate, frame, gameplay, native producer, or widescreen path is claimed yet. Tekken 3
 (`SLUS_004.02`) already
 runs at 60 fps, so this port deliberately has no fps60 or interpolation target.
@@ -73,9 +75,10 @@ delay slot and before `game_main` begins. The generated harness reuses that veri
 state and executes exact shipping-emitter slices containing six `game_main` instructions, the
 28-instruction first initializer, the following two-instruction call, and the measured
 second-initializer call chain. It compares all 35 CPU fields at the initializer entry, its return,
-the next initializer entry, and `0x80085D98` immediately after the first I_MASK store. The standalone
-CPU oracle deliberately refuses to invent device semantics there. The harness therefore compiles
-Mednafen's IRQ controller in an isolated process, validates it can produce both zero and non-zero
-states, and compares the emitted I_MASK write/read plus I_STAT write on 3/3 device observations at
-`0x80085DA4`. Independent CPU stepping after the access, later initialization, frames, and gameplay
-remain outside the result.
+the next initializer entry, `0x80085D98` immediately after the first I_MASK store, and the unsupported
+DPCR boundary at `0x80085DB4`. The framework oracle links Mednafen's narrow IRQ controller so the exact
+I_MASK-write/read and I_STAT-write sequence runs on that same CPU. Its retained GPUSTAT negative case
+still stops, proving unsupported device reads are not silently zero-filled. The harness also validates
+the generated `0x33333333` DPCR store and keeps the isolated IRQ controller's zero/non-zero and 3/3
+comparison gates. Independent CPU stepping after DPCR, later DMA behavior, later initialization,
+frames, and gameplay remain outside the result.

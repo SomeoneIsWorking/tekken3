@@ -49,26 +49,27 @@ devices, frames, or gameplay run.
 
 `tools/recomp_boundary.py` advances without compiling unrelated mode bodies: psxport's interpreter
 reproduces the already-verified entry-to-main state, then the shipping recompiler emits the measured
-startup slices plus six bounded callable slices and the three-instruction device-response
+startup slices plus six bounded callable slices and the seven-instruction device-response
 continuation along the observed second-initializer path. Ghidra
 identifies that path as `FUN_800b0548 -> FUN_80055884 -> FUN_80079964/FUN_800799a8`, followed by
 `FUN_80085bc8`'s indirect call through the initialized function table to `FUN_80085d5c`.
 
 Independent Mednafen executes the whole window. Both engines agree on 35/35 CPU fields at
 first-initializer entry step 106159, after return at `0x80028BB8` step 106181, at next-initializer
-entry `0x800B0548` step 106183, and at `0x80085D98` step 106388. The final boundary is immediately
-after the `sh zero,0(v0)` at `0x80085D94` touches the PSX interrupt-mask register I_MASK at
-`0x1F801074`; the CPU oracle reports that address and refuses to model the device while leaving the
-captured next PC at `0x80085D98`. The generated leg routes the measured indirect call through its
+entry `0x800B0548` step 106183, at `0x80085D98` step 106388, and at the next unsupported-device
+boundary `0x80085DB4` step 106395. The generated leg routes the measured indirect call through its
 game-local generated registry rather than replacing it with a direct call.
 
-The tracked executable then reads I_MASK at `0x80085D98` and writes that result to I_STAT at
-`0x80085DA0`. The verifier checks all four instruction words directly against the hashed executable.
-A separate process compiles the vendored Mednafen IRQ controller itself, demonstrates both a non-zero
-CD interrupt state and the all-zero Tekken reset, then compares the shipping-emitted sequence on 3/3
-device observations at `0x80085DA4`. Generated source is recomputed through the shipping emitter, and
-deliberate register/source/boundary/hardware-register changes must fail. This does not independently
-step the CPU after the hardware access or establish later initialization, a frame, or gameplay.
+The tracked executable writes I_MASK at `0x80085D94`, reads it at `0x80085D98`, writes that result to
+I_STAT at `0x80085DA0`, then stores `0x33333333` to DPCR `0x1F8010F0` at `0x80085DB0`. The verifier
+checks all five hardware-frontier instruction words directly against the hashed executable. The shared
+oracle routes only I_STAT/I_MASK through vendored Mednafen `irq.c`, so the same independent CPU executes
+the complete interrupt reset with its real load delay; its retained GPUSTAT negative case still stops.
+The oracle then reports the DPCR WRITE32 rather than inventing DMA semantics. The generated path proves
+the exact DPCR value, while a separate IRQ process still demonstrates non-zero and zero states and
+agrees with generated execution on 3/3 observations at `0x80085DA4`. Deliberate
+register/source/boundary/hardware-register changes must fail. This does not independently step the CPU
+after DPCR or establish later DMA behavior, initialization, a frame, or gameplay.
 
 ## Measured display and projection ownership
 
@@ -128,8 +129,8 @@ must derive from the retail angle and resolved projection rather than a replacem
 those title functions must retain their generated bodies as the 4:3 differential control; the
 evidence does not justify a new renderer or producer.
 
-Static ownership does not establish a rendered frame. The next execution boundary remains the
-same-CPU continuation after the modeled interrupt reset at `0x80085DA4`; once that reaches a real
+Static ownership does not establish a rendered frame. The next execution boundary is generic DPCR/DMA
+modeling after the unsupported write at `0x80085DB0`; once independent execution reaches a real
 display/frame boundary, a final-presentation A/B must show a bit-identical 4:3 control, unchanged
 vertical projection, horizontal translation about the widened centre without scale change, and new
 scene geometry in the added margins.
@@ -162,7 +163,7 @@ cmake --build build --target tekken3_recomp_boundary_check -j16
 Resolution is CLI argument > `PSXPORT_TEKKEN3_DISC` > `.env` > one root `*.chd` drop-in. A selected
 path that does not exist refuses rather than falling through to another disc, and ambiguous drop-ins
 also refuse. No disc-derived file belongs in git. The latest comparison establishes generated
-execution and independent CPU agreement through the first post-store boundary at `0x80085D98`, plus
-independent IRQ-controller agreement through the reset boundary at `0x80085DA4`. It does not
-establish independent CPU execution after hardware, later initialization, that a Tekken 3 port boots
-a frame, or that a whole recompiled substrate exists.
+execution and independent CPU agreement at five boundaries through the DPCR stop at `0x80085DB4`, plus
+independent IRQ-controller agreement through the reset boundary at `0x80085DA4`. It does not establish
+DPCR/DMA semantics, independent CPU execution after that access, later initialization, that a Tekken 3
+port boots a frame, or that a whole recompiled substrate exists.

@@ -18,4 +18,8 @@ The prior report treated the captured next PC as the address of the unexecuted h
 
 ## Resolution
 
-Falsify C007's pre-access wording. Track the exact four-word reset sequence from the executable, retain the 35/35 CPU comparison at the honest post-store boundary, and compare the emitted write/read/write device effects with the separately compiled vendored Mednafen IRQ controller through `0x80085DA4`. The remaining blocker is independent CPU stepping after hardware, not the first I_MASK store itself.
+Falsify C007's pre-access wording. Track the exact four-word reset sequence from the executable, retain
+the 35/35 CPU comparison at the honest post-store boundary, and compare the emitted write/read/write
+device effects with the separately compiled vendored Mednafen IRQ controller through `0x80085DA4`.
+The shared oracle now continues that sequence on the same CPU; the remaining blocker is the following
+unsupported DPCR access, not the first I_MASK store itself.

@@ -66,6 +66,9 @@ RECOMP_DEVICE_RE = re.compile(
     r"I_MASK=0x(?P<mask>[0-9A-Fa-f]+)$",
     re.MULTILINE,
 )
+RECOMP_DPCR_RE = re.compile(
+    r"^# RECOMP-DEVICE DPCR=0x(?P<control>[0-9A-Fa-f]+)$", re.MULTILINE
+)
 IRQ_ORACLE_RE = re.compile(
     r"^# IRQ-ORACLE mask-readback=0x(?P<readback>[0-9A-Fa-f]+) "
     r"status=0x(?P<status>[0-9A-Fa-f]+) mask=0x(?P<mask>[0-9A-Fa-f]+) "
@@ -103,6 +106,9 @@ class GeneratedSlices:
     hardware_boundary: int
     hardware_register: int
     interrupt_reset_boundary: int
+    dma_control_boundary: int
+    dma_control_register: int
+    dma_control_value: int
     frontier_slices: tuple[FunctionSlice, ...]
     emitter_version: str
     source: str
@@ -200,6 +206,29 @@ def render_slices(executable: pathlib.Path) -> GeneratedSlices:
             "measured interrupt-reset sequence is not the contiguous "
             "I_MASK-write/read/I_STAT-write window"
         )
+    dma_control = frontier.get("dma_control_write")
+    if not isinstance(dma_control, dict):
+        raise Refused("startup.hardware_frontier.dma_control_write must be an object")
+
+    def dma_address(name: str) -> int:
+        return parse_hex(
+            dma_control.get(name),
+            f"startup.hardware_frontier.dma_control_write.{name}",
+        )
+
+    dma_control_write_address = dma_address("address")
+    dma_control_write_word = dma_address("word")
+    dma_control_register = dma_address("register")
+    dma_control_value = dma_address("value")
+    dma_control_boundary = dma_address("boundary")
+    if (
+        dma_control_write_address != dma_control_boundary - 4
+        or dma_control_register != 0x1F8010F0
+        or dma_control_boundary != interrupt_reset_boundary + 16
+    ):
+        raise Refused(
+            "measured DMA-control write is not the contiguous post-IRQ DPCR boundary"
+        )
     second_initializer_end = frontier_address("second_initializer_prefix_end")
     frontier_slices = (
         frontier_range("arena_size_selector", "tekken3_arena_size_selector_body"),
@@ -210,6 +239,13 @@ def render_slices(executable: pathlib.Path) -> GeneratedSlices:
             hardware_boundary,
             interrupt_reset_boundary,
             "tekken3_interrupt_reset_continuation_body",
+            False,
+        ),
+        FunctionSlice(
+            "DMA control continuation",
+            interrupt_reset_boundary,
+            dma_control_boundary,
+            "tekken3_dma_control_continuation_body",
             False,
         ),
         frontier_range(
@@ -252,11 +288,12 @@ def render_slices(executable: pathlib.Path) -> GeneratedSlices:
 
     emitter, psexe = load_recompiler()
     image = psexe.load(str(executable))
-    for address, expected_word in reset_words.items():
+    tracked_hardware_words = {**reset_words, dma_control_write_address: dma_control_write_word}
+    for address, expected_word in tracked_hardware_words.items():
         actual_word = image.word(address)
         if actual_word != expected_word:
             raise Refused(
-                "interrupt-reset instruction differs from the tracked executable: "
+                "hardware-frontier instruction differs from the tracked executable: "
                 f"0x{address:08X}=0x{actual_word:08X}, expected 0x{expected_word:08X}"
             )
     known_entries = {
@@ -265,9 +302,20 @@ def render_slices(executable: pathlib.Path) -> GeneratedSlices:
         *(item.start for item in frontier_slices if item.dispatchable),
     }
 
-    reset_continuation = next(
+    hardware_continuations = tuple(
         item for item in frontier_slices if not item.dispatchable
     )
+    if (
+        hardware_continuations[0].start != hardware_boundary
+        or hardware_continuations[-1].end != dma_control_boundary
+        or any(
+            current.end != following.start
+            for current, following in zip(
+                hardware_continuations, hardware_continuations[1:]
+            )
+        )
+    ):
+        raise Refused("hardware continuations must form one contiguous measured chain")
     emitted_frontier: list[str] = []
     for item in frontier_slices:
         body: list[str] = []
@@ -291,14 +339,17 @@ def render_slices(executable: pathlib.Path) -> GeneratedSlices:
             )
         emitted_frontier.append(f"  {item.body_name}(c);")
         if item.end == hardware_boundary:
-            emitted_frontier.extend(
-                (
-                    f"  tekken3_boundary_hook(c, 0x{hardware_boundary:08X}u);",
-                    f"  {reset_continuation.body_name}(c);",
-                    "  tekken3_boundary_hook(c, "
-                    f"0x{interrupt_reset_boundary:08X}u);",
-                )
+            emitted_frontier.append(
+                f"  tekken3_boundary_hook(c, 0x{hardware_boundary:08X}u);"
             )
+            for continuation in hardware_continuations:
+                emitted_frontier.extend(
+                    (
+                        f"  {continuation.body_name}(c);",
+                        "  tekken3_boundary_hook(c, "
+                        f"0x{continuation.end:08X}u);",
+                    )
+                )
         emitted_frontier.append("}")
         emitted_frontier.append("")
 
@@ -394,6 +445,9 @@ def render_slices(executable: pathlib.Path) -> GeneratedSlices:
             "uint32_t tekken3_interrupt_reset_boundary() {",
             f"  return 0x{interrupt_reset_boundary:08X}u;",
             "}",
+            "uint32_t tekken3_dma_control_boundary() {",
+            f"  return 0x{dma_control_boundary:08X}u;",
+            "}",
             "",
         )
     )
@@ -412,6 +466,9 @@ def render_slices(executable: pathlib.Path) -> GeneratedSlices:
         hardware_boundary,
         hardware_register,
         interrupt_reset_boundary,
+        dma_control_boundary,
+        dma_control_register,
+        dma_control_value,
         frontier_slices,
         emitter.RECOMP_VERSION,
         source,
@@ -442,6 +499,9 @@ def metadata(prefix: GeneratedSlices, executable: pathlib.Path) -> dict[str, obj
             "boundary": f"0x{prefix.hardware_boundary:08X}",
             "hardware_register": f"0x{prefix.hardware_register:08X}",
             "interrupt_reset_boundary": f"0x{prefix.interrupt_reset_boundary:08X}",
+            "dma_control_boundary": f"0x{prefix.dma_control_boundary:08X}",
+            "dma_control_register": f"0x{prefix.dma_control_register:08X}",
+            "dma_control_value": f"0x{prefix.dma_control_value:08X}",
             "slices": [
                 {
                     "dispatchable": item.dispatchable,
@@ -479,7 +539,7 @@ def emit(executable: pathlib.Path, output: pathlib.Path) -> GeneratedSlices:
         f"+ {prefix.next_instructions} next-call + "
         f"{sum(item.instructions for item in prefix.frontier_slices if item.dispatchable)} "
         f"pre-device and {sum(item.instructions for item in prefix.frontier_slices if not item.dispatchable)} "
-        f"device-response instructions through 0x{prefix.interrupt_reset_boundary:08X}; "
+        f"device-response instructions through 0x{prefix.dma_control_boundary:08X}; "
         f"recompiler {prefix.emitter_version}"
     )
     return prefix
@@ -645,6 +705,13 @@ def parse_device_state(text: str) -> tuple[int, int]:
     return int(match.group("status"), 16), int(match.group("mask"), 16)
 
 
+def parse_dma_control(text: str) -> int:
+    match = RECOMP_DPCR_RE.search(text)
+    if match is None:
+        raise Refused("generated runner emitted no DMA-control state")
+    return int(match.group("control"), 16)
+
+
 def capture_irq_oracle(
     oracle: pathlib.Path, timeout: float, *, selftest: bool = False
 ) -> tuple[int, int, int, int]:
@@ -709,6 +776,39 @@ def verify_interrupt_reset(
     )
 
 
+def verify_dma_control_write(
+    executable: pathlib.Path,
+    runner: pathlib.Path,
+    prefix: GeneratedSlices,
+    entry: int,
+    main_lo: int,
+    main_hi: int,
+    timeout: float,
+) -> None:
+    text = capture_recomp_text(
+        runner,
+        executable,
+        entry,
+        prefix.start,
+        prefix.dma_control_boundary,
+        main_lo,
+        main_hi,
+        timeout,
+    )
+    state = parse_recomp(text, prefix.dma_control_boundary)
+    measured = parse_dma_control(text)
+    if measured != prefix.dma_control_value or state.fields["a1"] != prefix.dma_control_value:
+        raise Mismatch(
+            "generated DMA-control write differs from the measured executable: "
+            f"DPCR=0x{measured:08X}, a1=0x{state.fields['a1']:08X}, "
+            f"expected 0x{prefix.dma_control_value:08X}"
+        )
+    print(
+        "PASS DMA-control write: shipping-emitted Tekken stores "
+        f"0x{measured:08X} to DPCR and reaches 0x{prefix.dma_control_boundary:08X}"
+    )
+
+
 def compare_boundary(
     executable: pathlib.Path,
     build: pathlib.Path,
@@ -744,8 +844,8 @@ def compare_boundary(
     )
     verify_hardware_stop(
         trace_text,
-        boundary=prefix.hardware_boundary,
-        register=prefix.hardware_register,
+        boundary=prefix.dma_control_boundary,
+        register=prefix.dma_control_register,
     )
     edges = (
         (
@@ -767,6 +867,11 @@ def compare_boundary(
             "first hardware boundary",
             prefix.hardware_boundary,
             prefix.hardware_boundary - 4,
+        ),
+        (
+            "DMA control boundary",
+            prefix.dma_control_boundary,
+            prefix.dma_control_boundary - 4,
         ),
     )
     results: dict[str, tuple[BoundaryState, BoundaryState]] = {}
@@ -810,10 +915,19 @@ def compare_boundary(
             main_hi,
             timeout,
         )
+    verify_dma_control_write(
+        executable,
+        runner,
+        prefix,
+        entry,
+        main_lo,
+        main_hi,
+        timeout,
+    )
     print(f"trace: {trace_path}")
     print(
-        "NOT covered: independent CPU stepping after the first hardware access, later devices, "
-        "a frame, or gameplay"
+        "NOT covered: independent CPU stepping after the DPCR write, later DMA behavior, a frame, "
+        "or gameplay"
     )
     return results
 
@@ -888,13 +1002,13 @@ def selftest(
         "# stop reason: hardware register touched (window ended here)\n"
         "# hardware address: 0x1F801070\n"
         f"# traced 1 of 1 requested step(s), 5 cycle(s), "
-        f"ended pc=0x{prefix.hardware_boundary:08X}\n"
+        f"ended pc=0x{prefix.dma_control_boundary:08X}\n"
     )
     try:
         verify_hardware_stop(
             wrong_hardware_trace,
-            boundary=prefix.hardware_boundary,
-            register=prefix.hardware_register,
+            boundary=prefix.dma_control_boundary,
+            register=prefix.dma_control_register,
         )
     except Refused:
         pass
