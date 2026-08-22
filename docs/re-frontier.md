@@ -46,15 +46,15 @@ names an honest remaining gap; `todo` is not started. No hacks are tracked.
 ## Widescreen ownership and enhancement
 
 ### T3-05 — Identify the widescreen projection owner
-- status: todo
+- status: re-partial
 - deps: T3-04
-- evidence: Not started.
-- where: future Ghidra project and readable native ownership under `game/`
-- gap: Decompile the camera, projection, display bounds, and relevant geometry-submit path. Determine the smallest game-state owner that can produce a true wide picture; do not add native producers merely as prerequisites for interpolation. OT, GP0, and GTE output are diagnostic evidence, never producer input.
+- evidence: C012/I007. Static analysis of the complete hashed `SLUS_004.02` image plus Ghidra decompilation identifies all six canonical CR24/CR25/CR26 writes. `FUN_80080a40` owns the title's view dimensions; `FUN_80081148` derives the retail projection centre from those dimensions; `FUN_80080da8` publishes the centre plus the current double-buffer offsets through `SetGeomOffset` at `0x80082728`. `FUN_80063c64` clamps the title-owned focal length and publishes it through `SetGeomScreen` at `0x80082748`; `FUN_80064080` selects a six-field fight-camera pose containing that focal length and `FUN_80064170` blends between authored poses. The two resident display presets prove that title view/projection width is distinct from the active PSX display width: the boot preset owns a 384x480 view and OFX/OFY 192/240 while its active display rectangle is 368x448; the alternate preset owns 320x240 and OFX/OFY 160/120. Both initialize H=500. The stage owner `FUN_8006D014` supplies horizontal visibility angles 600/780 to the 6x6 tile selector `FUN_8006D95C`; stage/effect primitive clippers `FUN_8006CC28` and `FUN_8006E44C` contain eleven plus one rendering-path signed `-368` right-edge comparisons. `tools/verify_projection.py` now proves 33/33 facts on the real executable through psxport's canonical decoder and passes 7/7 real agreement, mutated disagreement, and refusal cases, including both sides of the reserved-bit COP2 distinction. Those bounds must widen with the resolved display plan; the separate player-select text-slide use remains 2D retail layout.
+- where: `tools/verify_projection.py`; `titles/tekken3/executable.json`; `titles/tekken3/README.md`; Ghidra project and decompilation under gitignored `scratch/`
+- gap: Before consuming the shared non-temporal guest-widescreen contract, fix its generic GP1 display-mode decoder: issue #9 proves that the documented 368-pixel bit is ignored and Tekken's preset 0 becomes 256 pixels in framework state. Then bind the measured view-centre/H owners and A/B the resulting geometry and final presentation against 4:3. A real pixel comparison remains blocked on T3-04's same-CPU hardware continuation. OT, GP0, and GTE output are diagnostic evidence, never producer input.
 
 ### T3-06 — Owned widescreen
 - status: todo
 - deps: T3-05
 - evidence: Not started.
-- where: future camera/projection owner and any render producer the T3-05 evidence proves necessary
-- gap: Tekken 3 already runs at 60 fps. Implement only true widescreen from persistent game state; there is no fps60, interpolation/lerp, or interpolation-supporting temporal pipeline in this title's target scope.
+- where: future title-owned projection policy plus the shared non-temporal guest-widescreen contract
+- gap: Tekken 3 already runs at 60 fps. Implement only true widescreen from the measured view-centre and focal-length state, preserving H and vertical scale while widening horizontal field of view. The 4:3 path must remain identical and the wide path must widen guest geometry, draw coverage, and final sampling together; a host viewport stretch or a projection-only crop is not completion. There is no fps60, interpolation/lerp, or interpolation-supporting temporal pipeline in this title's target scope.

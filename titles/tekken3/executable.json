@@ -14,6 +14,81 @@
     "stack_address": "0x801FFFF0",
     "stack_offset": "0x00000000"
   },
+  "projection": {
+    "control_writers": [
+      {"address": "0x80081C9C", "source_register": 8, "control_register": 26},
+      {"address": "0x80081CBC", "source_register": 0, "control_register": 24},
+      {"address": "0x80081CC0", "source_register": 0, "control_register": 25},
+      {"address": "0x80082730", "source_register": 4, "control_register": 24},
+      {"address": "0x80082734", "source_register": 5, "control_register": 25},
+      {"address": "0x80082748", "source_register": 4, "control_register": 26}
+    ],
+    "set_geom_offset": {
+      "address": "0x80082728",
+      "call_sites": ["0x80080E84", "0x80081B3C", "0x800B08AC"]
+    },
+    "set_geom_screen": {
+      "address": "0x80082748",
+      "call_sites": ["0x80081240"]
+    },
+    "display_presets": {
+      "address": "0x800B0CC8",
+      "entries": [
+        {
+          "active_rect": [0, 20, 368, 448],
+          "view_extent": [384, 480],
+          "graph_flags": 5,
+          "second_buffer_y": 0,
+          "initial_projection_center": [192, 240],
+          "initial_h": 500
+        },
+        {
+          "active_rect": [0, 10, 320, 224],
+          "view_extent": [320, 240],
+          "graph_flags": 5,
+          "second_buffer_y": 240,
+          "initial_projection_center": [160, 120],
+          "initial_h": 500
+        }
+      ]
+    },
+    "boot_preset_call": {
+      "address": "0x800B0574",
+      "target": "0x800B0840",
+      "preset_index": 0
+    },
+    "initial_h_call": {
+      "address": "0x800B0928",
+      "target": "0x80081238",
+      "delay_slot_word": "0x240401F4"
+    },
+    "stage_visibility": {
+      "owner": "0x8006D014",
+      "selector": "0x8006D95C",
+      "calls": [
+        {
+          "address": "0x8006D1EC",
+          "angle_load_address": "0x8006D1C4",
+          "retail_angle": 600
+        },
+        {
+          "address": "0x8006D274",
+          "angle_load_address": "0x8006D24C",
+          "retail_angle": 780
+        }
+      ]
+    },
+    "retail_right_bound": {
+      "value": 368,
+      "render_sites": [
+        "0x8006CD40", "0x8006CD48", "0x8006CD50", "0x8006CD58",
+        "0x8006CE40", "0x8006CE48", "0x8006CE50",
+        "0x8006CF80", "0x8006CF88", "0x8006CF90", "0x8006CF98",
+        "0x8006E478"
+      ],
+      "retail_2d_site": "0x80054CB4"
+    }
+  },
   "startup": {
     "shape": "direct_main",
     "entry_call": {

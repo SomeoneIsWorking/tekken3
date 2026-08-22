@@ -151,8 +151,16 @@ add_custom_target(
   tekken3_tool_selftests
   COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/provision_executable.py" --selftest
   COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/verify_startup.py" --selftest
+  COMMAND
+    "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/verify_projection.py"
+    --selftest --exe "${TEKKEN3_EXE}"
   USES_TERMINAL
   VERBATIM)
+add_test(
+  NAME tekken3_projection_selftest
+  COMMAND
+    "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/verify_projection.py"
+    --selftest --exe "${TEKKEN3_EXE}")
 add_custom_target(
   cpp_policy
   COMMAND

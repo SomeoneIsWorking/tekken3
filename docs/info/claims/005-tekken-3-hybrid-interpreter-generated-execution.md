@@ -6,7 +6,7 @@ created: 2026-08-21
 tags: t3-04,oracle,recompiler,first-initializer
 depends: tools/recomp_boundary.py#render_slices, tools/recomp_boundary.py#compare_boundary, tests/recomp_boundary.cpp#main, tools/verify_startup.py#verify_startup
 reconfirmed: 2026-08-22
-verified_at: 2026-08-22 14:18:45
+verified_at: 2026-08-22 19:08:18
 ---
 
 ## Claim
@@ -28,3 +28,7 @@ Post-landing verify emitted exact 6+28+2 instruction slices, matched Mednafen 35
 ## Re-confirmed 2026-08-22
 
 2026-08-22 Clang verify against psxport 7f5d3f13 regenerated 6+28+2 startup instructions plus 717 frontier instructions, matched Mednafen 35/35 at first-initializer entry, and passed SELFTEST 7/7.
+
+## Re-confirmed 2026-08-22
+
+2026-08-22 full Clang verify regenerated exact executable slices and passed SELFTEST 9/9, including 35/35 CPU-field agreement and a forced register disagreement.

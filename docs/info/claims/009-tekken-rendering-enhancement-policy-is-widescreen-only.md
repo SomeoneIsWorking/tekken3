@@ -6,7 +6,7 @@ created: 2026-08-22
 tags: enhancement,widescreen,scope,architecture
 depends: game/core/tekken3_runtime.cpp#Tekken3Runtime::bootInit
 reconfirmed: 2026-08-22
-verified_at: 2026-08-22 18:05:01
+verified_at: 2026-08-22 19:08:18
 ---
 
 ## Claim
@@ -43,3 +43,7 @@ Repository audit remains free of Tekken fps60/interpolation paths. Clang policy 
 ## Re-confirmed 2026-08-22
 
 After direct GameRuntime migration, source audit and the 6-token contract found no Tekken fps60/interpolation/lerp state and no legacy adapter/config/hooks path. CTest passed 5/5, Clang policy 7/7 format/size and 6/6 tidy; the real boundary remained 35/35 CPU and 3/3 IRQ with SELFTEST 9/9.
+
+## Re-confirmed 2026-08-22
+
+2026-08-22 runtime contract and source audit retain zero FPS60, interpolation, lerp, temporal, or native-depth dependencies; Tekken target remains widescreen-only and CTest 6/6 passed.

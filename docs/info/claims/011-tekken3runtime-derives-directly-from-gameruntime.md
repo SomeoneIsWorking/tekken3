@@ -6,7 +6,7 @@ created: 2026-08-22
 tags: runtime,inheritance,architecture,guest-program-image
 depends: game/core/tekken3_runtime.h, game/core/tekken3_runtime.cpp#Tekken3Runtime::guestProgramImage, tests/runtime_seam.cpp#main, tests/runtime_contract.cpp#main, tests/recomp_boundary.cpp#main
 reconfirmed: 2026-08-22
-verified_at: 2026-08-22 18:11:46
+verified_at: 2026-08-22 19:08:19
 ---
 
 ## Claim
@@ -28,3 +28,7 @@ Falsified if Tekken3Runtime derives from or names the legacy adapter, GameConfig
 ## Re-confirmed 2026-08-22
 
 2026-08-22 final gate: default Clang build verify passed against recorded psxport ad5cf802; runtime contract 6/6, seam resident 2/2 and null legacy views 3/3, cpp policy format 7/7 structure 7/7 tidy 6/6, real boundary SELFTEST 9/9, CTest 5/5.
+
+## Re-confirmed 2026-08-22
+
+2026-08-22 full Clang verify passed direct GameRuntime contract 6/6, resident seam 2/2, null legacy views 3/3, Clang format 7/7, structure 7/7, tidy 6/6, and CTest 6/6.

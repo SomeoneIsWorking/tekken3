@@ -70,6 +70,83 @@ device observations at `0x80085DA4`. Generated source is recomputed through the 
 deliberate register/source/boundary/hardware-register changes must fail. This does not independently
 step the CPU after the hardware access or establish later initialization, a frame, or gameplay.
 
+## Measured display and projection ownership
+
+A complete word scan of the hashed loaded image found six canonical writes to GTE control registers
+CR24, CR25, and CR26. Ghidra's independent instruction listing agrees on the same six sites:
+
+| Address | Owner | Measured operation |
+|---|---|---|
+| `0x80081CBC`, `0x80081CC0` | `FUN_80081c50` (`InitGeom`) | initialize OFX and OFY to zero |
+| `0x80082730`, `0x80082734` | `FUN_80082728` (`SetGeomOffset`) | publish `a0 << 16` to OFX and `a1 << 16` to OFY |
+| `0x80081C9C` | `FUN_80081c50` (`InitGeom`) | initialize H to 1000 |
+| `0x80082748` | `FUN_80082748` (`SetGeomScreen`) | publish `a0` to H |
+
+The scan also found the word `0x48CCCCCE` at `0x800BAC20`. It is undisassembled resident data with no
+function or control-flow owner, and its reserved low 11 bits make it a noncanonical COP2 move. This
+exposed a shared decoder defect which is now fixed at the framework owner: psxport rejects the word's
+reserved bits instead of labeling it `ctc2`. Tekken neither exempts that address nor duplicates the
+instruction decoder. `tools/verify_projection.py` uses the shipping decoder to prove the complete six-
+writer census and mutates both a real writer and that resident data word to prove the decoder-backed
+gate can produce the opposite answer.
+
+The title-level owners above the Psy-Q leaves are now identified:
+
+- `FUN_80080a40(width, height)` owns the current view dimensions. `FUN_80081148` derives the retail
+  centre as `(width / 2, height / 2)`, and `FUN_80080da8` adds the current double-buffer offsets,
+  calls `SetGeomOffset`, and records the live OFX/OFY at `0x800ADE7C`/`0x800ADE7E`.
+- `FUN_80063c64(h)` clamps H to the title's current minimum and maximum before calling
+  `SetGeomScreen`. `FUN_80064080` selects a six-field fight-camera pose whose final field is H;
+  `FUN_80064170` blends two authored poses, including H, and republishes it through
+  `FUN_80063c64`. Fight-camera initialization sets the current/minimum/maximum H to 500.
+- The resident table at `0x800B0CC8` contains two 16-byte display/view presets. Preset 0 owns an
+  active display rectangle `(0,20,368,448)`, a 384x480 title view, and initial OFX/OFY 192/240.
+  Preset 1 owns `(0,10,320,224)`, a 320x240 title view, and initial OFX/OFY 160/120. Both publish
+  H=500. Boot calls `FUN_800B0840(0)`.
+- `FUN_8006D014` is the stage submit owner. It calls `FUN_8006D95C` with a horizontal visibility
+  angle of 600 normally and `0x30C` in mode 6. That helper traces the two rays at camera yaw plus and
+  minus half the supplied angle and selects visible cells from the stage's 6x6 tile grid.
+- `FUN_8006CC28` converts the selected stage primitives into ordering-table packets. Its triangle,
+  quad, and sprite paths contain eleven exact signed `-368` comparisons and discard primitives whose
+  projected vertices are wholly beyond the retail active-display right edge. `FUN_8006E44C` applies
+  the twelfth rendering-path comparison to an effect-primitive path. These are title culling owners, not host
+  viewport policy. The separate `-368` use in `FUN_80054B48` is a player-select text slide distance
+  and must remain in the retail 2D layout.
+
+The 384-wide title projection and 368-wide active display are deliberately different facts. A wide
+implementation must therefore carry the title-authored projection width/centre separately from the
+PSX display mode, resolve both retail modes from their 4:3 presentation semantics, keep H and the
+vertical centre unchanged, and widen guest geometry, draw coverage, and final sampling as one plan.
+Changing only the host viewport would stretch the picture; changing only OFX would crop it.
+Issue #9 records a framework blocker exposed by this preset: GP1(08) bit 6 selects 368 pixels, but
+the current decoder ignores that bit and records 256. This must be fixed generically before Tekken's
+native presentation extent can be trusted; a title-side 368 override would only split the two owners.
+The stage/effect right-edge tests must consume the same resolved wide display bound, while the stage
+tile visibility angle must be checked against the resolved wide frustum. Static evidence identifies
+that owner but does not select an angle formula: if the authored wedge becomes too narrow, any change
+must derive from the retail angle and resolved projection rather than a replacement constant. Porting
+those title functions must retain their generated bodies as the 4:3 differential control; the
+evidence does not justify a new renderer or producer.
+
+Static ownership does not establish a rendered frame. The next execution boundary remains the
+same-CPU continuation after the modeled interrupt reset at `0x80085DA4`; once that reaches a real
+display/frame boundary, a final-presentation A/B must show a bit-identical 4:3 control, unchanged
+vertical projection, horizontal translation about the widened centre without scale change, and new
+scene geometry in the added margins.
+
+The durable real-executable gate currently passes 33/33 measured projection/display/culling facts and
+7/7 positive, disagreement, and refusal cases:
+
+```sh
+python3 tools/verify_projection.py
+python3 tools/verify_projection.py --selftest
+```
+
+The gate checks six canonical control-register writers, exact direct-call censuses, both raw 16-byte
+presets and their derived centres, preset-0 boot selection, initial H=500, both stage-wedge call/angle
+pairs, twelve rendering-path `-368` bounds, and the separate retail-2D `-368` use. It is a static owner
+gate, not evidence of a frame or pixels.
+
 ## Reproduce the identity measurement
 
 After the root README's Clang configure, run the project-owned provisioner:
