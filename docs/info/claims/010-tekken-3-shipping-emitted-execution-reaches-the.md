@@ -6,7 +6,7 @@ created: 2026-08-22
 tags: t3-04,irq,oracle
 depends: tools/recomp_boundary.py#verify_interrupt_reset, tests/recomp_boundary.cpp#main, tests/irq_oracle.cpp#main, titles/tekken3/executable.json
 reconfirmed: 2026-08-22
-verified_at: 2026-08-22 19:08:19
+verified_at: 2026-08-22 19:13:26
 ---
 
 ## Claim
@@ -32,3 +32,7 @@ Re-verified after final code/docs edits: CTest 4/4; exact SLUS_004.02 instructio
 ## Re-confirmed 2026-08-22
 
 2026-08-22 full Clang verify passed 35/35 CPU agreement through 0x80085D98, 3/3 independent Mednafen IRQ observations through 0x80085DA4, IRQ oracle SELFTEST 2/2, and boundary SELFTEST 9/9.
+
+## Re-confirmed 2026-08-22
+
+Post-commit 1022430 authoritative T3-04 gate still agrees 35/35 CPU fields through 0x80085D98 and 3/3 device observations through IRQ reset 0x80085DA4; full CTest 6/6 passes.
