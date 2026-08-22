@@ -4,10 +4,10 @@ PC-native PlayStation port of Tekken 3, built on
 [psxport](https://github.com/SomeoneIsWorking/psxport).
 
 Current status: the USA target executable can be provisioned, its direct-to-main startup shape is
-verified, and independent Mednafen agrees with generated execution at the first initializer entry,
-its return, and the next initializer entry. No extracted executable is tracked, and no second
-initializer execution, whole generated substrate, frame, gameplay, native producer, widescreen
-path, or interpolation path is claimed yet.
+verified, and independent Mednafen agrees with generated execution at four boundaries through the
+first PSX hardware access: 35/35 CPU fields match immediately before the interrupt-mask write at
+`0x80085D98`. No extracted executable is tracked, and no hardware response, whole generated
+substrate, frame, gameplay, native producer, widescreen path, or interpolation path is claimed yet.
 
 ## Configure the framework scaffold
 
@@ -33,8 +33,9 @@ The game-owned interpreter and generated-slice probes are first-party C++ transl
 shared policy checks both with tracked Clang format/tidy configuration and real compile commands.
 
 `tekken3_scaffold` and its smoke test only prove that the game-agnostic framework links. The separate
-boundary probes run real Tekken instructions through the first initializer return and the next call; no
-target launches gameplay. See `titles/tekken3/README.md` for the measured target and
+boundary probes run real Tekken instructions through the first initializer and the measured
+second-initializer call chain to its first hardware boundary; no target launches a frame or gameplay.
+See `titles/tekken3/README.md` for the measured target and
 `docs/re-frontier.md` for the ordered work required before a whole substrate or booted-frame claim is
 possible.
 
@@ -60,6 +61,8 @@ The boundary harness executes the entry window twice with psxport's interpreter 
 independent Mednafen oracle. It requires deterministic agreement on all 35 CPU fields after the JAL
 delay slot and before `game_main` begins. The generated harness reuses that verified interpreter
 state and executes exact shipping-emitter slices containing six `game_main` instructions, the
-28-instruction first initializer, and the following two-instruction call. It compares all 35 CPU
-fields at the initializer entry, its return, and the next initializer entry. Its output deliberately
-excludes execution inside the second initializer, BIOS/devices, frames, and gameplay.
+28-instruction first initializer, the following two-instruction call, and the measured
+second-initializer call chain. It compares all 35 CPU fields at the initializer entry, its return,
+the next initializer entry, and `0x80085D98` before the first write to I_MASK (`0x1F801074`). Its
+output deliberately excludes the hardware access and response, later initialization, frames, and
+gameplay.

@@ -1,6 +1,7 @@
 #include "core.h"
 #include "game.h"
 #include "game_iface.h"
+#include "recomp_iface.h"
 
 #include <array>
 #include <charconv>
@@ -18,6 +19,9 @@ void tekken3_main_next_initializer_call(Core *core);
 std::uint32_t tekken3_initializer_entry_boundary();
 std::uint32_t tekken3_initializer_return_boundary();
 std::uint32_t tekken3_next_initializer_boundary();
+std::uint32_t tekken3_hardware_boundary();
+void tekken3_boundary_main_dispatch(Core *, std::uint32_t);
+int tekken3_boundary_func_index(std::uint32_t);
 
 namespace {
 
@@ -71,24 +75,43 @@ void tekken3_boundary_hook(Core *core, std::uint32_t boundary) {
 }
 
 int main(int argc, char **argv) {
-  if (argc != 5) {
-    std::fprintf(stderr, "usage: %s <PS-X EXE> <entry> <direct-main> <boundary>\n", argv[0]);
+  if (argc != 7) {
+    std::fprintf(stderr, "usage: %s <PS-X EXE> <entry> <direct-main> <boundary> <main-lo> <main-hi>\n", argv[0]);
     return 2;
   }
 
   const std::uint32_t entry = parseAddress(argv[2], "entry");
   const std::uint32_t directMain = parseAddress(argv[3], "direct-main");
   requestedBoundary = parseAddress(argv[4], "boundary");
+  const std::uint32_t mainLo = parseAddress(argv[5], "main-lo");
+  const std::uint32_t mainHi = parseAddress(argv[6], "main-hi");
+  if (mainHi <= mainLo) {
+    std::fprintf(stderr, "REFUSED: resident text range is empty or inverted\n");
+    return 2;
+  }
   if (requestedBoundary != tekken3_initializer_entry_boundary() &&
       requestedBoundary != tekken3_initializer_return_boundary() &&
-      requestedBoundary != tekken3_next_initializer_boundary()) {
+      requestedBoundary != tekken3_next_initializer_boundary() && requestedBoundary != tekken3_hardware_boundary()) {
     std::fprintf(stderr, "REFUSED: unsupported generated boundary 0x%08X\n", requestedBoundary);
     return 2;
   }
 
-  static const GameConfig config{};
+  static GameConfig config{};
+  config.recMainLo = mainLo;
+  config.recMainHi = mainHi;
   static const GameHooks hooks{};
+  static const RecompRegistry recomp = {
+      tekken3_boundary_main_dispatch,
+      tekken3_boundary_func_index,
+      nullptr,
+      0,
+      nullptr,
+      nullptr,
+      nullptr,
+      nullptr,
+  };
   psxport_install_game(&config, &hooks);
+  psxport_install_recomp(&recomp);
 
   auto game = std::make_unique<Game>();
   Core *const core = &game->core;
@@ -108,6 +131,7 @@ int main(int argc, char **argv) {
     return 2;
   }
 
+  core->use_interp = 0;
   tekken3_main_first_initializer(core);
   tekken3_boundary_hook(core, tekken3_initializer_return_boundary());
   tekken3_main_next_initializer_call(core);

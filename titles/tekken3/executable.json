@@ -38,6 +38,31 @@
       "target": "0x800B0548",
       "delay_slot_word": "0x3C11800B"
     },
+    "hardware_frontier": {
+      "boundary": "0x80085D98",
+      "hardware_register": "0x1F801074",
+      "second_initializer_prefix_end": "0x800B0564",
+      "arena_initializer": {
+        "start": "0x80055884",
+        "end": "0x800561A0"
+      },
+      "arena_size_selector": {
+        "start": "0x80079964",
+        "end": "0x800799A8"
+      },
+      "arena_layout_builder": {
+        "start": "0x800799A8",
+        "end": "0x80079AF4"
+      },
+      "hardware_entry": {
+        "start": "0x80085BC8",
+        "end": "0x80085BF8"
+      },
+      "interrupt_initializer_prefix": {
+        "start": "0x80085D5C",
+        "end": "0x80085D98"
+      }
+    },
     "main_loop": {
       "back_edge_address": "0x80028E0C",
       "back_edge_target": "0x80028BCC"

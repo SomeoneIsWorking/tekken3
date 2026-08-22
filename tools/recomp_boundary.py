@@ -52,6 +52,26 @@ INITIAL_RE = re.compile(
     re.MULTILINE,
 )
 CHANGE_RE = re.compile(r"\b(?P<name>[a-z0-9]+)=0x(?P<value>[0-9A-Fa-f]+)")
+TRACE_END_RE = re.compile(
+    r"^# traced \d+ of \d+ requested step\(s\), \d+ cycle\(s\), "
+    r"ended pc=0x(?P<pc>[0-9A-Fa-f]{8})$",
+    re.MULTILINE,
+)
+HARDWARE_ADDRESS_RE = re.compile(
+    r"^# hardware address: 0x(?P<address>[0-9A-Fa-f]{8})$", re.MULTILINE
+)
+
+
+@dataclass(frozen=True)
+class FunctionSlice:
+    label: str
+    start: int
+    end: int
+    body_name: str
+
+    @property
+    def instructions(self) -> int:
+        return (self.end - self.start) // 4
 
 
 @dataclass(frozen=True)
@@ -67,6 +87,9 @@ class GeneratedSlices:
     first_instructions: int
     initializer_instructions: int
     next_instructions: int
+    hardware_boundary: int
+    hardware_register: int
+    frontier_slices: tuple[FunctionSlice, ...]
     emitter_version: str
     source: str
 
@@ -93,6 +116,30 @@ def render_slices(executable: pathlib.Path) -> GeneratedSlices:
     manifest = load_manifest(MANIFEST)
     verify_startup(manifest, executable)
     fields = startup_fields(manifest)
+    startup = manifest.get("startup")
+    if not isinstance(startup, dict):
+        raise Refused("manifest field startup must be an object")
+    frontier = startup.get("hardware_frontier")
+    if not isinstance(frontier, dict):
+        raise Refused("manifest field startup.hardware_frontier must be an object")
+
+    def frontier_address(name: str) -> int:
+        return parse_hex(frontier.get(name), f"startup.hardware_frontier.{name}")
+
+    def frontier_range(name: str, body_name: str) -> FunctionSlice:
+        value = frontier.get(name)
+        if not isinstance(value, dict):
+            raise Refused(f"startup.hardware_frontier.{name} must be an object")
+        start_address = parse_hex(value.get("start"), f"{name}.start")
+        end_address = parse_hex(value.get("end"), f"{name}.end")
+        if end_address <= start_address or (end_address - start_address) % 4:
+            raise Refused(
+                f"startup.hardware_frontier.{name} is not a non-empty aligned range"
+            )
+        return FunctionSlice(
+            name.replace("_", " "), start_address, end_address, body_name
+        )
+
     start = int(fields["call_target"])
     first_call_address = int(fields["main_call_address"])
     initializer_start = int(fields["main_call_target"])
@@ -104,24 +151,87 @@ def render_slices(executable: pathlib.Path) -> GeneratedSlices:
     first_instructions = (return_boundary - start) // 4
     initializer_instructions = (initializer_end - initializer_start) // 4
     next_instructions = (next_end - next_call_address) // 4
+    hardware_boundary = frontier_address("boundary")
+    hardware_register = frontier_address("hardware_register")
+    second_initializer_end = frontier_address("second_initializer_prefix_end")
+    frontier_slices = (
+        frontier_range("arena_size_selector", "tekken3_arena_size_selector_body"),
+        frontier_range("arena_layout_builder", "tekken3_arena_layout_builder_body"),
+        frontier_range("arena_initializer", "tekken3_arena_initializer_body"),
+        frontier_range(
+            "interrupt_initializer_prefix", "tekken3_interrupt_initializer_prefix_body"
+        ),
+        frontier_range("hardware_entry", "tekken3_hardware_entry_body"),
+        FunctionSlice(
+            "second initializer prefix",
+            next_target,
+            second_initializer_end,
+            "tekken3_second_initializer_prefix_body",
+        ),
+    )
     if first_instructions <= 0 or return_boundary - start != first_instructions * 4:
-        raise Refused("measured game_main prefix is not a non-empty aligned instruction range")
+        raise Refused(
+            "measured game_main prefix is not a non-empty aligned instruction range"
+        )
     if (
         initializer_instructions <= 0
         or initializer_end - initializer_start != initializer_instructions * 4
     ):
-        raise Refused("measured first initializer is not a non-empty aligned instruction range")
+        raise Refused(
+            "measured first initializer is not a non-empty aligned instruction range"
+        )
     if next_instructions != 2 or next_call_address != return_boundary:
-        raise Refused("measured next initializer call is not the immediate two-instruction slice")
+        raise Refused(
+            "measured next initializer call is not the immediate two-instruction slice"
+        )
+    if hardware_boundary != frontier_slices[3].end:
+        raise Refused(
+            "interrupt initializer prefix must end at the measured hardware boundary"
+        )
+    if any(item.instructions <= 0 for item in frontier_slices):
+        raise Refused("hardware-frontier slices must contain at least one instruction")
 
     emitter, psexe = load_recompiler()
     image = psexe.load(str(executable))
+    known_entries = {
+        start,
+        initializer_start,
+        *(item.start for item in frontier_slices),
+    }
+
+    emitted_frontier: list[str] = []
+    for item in frontier_slices:
+        body: list[str] = []
+        emitter.emit_func(
+            image,
+            item.start,
+            item.end,
+            known_entries,
+            body,
+            item.body_name,
+            emitter.MAIN_NAMES,
+        )
+        emitted_frontier.extend(body)
+        emitted_frontier.append("")
+        emitted_frontier.append(f"void func_{item.start:08X}(Core* c) {{")
+        if item.start == next_target:
+            emitted_frontier.append(
+                f"  tekken3_boundary_hook(c, 0x{next_target:08X}u);"
+            )
+        emitted_frontier.append(f"  {item.body_name}(c);")
+        if item.end == hardware_boundary:
+            emitted_frontier.append(
+                f"  tekken3_boundary_hook(c, 0x{hardware_boundary:08X}u);"
+            )
+        emitted_frontier.append("}")
+        emitted_frontier.append("")
+
     initializer_body: list[str] = []
     emitter.emit_func(
         image,
         initializer_start,
         initializer_end,
-        {start, initializer_start, next_target},
+        known_entries,
         initializer_body,
         "tekken3_first_initializer_body",
         emitter.MAIN_NAMES,
@@ -131,7 +241,7 @@ def render_slices(executable: pathlib.Path) -> GeneratedSlices:
         image,
         start,
         return_boundary,
-        {start, initializer_start, next_target},
+        known_entries,
         first_body,
         "tekken3_main_first_initializer",
         emitter.MAIN_NAMES,
@@ -141,7 +251,7 @@ def render_slices(executable: pathlib.Path) -> GeneratedSlices:
         image,
         next_call_address,
         next_end,
-        {start, initializer_start, next_target},
+        known_entries,
         next_body,
         "tekken3_main_next_initializer_call",
         emitter.MAIN_NAMES,
@@ -152,6 +262,7 @@ def render_slices(executable: pathlib.Path) -> GeneratedSlices:
             '#include "core.h"',
             "void tekken3_boundary_hook(Core*, uint32_t);",
             "",
+            *emitted_frontier,
             *initializer_body,
             "",
             f"void func_{initializer_start:08X}(Core* c) {{",
@@ -159,13 +270,35 @@ def render_slices(executable: pathlib.Path) -> GeneratedSlices:
             "  tekken3_first_initializer_body(c);",
             "}",
             "",
-            f"void func_{next_target:08X}(Core* c) {{",
-            f"  tekken3_boundary_hook(c, 0x{next_target:08X}u);",
-            "}",
-            "",
             *first_body,
             "",
             *next_body,
+            "",
+            "void tekken3_boundary_main_dispatch(Core* c, uint32_t address) {",
+            "  switch (address) {",
+            *(
+                line
+                for item in frontier_slices
+                for line in (
+                    f"  case 0x{item.start:08X}u:",
+                    f"    func_{item.start:08X}(c);",
+                    "    return;",
+                )
+            ),
+            "  default:",
+            "    rec_dispatch_miss(c, address);",
+            "  }",
+            "}",
+            "",
+            "int tekken3_boundary_func_index(uint32_t address) {",
+            "  switch (address) {",
+            *(
+                f"  case 0x{item.start:08X}u: return {index};"
+                for index, item in enumerate(frontier_slices)
+            ),
+            "  default: return -1;",
+            "  }",
+            "}",
             "",
             "uint32_t tekken3_initializer_entry_boundary() {",
             f"  return 0x{initializer_start:08X}u;",
@@ -175,6 +308,9 @@ def render_slices(executable: pathlib.Path) -> GeneratedSlices:
             "}",
             "uint32_t tekken3_next_initializer_boundary() {",
             f"  return 0x{next_target:08X}u;",
+            "}",
+            "uint32_t tekken3_hardware_boundary() {",
+            f"  return 0x{hardware_boundary:08X}u;",
             "}",
             "",
         )
@@ -191,6 +327,9 @@ def render_slices(executable: pathlib.Path) -> GeneratedSlices:
         first_instructions,
         initializer_instructions,
         next_instructions,
+        hardware_boundary,
+        hardware_register,
+        frontier_slices,
         emitter.RECOMP_VERSION,
         source,
     )
@@ -216,6 +355,19 @@ def metadata(prefix: GeneratedSlices, executable: pathlib.Path) -> dict[str, obj
             "start": f"0x{prefix.next_call_address:08X}",
             "target": f"0x{prefix.next_target:08X}",
         },
+        "hardware_frontier": {
+            "boundary": f"0x{prefix.hardware_boundary:08X}",
+            "hardware_register": f"0x{prefix.hardware_register:08X}",
+            "slices": [
+                {
+                    "end": f"0x{item.end:08X}",
+                    "instructions": item.instructions,
+                    "label": item.label,
+                    "start": f"0x{item.start:08X}",
+                }
+                for item in prefix.frontier_slices
+            ],
+        },
     }
 
 
@@ -239,13 +391,17 @@ def emit(executable: pathlib.Path, output: pathlib.Path) -> GeneratedSlices:
     print(
         "PASS emission: executable-derived slices contain "
         f"{prefix.first_instructions} game_main + {prefix.initializer_instructions} initializer "
-        f"+ {prefix.next_instructions} next-call instructions through 0x{prefix.next_target:08X}; "
+        f"+ {prefix.next_instructions} next-call + "
+        f"{sum(item.instructions for item in prefix.frontier_slices)} hardware-frontier "
+        f"instructions through 0x{prefix.hardware_boundary:08X}; "
         f"recompiler {prefix.emitter_version}"
     )
     return prefix
 
 
-def inspect_generated(executable: pathlib.Path, output: pathlib.Path) -> GeneratedSlices:
+def inspect_generated(
+    executable: pathlib.Path, output: pathlib.Path
+) -> GeneratedSlices:
     expected = render_slices(executable)
     try:
         actual_source = (output / SOURCE).read_text(encoding="utf-8")
@@ -253,7 +409,9 @@ def inspect_generated(executable: pathlib.Path, output: pathlib.Path) -> Generat
     except (OSError, json.JSONDecodeError) as exc:
         raise Refused(f"generated boundary slices are incomplete: {exc}") from exc
     if actual_source != expected.source:
-        raise Refused("generated slice source differs from current executable/recompiler output")
+        raise Refused(
+            "generated slice source differs from current executable/recompiler output"
+        )
     if actual_metadata != metadata(expected, executable):
         raise Refused("generated slice metadata is stale or malformed")
     return expected
@@ -298,6 +456,25 @@ def parse_oracle_trace(text: str, *, target: int, delay_address: int) -> Boundar
     return captures[0]
 
 
+def verify_hardware_stop(text: str, *, boundary: int, register: int) -> None:
+    trace_end = TRACE_END_RE.search(text)
+    hardware = HARDWARE_ADDRESS_RE.search(text)
+    if (
+        trace_end is None
+        or hardware is None
+        or "# stop reason: hardware register touched" not in text
+    ):
+        raise Refused("oracle trace did not end at a hardware-register boundary")
+    observed_pc = int(trace_end.group("pc"), 16)
+    observed_register = int(hardware.group("address"), 16)
+    if observed_pc != boundary or observed_register != register:
+        raise Refused(
+            "oracle hardware stop differs from the measured frontier: "
+            f"pc=0x{observed_pc:08X}/register=0x{observed_register:08X}, "
+            f"expected 0x{boundary:08X}/0x{register:08X}"
+        )
+
+
 def parse_recomp(text: str, expected_boundary: int) -> BoundaryState:
     translated = text.replace("# RECOMP-BOUNDARY", "# PSXPORT-BOUNDARY").replace(
         "# RECOMP-REG", "# PSXPORT-REG"
@@ -335,6 +512,8 @@ def capture_recomp(
     entry: int,
     direct_main: int,
     target: int,
+    main_lo: int,
+    main_hi: int,
     timeout: float,
 ) -> BoundaryState:
     result = run_process(
@@ -344,6 +523,8 @@ def capture_recomp(
             f"0x{entry:08X}",
             f"0x{direct_main:08X}",
             f"0x{target:08X}",
+            f"0x{main_lo:08X}",
+            f"0x{main_hi:08X}",
         ],
         timeout,
     )
@@ -376,6 +557,9 @@ def compare_boundary(
     if not isinstance(header, dict):
         raise Refused("manifest field header must be an object")
     entry = parse_hex(header.get("entry"), "header.entry")
+    main_lo = parse_hex(header.get("text_address"), "header.text_address") & 0x1FFFFFFF
+    text_size = parse_hex(header.get("text_size"), "header.text_size")
+    main_hi = main_lo + text_size
     trace_path = raw / "oracle.trace"
     trace_text = capture_oracle_trace(
         oracle,
@@ -383,6 +567,11 @@ def compare_boundary(
         steps,
         trace_path,
         timeout,
+    )
+    verify_hardware_stop(
+        trace_text,
+        boundary=prefix.hardware_boundary,
+        register=prefix.hardware_register,
     )
     edges = (
         (
@@ -400,6 +589,11 @@ def compare_boundary(
             prefix.next_target,
             prefix.next_end - 4,
         ),
+        (
+            "first hardware boundary",
+            prefix.hardware_boundary,
+            prefix.hardware_boundary - 4,
+        ),
     )
     results: dict[str, tuple[BoundaryState, BoundaryState]] = {}
     for label, target, delay_address in edges:
@@ -414,6 +608,8 @@ def compare_boundary(
             entry,
             prefix.start,
             target,
+            main_lo,
+            main_hi,
             timeout,
         )
         compared = port
@@ -430,7 +626,9 @@ def compare_boundary(
         )
         results[label] = (reference, port)
     print(f"trace: {trace_path}")
-    print("NOT covered: execution inside the second initializer, BIOS/devices, a frame, or gameplay")
+    print(
+        "NOT covered: execution of the first hardware access, device response, a frame, or gameplay"
+    )
     return results
 
 
@@ -446,7 +644,8 @@ def selftest(
     print(
         "PASS generated integrity: exact executable slices contain "
         f"{prefix.first_instructions} + {prefix.initializer_instructions} + "
-        f"{prefix.next_instructions} instructions"
+        f"{prefix.next_instructions} startup instructions and "
+        f"{sum(item.instructions for item in prefix.frontier_slices)} frontier instructions"
     )
     results = compare_boundary(
         executable,
@@ -467,10 +666,14 @@ def selftest(
             raise Refused("opposite-answer comparison did not name a0") from exc
     else:
         raise Refused("opposite-answer comparison accepted an altered a0")
-    print("PASS negative comparison: altered generated a0 is rejected by the production comparator")
+    print(
+        "PASS negative comparison: altered generated a0 is rejected by the production comparator"
+    )
 
     DEFAULT_RAW.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="stale-prefix-", dir=DEFAULT_RAW) as temporary:
+    with tempfile.TemporaryDirectory(
+        prefix="stale-prefix-", dir=DEFAULT_RAW
+    ) as temporary:
         temporary_output = pathlib.Path(temporary)
         emit(executable, temporary_output)
         (temporary_output / SOURCE).write_text("stale\n", encoding="utf-8")
@@ -482,10 +685,7 @@ def selftest(
             raise Refused("generated integrity check accepted altered slice source")
     print("PASS refusal: altered generated slice source is rejected")
 
-    short_trace = (
-        "# initial: pc=0x80010000 gp=0x00000000 sp=0x801FFFF0\n"
-        "0 0x80010004 5"
-    )
+    short_trace = "# initial: pc=0x80010000 gp=0x00000000 sp=0x801FFFF0\n0 0x80010004 5"
     try:
         parse_oracle_trace(short_trace, target=0x80010020, delay_address=0x8001001C)
     except Refused:
@@ -494,11 +694,31 @@ def selftest(
         raise Refused("oracle parser accepted a trace that never reached the call")
     print("PASS refusal: trace without the requested edge is rejected")
 
+    wrong_hardware_trace = (
+        "# stop reason: hardware register touched (window ended here)\n"
+        "# hardware address: 0x1F801070\n"
+        f"# traced 1 of 1 requested step(s), 5 cycle(s), "
+        f"ended pc=0x{prefix.hardware_boundary:08X}\n"
+    )
+    try:
+        verify_hardware_stop(
+            wrong_hardware_trace,
+            boundary=prefix.hardware_boundary,
+            register=prefix.hardware_register,
+        )
+    except Refused:
+        pass
+    else:
+        raise Refused("hardware-stop verifier accepted the wrong register")
+    print("PASS refusal: wrong hardware register is rejected")
+
     manifest = load_manifest(MANIFEST)
     header = manifest.get("header")
     if not isinstance(header, dict):
         raise Refused("manifest field header must be an object")
     entry = parse_hex(header.get("entry"), "header.entry")
+    main_lo = parse_hex(header.get("text_address"), "header.text_address") & 0x1FFFFFFF
+    main_hi = main_lo + parse_hex(header.get("text_size"), "header.text_size")
     try:
         capture_recomp(
             runner,
@@ -506,6 +726,8 @@ def selftest(
             entry,
             prefix.start,
             prefix.next_target + 4,
+            main_lo,
+            main_hi,
             timeout,
         )
     except Refused:
@@ -513,7 +735,7 @@ def selftest(
     else:
         raise Refused("generated runner accepted an unmeasured boundary")
     print("PASS refusal: unmeasured generated boundary is rejected")
-    print("SELFTEST 6/6")
+    print("SELFTEST 7/7")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -535,7 +757,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.emit:
             emit(args.exe, args.output)
         elif args.selftest:
-            selftest(args.exe, args.build, runner, args.output, args.steps, args.timeout)
+            selftest(
+                args.exe, args.build, runner, args.output, args.steps, args.timeout
+            )
         else:
             compare_boundary(
                 args.exe,

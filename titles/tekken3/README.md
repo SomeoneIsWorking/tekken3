@@ -48,13 +48,20 @@ agree on all 35 CPU fields at `0x80028BA0`. This is not a claim that `game_main`
 devices, frames, or gameplay run.
 
 `tools/recomp_boundary.py` advances without compiling unrelated mode bodies: psxport's interpreter
-reproduces the already-verified entry-to-main state, then the shipping recompiler emits exact slices
-for `[0x80028BA0,0x80028BB8)`, `[0x80079D10,0x80079D80)`, and
-`[0x80028BB8,0x80028BC0)`. Independent Mednafen executes the whole window. Both agree on 35/35 CPU
-fields at first-initializer entry step 106159, after its return at `0x80028BB8` step 106181, and at
-next-initializer entry `0x800B0548` step 106183. Generated source is recomputed through the shipping
-emitter, and deliberate register/source/boundary changes must fail. This does not execute inside
-`0x800B0548` or claim a whole resident substrate.
+reproduces the already-verified entry-to-main state, then the shipping recompiler emits the measured
+startup slices plus six bounded function slices along the observed second-initializer path. Ghidra
+identifies that path as `FUN_800b0548 -> FUN_80055884 -> FUN_80079964/FUN_800799a8`, followed by
+`FUN_80085bc8`'s indirect call through the initialized function table to `FUN_80085d5c`.
+
+Independent Mednafen executes the whole window. Both engines agree on 35/35 CPU fields at
+first-initializer entry step 106159, after return at `0x80028BB8` step 106181, at next-initializer
+entry `0x800B0548` step 106183, and at `0x80085D98` step 106388. The final boundary is immediately
+before `FUN_80085d5c` writes the PSX interrupt-mask register I_MASK at `0x1F801074`; the oracle stops
+before executing that hardware access. The generated leg routes the measured indirect call through
+its game-local generated registry rather than replacing it with a direct call. Generated source is
+recomputed through the shipping emitter, and deliberate register/source/boundary/hardware-register
+changes must fail. This does not execute the hardware access or response, later initialization, a
+frame, or gameplay.
 
 ## Reproduce the identity measurement
 
@@ -71,6 +78,6 @@ cmake --build build --target tekken3_recomp_boundary_check -j16
 Resolution is CLI argument > `PSXPORT_TEKKEN3_DISC` > `.env` > one root `*.chd` drop-in. A selected
 path that does not exist refuses rather than falling through to another disc, and ambiguous drop-ins
 also refuse. No disc-derived file belongs in git. The latest comparison establishes generated
-execution only through the first initializer return and the next initializer call delay slot; it
-does not establish execution inside the second initializer, that a Tekken 3 port boots a frame, or
-that a whole recompiled substrate exists.
+execution through the first hardware boundary at `0x80085D98`; it does not establish the
+interrupt-mask write or device response, later initialization, that a Tekken 3 port boots a frame,
+or that a whole recompiled substrate exists.
