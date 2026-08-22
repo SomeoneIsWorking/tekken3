@@ -101,6 +101,34 @@ add_custom_target(
   DEPENDS tekken3_runtime_seam
   USES_TERMINAL
   VERBATIM)
+
+add_executable(tekken3_runtime_contract tests/runtime_contract.cpp)
+target_link_libraries(tekken3_runtime_contract PRIVATE tekken3_runtime)
+add_test(NAME tekken3_runtime_contract COMMAND tekken3_runtime_contract)
+add_custom_target(
+  tekken3_runtime_contract_check
+  COMMAND "$<TARGET_FILE:tekken3_runtime_contract>"
+  DEPENDS tekken3_runtime_contract
+  USES_TERMINAL
+  VERBATIM)
+
+# Device-side oracle for T3-04's first hardware sequence. This compiles the vendored Mednafen IRQ
+# controller itself in a separate process; it neither shares state nor an implementation with
+# psxport's Core::io_read/io_write path.
+add_executable(
+  tekken3_irq_oracle
+  tests/irq_oracle.cpp
+  "${PSXPORT_DIR}/vendor/beetle-psx/mednafen/psx/irq.c")
+target_include_directories(
+  tekken3_irq_oracle PRIVATE
+  "${PSXPORT_DIR}/vendor/beetle-psx"
+  "${PSXPORT_DIR}/vendor/beetle-psx/mednafen"
+  "${PSXPORT_DIR}/vendor/beetle-psx/mednafen/psx"
+  "${PSXPORT_DIR}/vendor/beetle-psx/include"
+  "${PSXPORT_DIR}/vendor/beetle-psx/libretro-common/include")
+target_compile_features(tekken3_irq_oracle PRIVATE cxx_std_20)
+add_test(NAME tekken3_irq_oracle_selftest COMMAND tekken3_irq_oracle --selftest)
+
 add_custom_target(
   tekken3_recomp_boundary_check
   COMMAND
@@ -108,7 +136,8 @@ add_custom_target(
     "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tools/recomp_boundary.py"
     --selftest --exe "${TEKKEN3_EXE}" --build "${CMAKE_BINARY_DIR}"
     --runner "$<TARGET_FILE:tekken3_recomp_boundary>"
-  DEPENDS tekken3_recomp_boundary oracle_trace
+    --irq-oracle "$<TARGET_FILE:tekken3_irq_oracle>"
+  DEPENDS tekken3_irq_oracle tekken3_recomp_boundary oracle_trace
   USES_TERMINAL
   VERBATIM)
 add_test(
@@ -116,7 +145,8 @@ add_test(
   COMMAND
     "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tools/recomp_boundary.py"
     --selftest --exe "${TEKKEN3_EXE}" --build "${CMAKE_BINARY_DIR}"
-    --runner "$<TARGET_FILE:tekken3_recomp_boundary>")
+    --runner "$<TARGET_FILE:tekken3_recomp_boundary>"
+    --irq-oracle "$<TARGET_FILE:tekken3_irq_oracle>")
 add_custom_target(
   tekken3_tool_selftests
   COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/provision_executable.py" --selftest
@@ -141,6 +171,7 @@ add_custom_target(
     psxport_smoke
     tekken3_boot_oracle_selftest
     tekken3_recomp_boundary_check
+    tekken3_runtime_contract_check
     tekken3_runtime_seam_check
     tekken3_tool_selftests
   USES_TERMINAL

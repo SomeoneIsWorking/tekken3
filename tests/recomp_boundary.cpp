@@ -20,6 +20,7 @@ std::uint32_t tekken3_initializer_entry_boundary();
 std::uint32_t tekken3_initializer_return_boundary();
 std::uint32_t tekken3_next_initializer_boundary();
 std::uint32_t tekken3_hardware_boundary();
+std::uint32_t tekken3_interrupt_reset_boundary();
 void tekken3_boundary_main_dispatch(Core *, std::uint32_t);
 int tekken3_boundary_func_index(std::uint32_t);
 
@@ -61,6 +62,7 @@ void stopAtDirectMain(Core *, std::uint64_t, std::uint32_t, void *) {
   }
   std::printf("# RECOMP-REG lo=0x%08X\n", core->lo);
   std::printf("# RECOMP-REG hi=0x%08X\n", core->hi);
+  std::printf("# RECOMP-DEVICE I_STAT=0x%03X I_MASK=0x%03X\n", core->game->hle.i_stat, core->game->hle.i_mask);
   std::fflush(stdout);
   std::exit(EXIT_SUCCESS);
 }
@@ -91,7 +93,8 @@ int main(int argc, char **argv) {
   }
   if (requestedBoundary != tekken3_initializer_entry_boundary() &&
       requestedBoundary != tekken3_initializer_return_boundary() &&
-      requestedBoundary != tekken3_next_initializer_boundary() && requestedBoundary != tekken3_hardware_boundary()) {
+      requestedBoundary != tekken3_next_initializer_boundary() && requestedBoundary != tekken3_hardware_boundary() &&
+      requestedBoundary != tekken3_interrupt_reset_boundary()) {
     std::fprintf(stderr, "REFUSED: unsupported generated boundary 0x%08X\n", requestedBoundary);
     return 2;
   }

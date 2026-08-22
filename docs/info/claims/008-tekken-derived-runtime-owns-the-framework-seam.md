@@ -1,10 +1,11 @@
 ---
 id: C008
 kind: claim
-status: holds
+status: falsified
 created: 2026-08-22
 tags: runtime,inheritance,architecture,t3-04
 depends: game/core/tekken3_runtime.cpp, tests/runtime_seam.cpp#main, tests/recomp_boundary.cpp#main, tools/boot_probe.cpp#main
+falsified_on: 2026-08-22
 ---
 
 ## Claim
@@ -30,3 +31,9 @@ or advance the I_MASK frontier.
 A Tekken entry point reinstalls `GameConfig`/`GameHooks` directly, the runtime gains legacy behavior
 callbacks or additional compatibility fields, `Core` no longer snapshots the derived owner/range,
 or the real boundary comparison ceases to agree 35/35 at any of the four measured edges.
+
+## FALSIFIED 2026-08-22
+
+The claim described the bounded legacy adapter as Tekken runtime architecture. GuestProgramImage now owns residentText in psxport, so Tekken3Runtime derives directly from GameRuntime; Core sees null cfg/hooks/context. The old adapter claim was historically verified but no longer describes the shipping source.
+
+> Anything that cited this claim as proof must be re-checked. Grep the repo for it.

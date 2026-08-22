@@ -18,6 +18,6 @@ Establish a faithful, measurable base before the widescreen enhancement.
 
 Host ownership follows Dusklight's composition boundary: `game/core/tekken3_runtime.*` is the one
 process-lifetime game owner, while the probe entry points only parse their inputs, install that
-owner, and drive the framework. The runtime derives through psxport's bounded legacy adapter only
-because the generated-code router still consumes the measured resident-text range; no Tekken
-behavior belongs in `GameConfig` or `GameHooks`, and no new field or callback may be added there.
+owner, and drive the framework. The runtime derives directly from `GameRuntime` and owns the
+measured resident-text range through immutable `GuestProgramImage`; Tekken source must not include
+or instantiate `LegacyGameRuntimeAdapter`, `GameConfig`, or `GameHooks`.

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "game_iface.h"
+#include "game_runtime.h"
 
 #include <cstdint>
 
@@ -13,17 +13,21 @@ struct ResidentProgramRange {
   std::uint32_t hi;
 };
 
-// Process-lifetime owner of Tekken 3's framework-facing behavior. The legacy base is bounded debt:
-// psxport's generated-code router still reads recMainLo/recMainHi through Core::cfg. No behavior is
-// delegated through GameHooks, and new Tekken behavior belongs on this runtime or cohesive owners it
-// creates.
-class Tekken3Runtime final : public LegacyGameRuntimeAdapter {
+// Process-lifetime owner of Tekken 3's framework-facing behavior. Immutable executable facts live
+// on GuestProgramImage; behavior belongs on this runtime or cohesive owners it creates.
+class Tekken3Runtime final : public GameRuntime {
 public:
-  Tekken3Runtime();
+  Tekken3Runtime() = default;
   explicit Tekken3Runtime(ResidentProgramRange residentProgram);
 
+  void *createContext(Core &core) override;
+  void destroyContext(void *context) override;
   void registerOverrides(Game &game) override;
   [[noreturn]] void bootInit(Core &core) override;
+  const GuestProgramImage *guestProgramImage() const override;
+
+private:
+  const GuestProgramImage programImage_{};
 };
 
 } // namespace tekken3

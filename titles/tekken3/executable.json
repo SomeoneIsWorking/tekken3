@@ -41,6 +41,17 @@
     "hardware_frontier": {
       "boundary": "0x80085D98",
       "hardware_register": "0x1F801074",
+      "interrupt_reset": {
+        "mask_write_address": "0x80085D94",
+        "mask_write_word": "0xA4400000",
+        "mask_read_address": "0x80085D98",
+        "mask_read_word": "0x94420000",
+        "mask_merge_address": "0x80085D9C",
+        "mask_merge_word": "0x34A53333",
+        "status_write_address": "0x80085DA0",
+        "status_write_word": "0xA4620000",
+        "boundary": "0x80085DA4"
+      },
       "second_initializer_prefix_end": "0x800B0564",
       "arena_initializer": {
         "start": "0x80055884",

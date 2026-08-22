@@ -3,8 +3,9 @@
 
 The port executes the verified entry-to-main window in psxport's interpreter, then executes C
 emitted by the shipping recompiler through ``game_main``'s first initializer return and the next
-initializer call. The true-oracle leg executes the entire window in vendored Mednafen. No later
-game code, BIOS, device result, or whole-image seed set is guessed.
+initializer call. The true-CPU-oracle leg executes through the first device access in vendored
+Mednafen; a separate process built from Mednafen's IRQ controller verifies that access and its reset
+response. No later game code, BIOS behavior, or whole-image seed set is guessed.
 """
 
 from __future__ import annotations
@@ -60,6 +61,17 @@ TRACE_END_RE = re.compile(
 HARDWARE_ADDRESS_RE = re.compile(
     r"^# hardware address: 0x(?P<address>[0-9A-Fa-f]{8})$", re.MULTILINE
 )
+RECOMP_DEVICE_RE = re.compile(
+    r"^# RECOMP-DEVICE I_STAT=0x(?P<status>[0-9A-Fa-f]+) "
+    r"I_MASK=0x(?P<mask>[0-9A-Fa-f]+)$",
+    re.MULTILINE,
+)
+IRQ_ORACLE_RE = re.compile(
+    r"^# IRQ-ORACLE mask-readback=0x(?P<readback>[0-9A-Fa-f]+) "
+    r"status=0x(?P<status>[0-9A-Fa-f]+) mask=0x(?P<mask>[0-9A-Fa-f]+) "
+    r"line=(?P<line>[01])$",
+    re.MULTILINE,
+)
 
 
 @dataclass(frozen=True)
@@ -68,6 +80,7 @@ class FunctionSlice:
     start: int
     end: int
     body_name: str
+    dispatchable: bool = True
 
     @property
     def instructions(self) -> int:
@@ -89,6 +102,7 @@ class GeneratedSlices:
     next_instructions: int
     hardware_boundary: int
     hardware_register: int
+    interrupt_reset_boundary: int
     frontier_slices: tuple[FunctionSlice, ...]
     emitter_version: str
     source: str
@@ -126,7 +140,9 @@ def render_slices(executable: pathlib.Path) -> GeneratedSlices:
     def frontier_address(name: str) -> int:
         return parse_hex(frontier.get(name), f"startup.hardware_frontier.{name}")
 
-    def frontier_range(name: str, body_name: str) -> FunctionSlice:
+    def frontier_range(
+        name: str, body_name: str, *, dispatchable: bool = True
+    ) -> FunctionSlice:
         value = frontier.get(name)
         if not isinstance(value, dict):
             raise Refused(f"startup.hardware_frontier.{name} must be an object")
@@ -137,7 +153,11 @@ def render_slices(executable: pathlib.Path) -> GeneratedSlices:
                 f"startup.hardware_frontier.{name} is not a non-empty aligned range"
             )
         return FunctionSlice(
-            name.replace("_", " "), start_address, end_address, body_name
+            name.replace("_", " "),
+            start_address,
+            end_address,
+            body_name,
+            dispatchable,
         )
 
     start = int(fields["call_target"])
@@ -153,11 +173,45 @@ def render_slices(executable: pathlib.Path) -> GeneratedSlices:
     next_instructions = (next_end - next_call_address) // 4
     hardware_boundary = frontier_address("boundary")
     hardware_register = frontier_address("hardware_register")
+    interrupt_reset = frontier.get("interrupt_reset")
+    if not isinstance(interrupt_reset, dict):
+        raise Refused("startup.hardware_frontier.interrupt_reset must be an object")
+
+    def reset_address(name: str) -> int:
+        return parse_hex(
+            interrupt_reset.get(name),
+            f"startup.hardware_frontier.interrupt_reset.{name}",
+        )
+
+    reset_words = {
+        reset_address("mask_write_address"): reset_address("mask_write_word"),
+        reset_address("mask_read_address"): reset_address("mask_read_word"),
+        reset_address("mask_merge_address"): reset_address("mask_merge_word"),
+        reset_address("status_write_address"): reset_address("status_write_word"),
+    }
+    interrupt_reset_boundary = reset_address("boundary")
+    if tuple(reset_words) != (
+        hardware_boundary - 4,
+        hardware_boundary,
+        hardware_boundary + 4,
+        hardware_boundary + 8,
+    ) or interrupt_reset_boundary != hardware_boundary + 12:
+        raise Refused(
+            "measured interrupt-reset sequence is not the contiguous "
+            "I_MASK-write/read/I_STAT-write window"
+        )
     second_initializer_end = frontier_address("second_initializer_prefix_end")
     frontier_slices = (
         frontier_range("arena_size_selector", "tekken3_arena_size_selector_body"),
         frontier_range("arena_layout_builder", "tekken3_arena_layout_builder_body"),
         frontier_range("arena_initializer", "tekken3_arena_initializer_body"),
+        FunctionSlice(
+            "interrupt reset continuation",
+            hardware_boundary,
+            interrupt_reset_boundary,
+            "tekken3_interrupt_reset_continuation_body",
+            False,
+        ),
         frontier_range(
             "interrupt_initializer_prefix", "tekken3_interrupt_initializer_prefix_body"
         ),
@@ -184,7 +238,12 @@ def render_slices(executable: pathlib.Path) -> GeneratedSlices:
         raise Refused(
             "measured next initializer call is not the immediate two-instruction slice"
         )
-    if hardware_boundary != frontier_slices[3].end:
+    interrupt_prefix = next(
+        item
+        for item in frontier_slices
+        if item.body_name == "tekken3_interrupt_initializer_prefix_body"
+    )
+    if hardware_boundary != interrupt_prefix.end:
         raise Refused(
             "interrupt initializer prefix must end at the measured hardware boundary"
         )
@@ -193,12 +252,22 @@ def render_slices(executable: pathlib.Path) -> GeneratedSlices:
 
     emitter, psexe = load_recompiler()
     image = psexe.load(str(executable))
+    for address, expected_word in reset_words.items():
+        actual_word = image.word(address)
+        if actual_word != expected_word:
+            raise Refused(
+                "interrupt-reset instruction differs from the tracked executable: "
+                f"0x{address:08X}=0x{actual_word:08X}, expected 0x{expected_word:08X}"
+            )
     known_entries = {
         start,
         initializer_start,
-        *(item.start for item in frontier_slices),
+        *(item.start for item in frontier_slices if item.dispatchable),
     }
 
+    reset_continuation = next(
+        item for item in frontier_slices if not item.dispatchable
+    )
     emitted_frontier: list[str] = []
     for item in frontier_slices:
         body: list[str] = []
@@ -213,6 +282,8 @@ def render_slices(executable: pathlib.Path) -> GeneratedSlices:
         )
         emitted_frontier.extend(body)
         emitted_frontier.append("")
+        if not item.dispatchable:
+            continue
         emitted_frontier.append(f"void func_{item.start:08X}(Core* c) {{")
         if item.start == next_target:
             emitted_frontier.append(
@@ -220,8 +291,13 @@ def render_slices(executable: pathlib.Path) -> GeneratedSlices:
             )
         emitted_frontier.append(f"  {item.body_name}(c);")
         if item.end == hardware_boundary:
-            emitted_frontier.append(
-                f"  tekken3_boundary_hook(c, 0x{hardware_boundary:08X}u);"
+            emitted_frontier.extend(
+                (
+                    f"  tekken3_boundary_hook(c, 0x{hardware_boundary:08X}u);",
+                    f"  {reset_continuation.body_name}(c);",
+                    "  tekken3_boundary_hook(c, "
+                    f"0x{interrupt_reset_boundary:08X}u);",
+                )
             )
         emitted_frontier.append("}")
         emitted_frontier.append("")
@@ -279,6 +355,7 @@ def render_slices(executable: pathlib.Path) -> GeneratedSlices:
             *(
                 line
                 for item in frontier_slices
+                if item.dispatchable
                 for line in (
                     f"  case 0x{item.start:08X}u:",
                     f"    func_{item.start:08X}(c);",
@@ -294,7 +371,9 @@ def render_slices(executable: pathlib.Path) -> GeneratedSlices:
             "  switch (address) {",
             *(
                 f"  case 0x{item.start:08X}u: return {index};"
-                for index, item in enumerate(frontier_slices)
+                for index, item in enumerate(
+                    item for item in frontier_slices if item.dispatchable
+                )
             ),
             "  default: return -1;",
             "  }",
@@ -311,6 +390,9 @@ def render_slices(executable: pathlib.Path) -> GeneratedSlices:
             "}",
             "uint32_t tekken3_hardware_boundary() {",
             f"  return 0x{hardware_boundary:08X}u;",
+            "}",
+            "uint32_t tekken3_interrupt_reset_boundary() {",
+            f"  return 0x{interrupt_reset_boundary:08X}u;",
             "}",
             "",
         )
@@ -329,6 +411,7 @@ def render_slices(executable: pathlib.Path) -> GeneratedSlices:
         next_instructions,
         hardware_boundary,
         hardware_register,
+        interrupt_reset_boundary,
         frontier_slices,
         emitter.RECOMP_VERSION,
         source,
@@ -358,8 +441,10 @@ def metadata(prefix: GeneratedSlices, executable: pathlib.Path) -> dict[str, obj
         "hardware_frontier": {
             "boundary": f"0x{prefix.hardware_boundary:08X}",
             "hardware_register": f"0x{prefix.hardware_register:08X}",
+            "interrupt_reset_boundary": f"0x{prefix.interrupt_reset_boundary:08X}",
             "slices": [
                 {
+                    "dispatchable": item.dispatchable,
                     "end": f"0x{item.end:08X}",
                     "instructions": item.instructions,
                     "label": item.label,
@@ -392,8 +477,9 @@ def emit(executable: pathlib.Path, output: pathlib.Path) -> GeneratedSlices:
         "PASS emission: executable-derived slices contain "
         f"{prefix.first_instructions} game_main + {prefix.initializer_instructions} initializer "
         f"+ {prefix.next_instructions} next-call + "
-        f"{sum(item.instructions for item in prefix.frontier_slices)} hardware-frontier "
-        f"instructions through 0x{prefix.hardware_boundary:08X}; "
+        f"{sum(item.instructions for item in prefix.frontier_slices if item.dispatchable)} "
+        f"pre-device and {sum(item.instructions for item in prefix.frontier_slices if not item.dispatchable)} "
+        f"device-response instructions through 0x{prefix.interrupt_reset_boundary:08X}; "
         f"recompiler {prefix.emitter_version}"
     )
     return prefix
@@ -516,6 +602,22 @@ def capture_recomp(
     main_hi: int,
     timeout: float,
 ) -> BoundaryState:
+    text = capture_recomp_text(
+        runner, executable, entry, direct_main, target, main_lo, main_hi, timeout
+    )
+    return parse_recomp(text, target)
+
+
+def capture_recomp_text(
+    runner: pathlib.Path,
+    executable: pathlib.Path,
+    entry: int,
+    direct_main: int,
+    target: int,
+    main_lo: int,
+    main_hi: int,
+    timeout: float,
+) -> str:
     result = run_process(
         [
             str(runner),
@@ -533,7 +635,78 @@ def capture_recomp(
             f"generated runner exited {result.returncode}: "
             f"{(result.stderr or result.stdout).strip()}"
         )
-    return parse_recomp(result.stdout, target)
+    return result.stdout
+
+
+def parse_device_state(text: str) -> tuple[int, int]:
+    match = RECOMP_DEVICE_RE.search(text)
+    if match is None:
+        raise Refused("generated runner emitted no interrupt-controller state")
+    return int(match.group("status"), 16), int(match.group("mask"), 16)
+
+
+def capture_irq_oracle(
+    oracle: pathlib.Path, timeout: float, *, selftest: bool = False
+) -> tuple[int, int, int, int]:
+    result = run_process(
+        [str(oracle), *(('--selftest',) if selftest else ())], timeout
+    )
+    if result.returncode != 0:
+        raise Refused(
+            f"independent IRQ oracle exited {result.returncode}: "
+            f"{(result.stderr or result.stdout).strip()}"
+        )
+    match = IRQ_ORACLE_RE.search(result.stdout)
+    if match is None:
+        raise Refused("independent IRQ oracle emitted no device snapshot")
+    if selftest and "SELFTEST 2/2" not in result.stdout:
+        raise Refused("independent IRQ oracle omitted its opposite-answer denominator")
+    return tuple(
+        int(match.group(name), 16)
+        for name in ("readback", "status", "mask", "line")
+    )
+
+
+def verify_interrupt_reset(
+    executable: pathlib.Path,
+    runner: pathlib.Path,
+    irq_oracle: pathlib.Path,
+    prefix: GeneratedSlices,
+    entry: int,
+    main_lo: int,
+    main_hi: int,
+    timeout: float,
+) -> None:
+    check_tool(irq_oracle, "independent Mednafen IRQ oracle")
+    expected_readback, expected_status, expected_mask, expected_line = (
+        capture_irq_oracle(irq_oracle, timeout)
+    )
+    capture_irq_oracle(irq_oracle, timeout, selftest=True)
+    text = capture_recomp_text(
+        runner,
+        executable,
+        entry,
+        prefix.start,
+        prefix.interrupt_reset_boundary,
+        main_lo,
+        main_hi,
+        timeout,
+    )
+    state = parse_recomp(text, prefix.interrupt_reset_boundary)
+    actual_status, actual_mask = parse_device_state(text)
+    actual = (state.fields["v0"] & 0xFFFF, actual_status, actual_mask)
+    expected = (expected_readback, expected_status, expected_mask)
+    if actual != expected or expected_line != 0:
+        raise Mismatch(
+            "interrupt reset differs from independent Mednafen IRQ semantics: "
+            f"readback/status/mask={actual!r}, expected {expected!r}, "
+            f"oracle line={expected_line}"
+        )
+    print(
+        "PASS interrupt-controller reset: shipping-emitted Tekken sequence and "
+        "independent Mednafen agree on 3/3 device observations at "
+        f"0x{prefix.interrupt_reset_boundary:08X}; IRQ oracle SELFTEST 2/2"
+    )
 
 
 def compare_boundary(
@@ -545,6 +718,7 @@ def compare_boundary(
     steps: int,
     timeout: float,
     raw: pathlib.Path,
+    irq_oracle: pathlib.Path | None = None,
     force_mismatch: str | None = None,
 ) -> dict[str, tuple[BoundaryState, BoundaryState]]:
     manifest = load_manifest(MANIFEST)
@@ -625,9 +799,21 @@ def compare_boundary(
             f"{total}/{total} CPU fields at 0x{target:08X} (oracle step {reference.step})"
         )
         results[label] = (reference, port)
+    if irq_oracle is not None:
+        verify_interrupt_reset(
+            executable,
+            runner,
+            irq_oracle,
+            prefix,
+            entry,
+            main_lo,
+            main_hi,
+            timeout,
+        )
     print(f"trace: {trace_path}")
     print(
-        "NOT covered: execution of the first hardware access, device response, a frame, or gameplay"
+        "NOT covered: independent CPU stepping after the first hardware access, later devices, "
+        "a frame, or gameplay"
     )
     return results
 
@@ -639,13 +825,16 @@ def selftest(
     output: pathlib.Path,
     steps: int,
     timeout: float,
+    irq_oracle: pathlib.Path,
 ) -> None:
     prefix = inspect_generated(executable, output)
     print(
         "PASS generated integrity: exact executable slices contain "
         f"{prefix.first_instructions} + {prefix.initializer_instructions} + "
         f"{prefix.next_instructions} startup instructions and "
-        f"{sum(item.instructions for item in prefix.frontier_slices)} frontier instructions"
+        f"{sum(item.instructions for item in prefix.frontier_slices if item.dispatchable)} "
+        f"pre-device + {sum(item.instructions for item in prefix.frontier_slices if not item.dispatchable)} "
+        "device-response instructions"
     )
     results = compare_boundary(
         executable,
@@ -655,6 +844,7 @@ def selftest(
         steps=steps,
         timeout=timeout,
         raw=DEFAULT_RAW,
+        irq_oracle=irq_oracle,
     )
     reference, port = results["first initializer return"]
     changed = dict(port.fields)
@@ -735,7 +925,7 @@ def selftest(
     else:
         raise Refused("generated runner accepted an unmeasured boundary")
     print("PASS refusal: unmeasured generated boundary is rejected")
-    print("SELFTEST 7/7")
+    print("SELFTEST 9/9")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -743,6 +933,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--exe", type=pathlib.Path, default=DEFAULT_EXE)
     parser.add_argument("--build", type=pathlib.Path, default=DEFAULT_BUILD)
     parser.add_argument("--runner", type=pathlib.Path)
+    parser.add_argument("--irq-oracle", type=pathlib.Path)
     parser.add_argument("--output", type=pathlib.Path, default=DEFAULT_GENERATED)
     parser.add_argument("--steps", type=int, default=120_000)
     parser.add_argument("--timeout", type=float, default=30.0)
@@ -753,12 +944,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     action.add_argument("--selftest", action="store_true")
     args = parser.parse_args(argv)
     runner = args.runner or args.build / "tekken3_recomp_boundary"
+    irq_oracle = args.irq_oracle or args.build / "tekken3_irq_oracle"
     try:
         if args.emit:
             emit(args.exe, args.output)
         elif args.selftest:
             selftest(
-                args.exe, args.build, runner, args.output, args.steps, args.timeout
+                args.exe,
+                args.build,
+                runner,
+                args.output,
+                args.steps,
+                args.timeout,
+                irq_oracle,
             )
         else:
             compare_boundary(
@@ -769,6 +967,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 steps=args.steps,
                 timeout=args.timeout,
                 raw=DEFAULT_RAW,
+                irq_oracle=irq_oracle,
                 force_mismatch=args.force_mismatch,
             )
         return 0
