@@ -151,7 +151,15 @@
       },
       "interrupt_context_save": {
         "start": "0x800862D8",
-        "end": "0x80086314"
+        "end": "0x80086314",
+        "caller_base_load": "0x80085D64",
+        "caller_base_add": "0x80085D68",
+        "buffer": "0x80099BD8",
+        "call_address": "0x80085DBC",
+        "call_delay_word": "0x26040038",
+        "resume_address": "0x80085DC4",
+        "resume_word": "0x10400003",
+        "resume_branch_target": "0x80085DD4"
       },
       "second_initializer_prefix_end": "0x800B0564",
       "arena_initializer": {

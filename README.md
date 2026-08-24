@@ -3,18 +3,38 @@
 PC-native PlayStation port of Tekken 3, built on
 [psxport](https://github.com/SomeoneIsWorking/psxport).
 
-Current status: the USA target executable can be provisioned, its direct-to-main startup shape is
-verified, and independent Mednafen agrees with generated execution at five boundaries through the
-first unsupported device access. The shared oracle's real IRQ controller keeps the same CPU running
+Current status: the USA target executable can be provisioned and translated into the dedicated
+`tekken3_port` player product; its direct-to-main startup shape is verified, and independent
+Mednafen agrees with generated execution at five boundaries through the first unsupported device
+access. The shared oracle's real IRQ controller keeps the same CPU running
 through Tekken's I_MASK-write/read and I_STAT-write sequence, then both paths agree on 35/35 CPU
 fields at `0x80085DB4`, where the oracle reports Tekken's `0x33333333` write to DPCR
 (`0x1F8010F0`) instead of inventing DMA behavior. The generated path independently proves that exact
 DPCR value, and the isolated IRQ comparison still agrees on 3/3 device observations at `0x80085DA4`.
-Both harnesses install one process-lifetime `Tekken3Runtime` through psxport's direct runtime seam.
-No extracted executable is tracked, and no independent CPU execution after that DPCR access,
-whole generated substrate, frame, gameplay, native producer, or widescreen path is claimed yet. Tekken 3
+Both harnesses and the player install one process-lifetime `Tekken3Runtime` through psxport's direct
+runtime seam. No extracted executable or generated source is tracked. A complete emitted resident
+substrate and a player executable now exist, but that is a packaging/build milestone: no independent
+CPU execution after the DPCR access, completed frame, gameplay, native producer, or widescreen path
+is claimed yet. Tekken 3
 (`SLUS_004.02`) already
 runs at 60 fps, so this port deliberately has no fps60 or interpolation target.
+
+## Build and launch the player
+
+Install `uv`, CMake, Git, a compatible C/C++ toolchain, SDL3, SDL3_image, FreeType, and zstd. Then
+pass the USA CHD, set `PSXPORT_TEKKEN3_DISC`, copy `.env.example` to the gitignored `.env`, or place
+one `*.chd` in the repository root:
+
+```sh
+./run.sh "/path/to/Tekken 3 (USA).chd"
+```
+
+After the disc source has been configured, `./run.sh` with no arguments is the stable default. It
+uses the frozen uv environment, resolves the recorded psxport framework, provisions and verifies
+`SLUS_004.02`, emits the whole-program substrate from those user-supplied bytes, builds
+`tekken3_port`, and launches that product. It never substitutes the framework smoke target, a test,
+or a boundary probe. `./run.sh --prepare-only` exercises the same provisioning and player build
+without launching a game process. Ghidra and other maintainer RE tools are not player prerequisites.
 
 ## Configure the framework scaffold
 
@@ -43,10 +63,11 @@ has been removed: it derives directly from `GameRuntime`, returns an immutable `
 for measured resident text, and exposes null legacy config/hooks/context views. The interpreter-only
 probe honestly supplies no program image because it never routes generated code.
 
-`tekken3_scaffold` and its smoke test only prove that the game-agnostic framework links. The separate
-boundary probes run real Tekken instructions through the first initializer and the measured
+`tekken3_port` is the player product. `tekken3_scaffold` and its smoke test remain explicit
+diagnostics that only prove the game-agnostic framework links; neither is the launcher default. The
+separate boundary probes run real Tekken instructions through the first initializer and the measured
 second-initializer call chain through its interrupt-controller reset sequence; no target launches a
-frame or gameplay.
+verified frame or gameplay yet.
 See `titles/tekken3/README.md` for the measured target and
 `docs/re-frontier.md` for the ordered work required before a whole substrate or booted-frame claim is
 possible.

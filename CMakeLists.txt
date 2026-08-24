@@ -34,6 +34,8 @@ target_include_directories(tekken3_runtime PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/g
 target_compile_features(tekken3_runtime PUBLIC cxx_std_20)
 target_link_libraries(tekken3_runtime PUBLIC psxport)
 
+include(cmake/tekken3_port.cmake)
+
 add_executable(tekken3_boot_probe tools/boot_probe.cpp)
 target_link_libraries(tekken3_boot_probe PRIVATE tekken3_runtime)
 set_target_properties(
@@ -154,6 +156,14 @@ add_custom_target(
   COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/provision_executable.py" --selftest
   COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/verify_startup.py" --selftest
   COMMAND
+    "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tools/test_ensure_recomp.py"
+  COMMAND
+    "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tools/test_run.py"
+  COMMAND
+    "${Python3_EXECUTABLE}" -B
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/verify_interrupt_reentry.py"
+    --selftest --exe "${TEKKEN3_EXE}"
+  COMMAND
     "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/verify_projection.py"
     --selftest --exe "${TEKKEN3_EXE}"
   USES_TERMINAL
@@ -162,6 +172,20 @@ add_test(
   NAME tekken3_projection_selftest
   COMMAND
     "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/verify_projection.py"
+    --selftest --exe "${TEKKEN3_EXE}")
+add_test(
+  NAME tekken3_ensure_recomp_selftest
+  COMMAND
+    "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tools/test_ensure_recomp.py")
+add_test(
+  NAME tekken3_launcher_selftest
+  COMMAND
+    "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tools/test_run.py")
+add_test(
+  NAME tekken3_interrupt_reentry_selftest
+  COMMAND
+    "${Python3_EXECUTABLE}" -B
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/verify_interrupt_reentry.py"
     --selftest --exe "${TEKKEN3_EXE}")
 add_custom_target(
   cpp_policy

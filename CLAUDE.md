@@ -17,7 +17,16 @@ ownership the measured wide path requires, and never reconstruct pictures from G
 Establish a faithful, measurable base before the widescreen enhancement.
 
 Host ownership follows Dusklight's composition boundary: `game/core/tekken3_runtime.*` is the one
-process-lifetime game owner, while the probe entry points only parse their inputs, install that
-owner, and drive the framework. The runtime derives directly from `GameRuntime` and owns the
+process-lifetime game owner, `game/core/tekken3_port.*` composes framework devices around it, and
+`game/core/main.cpp` is the narrow player entry point. The generated whole-program substrate is
+owned by `tools/ensure_recomp.py` and lives only under gitignored `generated/port/`; never edit it by
+hand. Probe entry points only parse their inputs, install the same owner, and drive the framework.
+The runtime derives directly from `GameRuntime` and owns the
 measured resident-text range through immutable `GuestProgramImage`; Tekken source must not include
 or instantiate `LegacyGameRuntimeAdapter`, `GameConfig`, or `GameHooks`.
+
+`./run.sh` is the shipping zero-argument player contract: a slim `uv run --frozen` shim into
+`bootstrap.py` and `tools/run.py`. The Python initializer provisions and identity-checks the user's
+disc executable, emits the resident product, builds `tekken3_port`, and launches only that product.
+It must not run CTest, smoke, probes, or diagnostics. CMake owns compiler discovery; the launcher
+must not add compiler-identity allowlists, denylists, or forced compiler selections.
