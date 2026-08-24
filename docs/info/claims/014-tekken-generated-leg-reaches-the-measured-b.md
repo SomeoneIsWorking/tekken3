@@ -6,7 +6,7 @@ created: 2026-08-24
 tags: t3-04,oracle,bios,dma,dpcr
 depends: tools/bios_edge.py#validate_bios_edge, tools/recomp_boundary.py#verify_external_call, tests/recomp_boundary.cpp#tekken3_boundary_note, titles/tekken3/executable.json
 reconfirmed: 2026-08-24
-verified_at: 2026-08-24 20:02:29
+verified_at: 2026-08-24 20:05:28
 ---
 
 ## Claim
@@ -46,3 +46,7 @@ wrong-hardware-register, unmeasured-boundary, and forced-a0 cases.
 ## Re-confirmed 2026-08-24
 
 On pinned psxport bc8c8897, authoritative verify reconfirmed the register-derived B0/19 edge to pc=ra=0x80085DEC, while retaining the explicit single-engine/no-frame limitation; five independent 35/35 comparisons through DPCR, IRQ 3/3 + selftest 2/2, and boundary selftest 11/11 passed.
+
+## Re-confirmed 2026-08-24
+
+Post-landing authoritative verify reconfirmed the register-derived B0/19 generated-only edge to pc=ra=0x80085DEC and all BIOS-edge refusal controls

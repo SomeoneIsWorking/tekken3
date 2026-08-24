@@ -6,7 +6,7 @@ created: 2026-08-22
 tags: enhancement,widescreen,scope,architecture
 depends: game/core/tekken3_runtime.cpp#Tekken3Runtime::bootInit
 reconfirmed: 2026-08-24
-verified_at: 2026-08-24 20:02:29
+verified_at: 2026-08-24 20:05:27
 ---
 
 ## Claim
@@ -51,3 +51,7 @@ After direct GameRuntime migration, source audit and the 6-token contract found 
 ## Re-confirmed 2026-08-24
 
 On pinned psxport bc8c8897, repository audit still found no operational Tekken fps60/interpolation/lerp state. The direct boundary runtime added only explicit guest-VRAM picture ownership=false; authoritative verify, CTest 6/6, and Clang policy passed. No rendered frame is claimed.
+
+## Re-confirmed 2026-08-24
+
+Post-landing verify and runtime seam retain direct widescreen-only boundary ownership; no temporal/interpolation/lerp path added

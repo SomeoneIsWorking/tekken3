@@ -5,8 +5,8 @@ status: holds
 created: 2026-08-22
 tags: t3-04,oracle,dma,dpcr
 depends: tools/recomp_boundary.py#compare_boundary, tests/recomp_boundary.cpp#main, titles/tekken3/executable.json
-reconfirmed: 2026-08-22
-verified_at: 2026-08-22 19:41:47
+reconfirmed: 2026-08-24
+verified_at: 2026-08-24 20:05:28
 ---
 
 ## Claim
@@ -44,3 +44,7 @@ five-boundary 35/35 oracle/generated comparison through DPCR stop 0x80085DB4 (or
 generated DPCR store 0x33333333, IRQ 3/3 + SELFTEST 2/2, boundary SELFTEST 11/11, projection 33/33 +
 7/7, boot-oracle 35/35 at 0x80028BA0, startup 18/18 + selftest 10/10, provision selftest 12/12,
 cpp-policy, runtime seam/contract, smoke 8/8.
+
+## Re-confirmed 2026-08-24
+
+Post-landing authoritative verify reconfirmed independent/generated DPCR boundary 35/35 and generated DPCR value 0x33333333

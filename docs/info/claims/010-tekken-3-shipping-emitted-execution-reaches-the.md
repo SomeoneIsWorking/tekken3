@@ -5,8 +5,8 @@ status: holds
 created: 2026-08-22
 tags: t3-04,irq,oracle
 depends: tools/recomp_boundary.py#verify_interrupt_reset, tests/recomp_boundary.cpp#main, tests/irq_oracle.cpp#main, titles/tekken3/executable.json
-reconfirmed: 2026-08-22
-verified_at: 2026-08-22 19:41:46
+reconfirmed: 2026-08-24
+verified_at: 2026-08-24 20:05:28
 ---
 
 ## Claim
@@ -40,3 +40,7 @@ Post-commit 1022430 authoritative T3-04 gate still agrees 35/35 CPU fields throu
 ## Re-confirmed 2026-08-22
 
 Post-change authoritative verify remained green: serial identity, five-boundary 35/35 oracle/generated comparison through DPCR, IRQ controls, projection 7/7, Clang format/size/tidy, runtime seam, pin and smoke gates passed on 2026-08-22.
+
+## Re-confirmed 2026-08-24
+
+Post-landing authoritative verify reconfirmed IRQ reset 3/3 with independent oracle SELFTEST 2/2

@@ -5,8 +5,8 @@ status: holds
 created: 2026-08-20
 tags: target,executable,t3-01
 depends: titles/tekken3/executable.json
-reconfirmed: 2026-08-22
-verified_at: 2026-08-22 19:41:45
+reconfirmed: 2026-08-24
+verified_at: 2026-08-24 20:05:27
 ---
 
 ## Claim
@@ -49,3 +49,7 @@ Post-commit 1022430 authoritative verify passes real SLUS_004.02 identity 8/8 an
 ## Re-confirmed 2026-08-22
 
 Post-change authoritative verify remained green: serial identity, five-boundary 35/35 oracle/generated comparison through DPCR, IRQ controls, projection 7/7, Clang format/size/tidy, runtime seam, pin and smoke gates passed on 2026-08-22.
+
+## Re-confirmed 2026-08-24
+
+Post-landing authoritative verify matched 8/8 executable identity/header facts for SLUS_004.02 SHA fbda8b68 and startup 18/18
