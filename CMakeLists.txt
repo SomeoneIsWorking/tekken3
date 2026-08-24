@@ -69,7 +69,9 @@ add_custom_command(
   DEPENDS
     "${TEKKEN3_EXE}"
     "${CMAKE_CURRENT_SOURCE_DIR}/titles/tekken3/executable.json"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/bios_edge.py"
     "${CMAKE_CURRENT_SOURCE_DIR}/tools/boot_oracle.py"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/generated_runner.py"
     "${CMAKE_CURRENT_SOURCE_DIR}/tools/provision_executable.py"
     "${CMAKE_CURRENT_SOURCE_DIR}/tools/recomp_boundary.py"
     "${CMAKE_CURRENT_SOURCE_DIR}/tools/verify_startup.py"

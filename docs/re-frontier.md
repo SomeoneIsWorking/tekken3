@@ -38,10 +38,43 @@ names an honest remaining gap; `todo` is not started. No hacks are tracked.
 ### T3-04 — Recompile through the first real divergence
 - status: re-partial
 - deps: T3-03
-- evidence: C005/C006/C010/C013 and I005/I006/I008. The verifier proves the exact first initializer and next call. The shipping emitter generates the observed second-initializer chain, including the function-table dispatch 0x80085BC8 -> 0x80085D5C. Independent Mednafen and the hybrid generated runner agree on all 35 CPU fields at 0x80079D10, 0x80028BB8, 0x800B0548, post-store 0x80085D98, and the next unsupported-device boundary 0x80085DB4. The shared oracle's vendored IRQ controller executes the selected executable's exact I_MASK-write/read and I_STAT-write sequence on that same CPU. It then reports WRITE32 to DPCR 0x1F8010F0 at 0x80085DB0, value 0x33333333, rather than inventing DMA behavior; the generated path independently proves that store. The retained GPUSTAT negative case still stops, and the isolated Mednafen IRQ process still agrees with the generated path on 3/3 observations at 0x80085DA4. SELFTEST 9/9, IRQ SELFTEST 2/2, and framework oracle 43/43 detect register/source/boundary/hardware-register/device errors.
-- where: `game/core/tekken3_runtime.*`; `tools/recomp_boundary.py`; `tests/recomp_boundary.cpp`; generated, gitignored `generated/boundary_slices.c`; `scratch/raw/t3-04/oracle.trace`
-- gap: The next owner is generic DMA control: model DPCR through Mednafen's DMA subsystem, then continue `FUN_80085d5c` from 0x80085DB4 to the next independently observed device boundary or first divergence. The oracle deliberately stops before claiming unsupported DPCR semantics; copying psxport's storage-only DPCR behavior into the reference would destroy independence. This still does not claim later DMA behavior, initialization, a frame, or gameplay.
-- notes: Ghidra identifies the observed path as `FUN_800b0548 -> FUN_80055884 -> FUN_80079964/FUN_800799a8`, then indirect `FUN_80085bc8 -> FUN_80085d5c`. The generated leg preserves that indirect dispatch instead of replacing it with a direct call. `Tekken3Runtime` owns the framework seam directly and carries the measured resident range in immutable `GuestProgramImage`; no adapter/config/hooks view remains. This ownership migration does not advance or bypass the execution boundary. A whole-image trial discovered 593 roots and 1,884 functions, compiling downstream mode bodies irrelevant to this boundary. Issue #4 records why `emit.py --limit` is not a safe slice and why those pointer roots were not mislabeled as false positives.
+- evidence: C005/C006/C010/C013/C014 and I005/I006/I008/I009. The verifier proves the exact first
+  initializer and next call. The shipping emitter generates the observed second-initializer chain,
+  including the function-table dispatch 0x80085BC8 -> 0x80085D5C. Independent Mednafen and the hybrid
+  generated runner agree on all 35 CPU fields at 0x80079D10, 0x80028BB8, 0x800B0548, post-store
+  0x80085D98, and the unsupported-device boundary 0x80085DB4. The shared oracle's vendored IRQ
+  controller executes the selected executable's exact I_MASK-write/read and I_STAT-write sequence on
+  that same CPU and reports the WRITE32 to DPCR 0x1F8010F0 at 0x80085DB0, value 0x33333333, rather
+  than inventing DMA behavior; the generated path independently proves that store. The retained
+  GPUSTAT negative case still stops, and the isolated Mednafen IRQ process still agrees with the
+  generated path on 3/3 observations at 0x80085DA4. Past that stop the generated leg alone now
+  executes the measured continuation through `FUN_80086264` (1050-word clear), `FUN_800862D8`
+  (callee-saved context save), and the B-vector stub `FUN_800862C8` (`li t2,0xB0` / delay
+  `li t1,0x19` / `jr t2`) to the caller return `ra=0x80085DEC`, with framework HLE modeling kernel
+  function B(0x19) HookEntryInt; SELFTEST 11/11 includes missing-note and wrong-function refusals at
+  that edge. Boundary SELFTEST 11/11, IRQ SELFTEST 2/2, and framework oracle 43/43 detect
+  register/source/boundary/hardware-register/device errors.
+- where: `game/core/tekken3_runtime.*`; `tools/recomp_boundary.py`; `tests/recomp_boundary.cpp`; generated,
+  gitignored `generated/boundary_slices.c`; `scratch/raw/t3-04/oracle.trace`
+- gap: Two generic owners precede another two-engine comparison. First, model DPCR through Mednafen's
+  DMA subsystem (framework claim `oracle-dma-resume`, opened by another agent — this repo must not
+  duplicate it). The saved experimental continuation then identifies the next exact independent
+  boundary: `pc=0x000000B0`, `t1=0x19`, `ra=0x80085DEC` at step 110630. Because `oracle_trace` maps no
+  BIOS, an independently sourced B(19) HookEntryInt model (or mapped BIOS execution) must return that
+  same CPU before comparing at 0x80085DEC. Issue #10 records why the later `0xFFFF8C94` access is
+  garbage execution, not a hardware frontier. Copying either psxport's storage-only DPCR behavior or
+  its B(19) HLE into the reference would destroy independence. No next real hardware boundary is known
+  until both owners land. This still does not claim later DMA behavior, initialization, a frame, or
+  gameplay.
+- notes: Ghidra identifies the observed path as `FUN_800b0548 -> FUN_80055884 -> FUN_80079964/FUN_800799a8`,
+  then indirect `FUN_80085bc8 -> FUN_80085d5c`. The generated leg preserves that indirect dispatch instead of
+  replacing it with a direct call. `Tekken3Runtime` owns the framework seam directly and carries the measured
+  resident range in immutable `GuestProgramImage`; no adapter/config/hooks view remains. Its boundary-only
+  policy explicitly returns `guestVramIsPicture=false`: no rendered picture exists yet, and a future
+  widescreen path must own native-wide output rather than silently falling back to guest VRAM. This ownership
+  policy does not advance or bypass the execution boundary. A whole-image trial discovered 593 roots and
+  1,884 functions, compiling downstream mode bodies irrelevant to this boundary. Issue #4 records why
+  `emit.py --limit` is not a safe slice and why those pointer roots were not mislabeled as false positives.
 
 ## Widescreen ownership and enhancement
 

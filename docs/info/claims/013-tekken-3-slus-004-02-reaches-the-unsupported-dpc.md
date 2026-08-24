@@ -36,3 +36,11 @@ Post-framework-cleanup authoritative verify remained green: 35/35 at all five re
 ## Re-confirmed 2026-08-22
 
 Post-change authoritative verify remained green: serial identity, five-boundary 35/35 oracle/generated comparison through DPCR, IRQ controls, projection 7/7, Clang format/size/tidy, runtime seam, pin and smoke gates passed on 2026-08-22.
+
+## Re-confirmed 2026-08-24
+
+Authoritative verify on framework HEAD d2266f4b (pin bumped from 57a17a14 after the gates):
+five-boundary 35/35 oracle/generated comparison through DPCR stop 0x80085DB4 (oracle step 106395),
+generated DPCR store 0x33333333, IRQ 3/3 + SELFTEST 2/2, boundary SELFTEST 11/11, projection 33/33 +
+7/7, boot-oracle 35/35 at 0x80028BA0, startup 18/18 + selftest 10/10, provision selftest 12/12,
+cpp-policy, runtime seam/contract, smoke 8/8.

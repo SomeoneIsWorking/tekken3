@@ -21,10 +21,12 @@ import sys
 import tempfile
 from collections.abc import Sequence
 from dataclasses import dataclass
+from itertools import pairwise
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
 
+from bios_edge import selftest_bios_edge, validate_bios_edge
 from boot_oracle import (
     REGISTER_NAMES,
     BoundaryState,
@@ -33,6 +35,7 @@ from boot_oracle import (
     parse_psxport,
     run_process,
 )
+from generated_runner import capture_generated_text
 from provision_executable import MANIFEST, Mismatch, Refused, load_manifest, parse_hex
 from verify_startup import startup_fields, verify_startup
 
@@ -84,6 +87,7 @@ class FunctionSlice:
     end: int
     body_name: str
     dispatchable: bool = True
+    note_bios_edge: bool = False
 
     @property
     def instructions(self) -> int:
@@ -109,6 +113,9 @@ class GeneratedSlices:
     dma_control_boundary: int
     dma_control_register: int
     dma_control_value: int
+    external_call_boundary: int
+    external_call_function: int
+    external_call_return: int
     frontier_slices: tuple[FunctionSlice, ...]
     emitter_version: str
     source: str
@@ -196,12 +203,16 @@ def render_slices(executable: pathlib.Path) -> GeneratedSlices:
         reset_address("status_write_address"): reset_address("status_write_word"),
     }
     interrupt_reset_boundary = reset_address("boundary")
-    if tuple(reset_words) != (
-        hardware_boundary - 4,
-        hardware_boundary,
-        hardware_boundary + 4,
-        hardware_boundary + 8,
-    ) or interrupt_reset_boundary != hardware_boundary + 12:
+    if (
+        tuple(reset_words)
+        != (
+            hardware_boundary - 4,
+            hardware_boundary,
+            hardware_boundary + 4,
+            hardware_boundary + 8,
+        )
+        or interrupt_reset_boundary != hardware_boundary + 12
+    ):
         raise Refused(
             "measured interrupt-reset sequence is not the contiguous "
             "I_MASK-write/read/I_STAT-write window"
@@ -229,6 +240,31 @@ def render_slices(executable: pathlib.Path) -> GeneratedSlices:
         raise Refused(
             "measured DMA-control write is not the contiguous post-IRQ DPCR boundary"
         )
+    bios_call = frontier.get("bios_call")
+    if not isinstance(bios_call, dict):
+        raise Refused("startup.hardware_frontier.bios_call must be an object")
+
+    def bios_address(name: str) -> int:
+        return parse_hex(
+            bios_call.get(name), f"startup.hardware_frontier.bios_call.{name}"
+        )
+
+    external_call_address = bios_address("call_address")
+    external_call_word = bios_address("call_word")
+    external_call_return = bios_address("return_address")
+    external_call_wrapper = bios_address("wrapper")
+    external_call_wrapper_end = bios_address("wrapper_end")
+    external_call_delay = bios_address("delay_address")
+    external_call_delay_word = bios_address("delay_word")
+    external_call_boundary = bios_address("vector")
+    external_call_function = bios_address("function")
+    if (
+        external_call_address + 8 != external_call_return
+        or external_call_wrapper_end != external_call_delay + 4
+        or external_call_boundary != 0xB0
+        or external_call_function > 0xFF
+    ):
+        raise Refused("measured BIOS call is not one complete B0 wrapper/caller edge")
     second_initializer_end = frontier_address("second_initializer_prefix_end")
     frontier_slices = (
         frontier_range("arena_size_selector", "tekken3_arena_size_selector_body"),
@@ -247,6 +283,22 @@ def render_slices(executable: pathlib.Path) -> GeneratedSlices:
             dma_control_boundary,
             "tekken3_dma_control_continuation_body",
             False,
+        ),
+        FunctionSlice(
+            "post-DPCR continuation",
+            dma_control_boundary,
+            external_call_return,
+            "tekken3_post_dpcr_continuation_body",
+            False,
+        ),
+        frontier_range("zero_memory", "tekken3_zero_memory_body"),
+        frontier_range("interrupt_context_save", "tekken3_interrupt_context_save_body"),
+        FunctionSlice(
+            label="BIOS call wrapper",
+            start=external_call_wrapper,
+            end=external_call_wrapper_end,
+            body_name="tekken3_bios_call_wrapper_body",
+            note_bios_edge=True,
         ),
         frontier_range(
             "interrupt_initializer_prefix", "tekken3_interrupt_initializer_prefix_body"
@@ -288,7 +340,12 @@ def render_slices(executable: pathlib.Path) -> GeneratedSlices:
 
     emitter, psexe = load_recompiler()
     image = psexe.load(str(executable))
-    tracked_hardware_words = {**reset_words, dma_control_write_address: dma_control_write_word}
+    tracked_hardware_words = {
+        **reset_words,
+        dma_control_write_address: dma_control_write_word,
+        external_call_address: external_call_word,
+        external_call_delay: external_call_delay_word,
+    }
     for address, expected_word in tracked_hardware_words.items():
         actual_word = image.word(address)
         if actual_word != expected_word:
@@ -307,15 +364,13 @@ def render_slices(executable: pathlib.Path) -> GeneratedSlices:
     )
     if (
         hardware_continuations[0].start != hardware_boundary
-        or hardware_continuations[-1].end != dma_control_boundary
+        or hardware_continuations[-1].end != external_call_return
         or any(
             current.end != following.start
-            for current, following in zip(
-                hardware_continuations, hardware_continuations[1:]
-            )
+            for current, following in pairwise(hardware_continuations)
         )
     ):
-        raise Refused("hardware continuations must form one contiguous measured chain")
+        raise Refused("inline continuations must form one contiguous measured chain")
     emitted_frontier: list[str] = []
     for item in frontier_slices:
         body: list[str] = []
@@ -346,10 +401,14 @@ def render_slices(executable: pathlib.Path) -> GeneratedSlices:
                 emitted_frontier.extend(
                     (
                         f"  {continuation.body_name}(c);",
-                        "  tekken3_boundary_hook(c, "
-                        f"0x{continuation.end:08X}u);",
+                        f"  tekken3_boundary_hook(c, 0x{continuation.end:08X}u);",
                     )
                 )
+        if item.note_bios_edge:
+            # AFTER the body: the stub's tail-jump delay slot loads the function number,
+            # so t1 names the dispatched kernel function only once the modeled callee
+            # (framework HLE) has returned; firing here also proves it returned.
+            emitted_frontier.append("  tekken3_boundary_note(c);")
         emitted_frontier.append("}")
         emitted_frontier.append("")
 
@@ -388,6 +447,15 @@ def render_slices(executable: pathlib.Path) -> GeneratedSlices:
             "// GENERATED by psxport tools/recomp/emit.py — DO NOT EDIT.",
             '#include "core.h"',
             "void tekken3_boundary_hook(Core*, uint32_t);",
+            "void tekken3_boundary_note(Core*);",
+            # Every dispatchable entry can be the target of a jal emitted inside an
+            # earlier body (measured call order is not file order), so all entry
+            # wrappers are declared up front.
+            *(
+                f"void func_{item.start:08X}(Core*);"
+                for item in frontier_slices
+                if item.dispatchable
+            ),
             "",
             *emitted_frontier,
             *initializer_body,
@@ -448,6 +516,9 @@ def render_slices(executable: pathlib.Path) -> GeneratedSlices:
             "uint32_t tekken3_dma_control_boundary() {",
             f"  return 0x{dma_control_boundary:08X}u;",
             "}",
+            "uint32_t tekken3_external_call_return_boundary() {",
+            f"  return 0x{external_call_return:08X}u;",
+            "}",
             "",
         )
     )
@@ -469,6 +540,9 @@ def render_slices(executable: pathlib.Path) -> GeneratedSlices:
         dma_control_boundary,
         dma_control_register,
         dma_control_value,
+        external_call_boundary,
+        external_call_function,
+        external_call_return,
         frontier_slices,
         emitter.RECOMP_VERSION,
         source,
@@ -502,6 +576,9 @@ def metadata(prefix: GeneratedSlices, executable: pathlib.Path) -> dict[str, obj
             "dma_control_boundary": f"0x{prefix.dma_control_boundary:08X}",
             "dma_control_register": f"0x{prefix.dma_control_register:08X}",
             "dma_control_value": f"0x{prefix.dma_control_value:08X}",
+            "external_call_boundary": f"0x{prefix.external_call_boundary:08X}",
+            "external_call_function": f"0x{prefix.external_call_function:02X}",
+            "external_call_return": f"0x{prefix.external_call_return:08X}",
             "slices": [
                 {
                     "dispatchable": item.dispatchable,
@@ -539,8 +616,8 @@ def emit(executable: pathlib.Path, output: pathlib.Path) -> GeneratedSlices:
         f"+ {prefix.next_instructions} next-call + "
         f"{sum(item.instructions for item in prefix.frontier_slices if item.dispatchable)} "
         f"pre-device and {sum(item.instructions for item in prefix.frontier_slices if not item.dispatchable)} "
-        f"device-response instructions through 0x{prefix.dma_control_boundary:08X}; "
-        f"recompiler {prefix.emitter_version}"
+        f"device-response instructions through the measured BIOS-call return "
+        f"0x{prefix.external_call_return:08X}; recompiler {prefix.emitter_version}"
     )
     return prefix
 
@@ -662,40 +739,10 @@ def capture_recomp(
     main_hi: int,
     timeout: float,
 ) -> BoundaryState:
-    text = capture_recomp_text(
+    text = capture_generated_text(
         runner, executable, entry, direct_main, target, main_lo, main_hi, timeout
     )
     return parse_recomp(text, target)
-
-
-def capture_recomp_text(
-    runner: pathlib.Path,
-    executable: pathlib.Path,
-    entry: int,
-    direct_main: int,
-    target: int,
-    main_lo: int,
-    main_hi: int,
-    timeout: float,
-) -> str:
-    result = run_process(
-        [
-            str(runner),
-            str(executable),
-            f"0x{entry:08X}",
-            f"0x{direct_main:08X}",
-            f"0x{target:08X}",
-            f"0x{main_lo:08X}",
-            f"0x{main_hi:08X}",
-        ],
-        timeout,
-    )
-    if result.returncode != 0:
-        raise Refused(
-            f"generated runner exited {result.returncode}: "
-            f"{(result.stderr or result.stdout).strip()}"
-        )
-    return result.stdout
 
 
 def parse_device_state(text: str) -> tuple[int, int]:
@@ -715,9 +762,7 @@ def parse_dma_control(text: str) -> int:
 def capture_irq_oracle(
     oracle: pathlib.Path, timeout: float, *, selftest: bool = False
 ) -> tuple[int, int, int, int]:
-    result = run_process(
-        [str(oracle), *(('--selftest',) if selftest else ())], timeout
-    )
+    result = run_process([str(oracle), *(("--selftest",) if selftest else ())], timeout)
     if result.returncode != 0:
         raise Refused(
             f"independent IRQ oracle exited {result.returncode}: "
@@ -729,8 +774,7 @@ def capture_irq_oracle(
     if selftest and "SELFTEST 2/2" not in result.stdout:
         raise Refused("independent IRQ oracle omitted its opposite-answer denominator")
     return tuple(
-        int(match.group(name), 16)
-        for name in ("readback", "status", "mask", "line")
+        int(match.group(name), 16) for name in ("readback", "status", "mask", "line")
     )
 
 
@@ -749,7 +793,7 @@ def verify_interrupt_reset(
         capture_irq_oracle(irq_oracle, timeout)
     )
     capture_irq_oracle(irq_oracle, timeout, selftest=True)
-    text = capture_recomp_text(
+    text = capture_generated_text(
         runner,
         executable,
         entry,
@@ -785,7 +829,7 @@ def verify_dma_control_write(
     main_hi: int,
     timeout: float,
 ) -> None:
-    text = capture_recomp_text(
+    text = capture_generated_text(
         runner,
         executable,
         entry,
@@ -797,7 +841,10 @@ def verify_dma_control_write(
     )
     state = parse_recomp(text, prefix.dma_control_boundary)
     measured = parse_dma_control(text)
-    if measured != prefix.dma_control_value or state.fields["a1"] != prefix.dma_control_value:
+    if (
+        measured != prefix.dma_control_value
+        or state.fields["a1"] != prefix.dma_control_value
+    ):
         raise Mismatch(
             "generated DMA-control write differs from the measured executable: "
             f"DPCR=0x{measured:08X}, a1=0x{state.fields['a1']:08X}, "
@@ -806,6 +853,42 @@ def verify_dma_control_write(
     print(
         "PASS DMA-control write: shipping-emitted Tekken stores "
         f"0x{measured:08X} to DPCR and reaches 0x{prefix.dma_control_boundary:08X}"
+    )
+
+
+def verify_external_call(
+    executable: pathlib.Path,
+    runner: pathlib.Path,
+    prefix: GeneratedSlices,
+    entry: int,
+    main_lo: int,
+    main_hi: int,
+    timeout: float,
+) -> None:
+    text = capture_generated_text(
+        runner,
+        executable,
+        entry,
+        prefix.start,
+        prefix.external_call_return,
+        main_lo,
+        main_hi,
+        timeout,
+    )
+    state = parse_recomp(text, prefix.external_call_return)
+    observation = validate_bios_edge(
+        text,
+        state.fields,
+        expected_return=prefix.external_call_return,
+        expected_vector=prefix.external_call_boundary,
+        expected_function=prefix.external_call_function,
+    )
+    print(
+        "PASS BIOS-call edge: generated leg executes the DPCR continuation and "
+        f"the measured B0 wrapper (vector 0x{observation.vector:08X} function "
+        f"0x{observation.function:02X}) to the caller return 0x{prefix.external_call_return:08X}; "
+        "35 CPU fields captured at that stop. SINGLE-ENGINE evidence: framework HLE "
+        "(HookEntryInt) models the callee, so no independent-CPU agreement is claimed here"
     )
 
 
@@ -924,10 +1007,20 @@ def compare_boundary(
         main_hi,
         timeout,
     )
+    verify_external_call(
+        executable,
+        runner,
+        prefix,
+        entry,
+        main_lo,
+        main_hi,
+        timeout,
+    )
     print(f"trace: {trace_path}")
     print(
-        "NOT covered: independent CPU stepping after the DPCR write, later DMA behavior, a frame, "
-        "or gameplay"
+        "NOT covered: independent CPU stepping after the DPCR write (generic DPCR plus an "
+        "independently sourced B(19) model are required), independent agreement at the "
+        "BIOS-call return, the next real hardware boundary, a frame, or gameplay"
     )
     return results
 
@@ -1039,7 +1132,13 @@ def selftest(
     else:
         raise Refused("generated runner accepted an unmeasured boundary")
     print("PASS refusal: unmeasured generated boundary is rejected")
-    print("SELFTEST 9/9")
+
+    selftest_bios_edge(
+        expected_return=prefix.external_call_return,
+        expected_vector=prefix.external_call_boundary,
+        expected_function=prefix.external_call_function,
+    )
+    print("SELFTEST 11/11")
 
 
 def main(argv: Sequence[str] | None = None) -> int:

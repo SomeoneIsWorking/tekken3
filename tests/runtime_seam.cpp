@@ -1,4 +1,5 @@
 #include "core.h"
+#include "game.h"
 #include "tekken3_runtime.h"
 
 #include <cstdint>
@@ -37,6 +38,12 @@ int main() {
   static tekken3::Tekken3Runtime runtime{kFixtureRange};
   psxport_install_game(runtime);
 
+  const auto policyGame = std::make_unique<Game>();
+  if (game_guest_vram_is_picture(*policyGame)) {
+    std::fprintf(stderr, "runtime_seam: FAIL — boundary-only Tekken runtime treated guest VRAM as a picture\n");
+    return 1;
+  }
+
   // Core owns the complete 2 MiB guest RAM plus device state and is intentionally heap-resident in
   // every production Game. Keep this seam check on the same lifetime path.
   auto core = std::make_unique<Core>();
@@ -55,7 +62,8 @@ int main() {
   }
 
   std::printf("runtime_seam: PASS — Core owns the direct runtime, 2/2 resident-range facts reach "
-              "GuestProgramImage, 3/3 legacy views are null, and 1/1 invalid range is refused\n");
+              "GuestProgramImage, 3/3 legacy views are null, 1/1 invalid range is refused, and "
+              "guest VRAM picture ownership is false\n");
   std::printf("runtime_seam: NOT covered — generated execution, devices, frames, or gameplay\n");
   return 0;
 }

@@ -163,7 +163,16 @@ cmake --build build --target tekken3_recomp_boundary_check -j16
 Resolution is CLI argument > `PSXPORT_TEKKEN3_DISC` > `.env` > one root `*.chd` drop-in. A selected
 path that does not exist refuses rather than falling through to another disc, and ambiguous drop-ins
 also refuse. No disc-derived file belongs in git. The latest comparison establishes generated
-execution and independent CPU agreement at five boundaries through the DPCR stop at `0x80085DB4`, plus
-independent IRQ-controller agreement through the reset boundary at `0x80085DA4`. It does not establish
-DPCR/DMA semantics, independent CPU execution after that access, later initialization, that a Tekken 3
-port boots a frame, or that a whole recompiled substrate exists.
+execution and independent CPU agreement at five boundaries through the DPCR stop at `0x80085DB4`,
+plus independent IRQ-controller agreement through the reset boundary at `0x80085DA4`. Past that
+stop, the generated substrate alone executes the measured post-DPCR continuation (`FUN_80085d5c`
+clears a 1050-word buffer through `FUN_80086264`, saves callee-saved state through
+`FUN_800862D8`, and calls the A/B stub `FUN_800862C8`, whose tail jump reaches kernel vector `0xB0`
+function `0x19` — HookEntryInt in the public PSX kernel ABI — before returning to `ra=0x80085DEC`)
+with framework HLE modeling the callee; the verifier captures all 35 CPU fields there but claims
+NO independent-CPU agreement at that edge. Independent execution needs both generic DPCR handling
+and an independently sourced B(19) HookEntryInt model: a saved DPCR-resumed trace leaves mapped
+title text at `pc=0x000000B0`, `t1=0x19`, `ra=0x80085DEC`; its later `0xFFFF8C94` access is garbage
+execution, not a hardware frontier (issue #10). These gates do not establish DPCR/DMA semantics,
+later initialization, that a Tekken 3 port boots a frame, or that a whole recompiled substrate
+exists.

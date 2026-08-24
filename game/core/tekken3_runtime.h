@@ -20,6 +20,7 @@ public:
   Tekken3Runtime() = default;
   explicit Tekken3Runtime(ResidentProgramRange residentProgram);
 
+  bool guestVramIsPicture(const Game &game) const override;
   void *createContext(Core &core) override;
   void destroyContext(void *context) override;
   void registerOverrides(Game &game) override;

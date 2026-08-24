@@ -134,6 +134,25 @@
         "value": "0x33333333",
         "boundary": "0x80085DB4"
       },
+      "bios_call": {
+        "call_address": "0x80085DE4",
+        "call_word": "0x0C0218B2",
+        "return_address": "0x80085DEC",
+        "wrapper": "0x800862C8",
+        "wrapper_end": "0x800862D4",
+        "delay_address": "0x800862D0",
+        "delay_word": "0x24090019",
+        "vector": "0x000000B0",
+        "function": "0x19"
+      },
+      "zero_memory": {
+        "start": "0x80086264",
+        "end": "0x80086288"
+      },
+      "interrupt_context_save": {
+        "start": "0x800862D8",
+        "end": "0x80086314"
+      },
       "second_initializer_prefix_end": "0x800B0564",
       "arena_initializer": {
         "start": "0x80055884",

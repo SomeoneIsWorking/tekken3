@@ -22,6 +22,7 @@ std::uint32_t tekken3_next_initializer_boundary();
 std::uint32_t tekken3_hardware_boundary();
 std::uint32_t tekken3_interrupt_reset_boundary();
 std::uint32_t tekken3_dma_control_boundary();
+std::uint32_t tekken3_external_call_return_boundary();
 void tekken3_boundary_main_dispatch(Core *, std::uint32_t);
 int tekken3_boundary_func_index(std::uint32_t);
 
@@ -78,6 +79,13 @@ void tekken3_boundary_hook(Core *core, std::uint32_t boundary) {
   }
 }
 
+// Evidence for the measured A/B-vector edge. The generated wrapper calls this only after its
+// dispatch returns; report the CPU's t2/t1 values, never the manifest's expected constants.
+void tekken3_boundary_note(Core *core) {
+  std::printf("# RECOMP-BIOS vector=0x%08X function=0x%02X\n", core->r[10], core->r[9] & 0xFFu);
+  std::fflush(stdout);
+}
+
 int main(int argc, char **argv) {
   if (argc != 7) {
     std::fprintf(stderr, "usage: %s <PS-X EXE> <entry> <direct-main> <boundary> <main-lo> <main-hi>\n", argv[0]);
@@ -96,7 +104,8 @@ int main(int argc, char **argv) {
   if (requestedBoundary != tekken3_initializer_entry_boundary() &&
       requestedBoundary != tekken3_initializer_return_boundary() &&
       requestedBoundary != tekken3_next_initializer_boundary() && requestedBoundary != tekken3_hardware_boundary() &&
-      requestedBoundary != tekken3_interrupt_reset_boundary() && requestedBoundary != tekken3_dma_control_boundary()) {
+      requestedBoundary != tekken3_interrupt_reset_boundary() && requestedBoundary != tekken3_dma_control_boundary() &&
+      requestedBoundary != tekken3_external_call_return_boundary()) {
     std::fprintf(stderr, "REFUSED: unsupported generated boundary 0x%08X\n", requestedBoundary);
     return 2;
   }

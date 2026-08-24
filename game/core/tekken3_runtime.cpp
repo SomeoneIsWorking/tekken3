@@ -23,6 +23,12 @@ namespace tekken3 {
 Tekken3Runtime::Tekken3Runtime(ResidentProgramRange residentProgram)
     : programImage_(makeProgramImage(residentProgram)) {}
 
+bool Tekken3Runtime::guestVramIsPicture(const Game &) const {
+  // Tekken's verified boundary harness produces no picture. Future widescreen ownership is native;
+  // guest VRAM must not become an implicit fallback for an unimplemented frame.
+  return false;
+}
+
 void *Tekken3Runtime::createContext(Core &) {
   return nullptr;
 }
