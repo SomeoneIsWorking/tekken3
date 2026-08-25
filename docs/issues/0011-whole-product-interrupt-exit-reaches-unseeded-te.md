@@ -66,3 +66,24 @@ separate "waiting on media" from "waiting on an unclaimed CDROM IRQ delivery pat
 delivery (the SysEnq chain is empty by design here — completions must ride the HookEntryInt custom
 exit). The boundary selftest stays red until verify_hardware_stop is retargeted at the MEASURED new
 stop under a provisioned run — never at the exception vector.
+
+## 2026-08-25 (third pass, same session) — provisioned-run evidence for the CD frontier
+
+With the disc provisioned (`.env`, gitignored) and the VSync HLE live:
+
+- Tekken's CDC traffic reaches the framework: `[cdc] cmd 0x01` (Getstat) spam plus 0x0A/0x0C during
+  init; the CDC machine answers each with an INT3 response and raises its edge
+  (19 × "CD raised IRQ2" in 30 s with `PSXPORT_DEBUG=irq`).
+- **The guest runs libcd in POLLED mode**: it writes `I_MASK = 0` (ra=0x80085BE8, right past the
+  VSync body), so `pending = I_STAT & I_MASK` stays 0 and the HookEntryInt custom exit fires exactly
+  once across the whole run. Completions latch into I_STAT but nothing delivers while masked —
+  which may be CORRECT retail behaviour for this phase; the guest is supposed to observe
+  completions through its own MMIO poll instead.
+- That MMIO poll is the next suspect: CdSync's drain routine (FUN_800833A8) reads the CD interrupt
+  flag register through `*DAT_80099a24`; our `cdc_read` reg 3 returns `0xE0 | type` whenever a
+  response is queued, which LOOKS right — so the open question is whether Tekken's reads reach
+  `cdc_read` at all (bank/index handling around 0x1F801800-0x803) or whether the response is
+  consumed by an earlier ack. Instrument `cdc_read`'s callers before touching semantics.
+- Nondeterministic abort (~12 s in, SIGABRT family) observed ONLY with heavy debug logging on
+  (`PSXPORT_DEBUG=vsync` floods ~500k lines); the diagnostic is lost to stdio buffering on abort.
+  Reproduce with `PSXPORT_LOG_FILE` set before chasing it. Not observed without the flood.
