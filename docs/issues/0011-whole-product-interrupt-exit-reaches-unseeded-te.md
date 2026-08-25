@@ -87,3 +87,38 @@ With the disc provisioned (`.env`, gitignored) and the VSync HLE live:
 - Nondeterministic abort (~12 s in, SIGABRT family) observed ONLY with heavy debug logging on
   (`PSXPORT_DEBUG=vsync` floods ~500k lines); the diagnostic is lost to stdio buffering on abort.
   Reproduce with `PSXPORT_LOG_FILE` set before chasing it. Not observed without the flood.
+
+## 2026-08-25 (fourth pass) — the polled CD path WORKS; the residual wedge is host throughput
+
+Subagent infrastructure was down (provider endpoint failures), so this pass ran solo. Findings,
+each measured on live runs:
+
+- **The MMIO poll reaches our CDC model and observes completions.** `PSXPORT_DEBUG=cdcr` shows
+  FUN_800833A8 (libcd's drain) reading reg 3 (`0xE3`/`0xE2` INT types), consuming the response FIFO
+  byte, and acking back to `0xE0`, cycling forever — the earlier hypothesis "the poll never sees
+  INT flags" is FALSIFIED.
+- **Tekken's HookEntryInt handler (FUN_80085E34) also runs repeatedly**, not once: it drains via
+  FUN_80084A30 (ra=0x80085F10 inside the handler body), walks its 11-bit event table, and carries
+  an "intr_timeout" counter of its own. The single custom-exit TRACE line was an artifact of where
+  tracing sits, not of delivery count.
+- **The actual wedge is throughput**: six staggered SIGINT samples spread across CdSync
+  (0x80083B84+0x671), its caller 0x80091328, cdc_drive_service and plain mem_w32 — no hot spin, a
+  grind. perf over 12 s at 99 Hz (1231 samples):
+  - `Core::mem_w32` 20.7 % + `OtAttr::trackStoreSlow` 16.4 % — **~37 % of host time is the
+    per-guest-store attribution diagnostic**
+  - `cdc_drive_service` 14.1 % · `rec_guest_instruction_ticks` 11.8 % · `mem_r32` 6.0 %
+    · `Timing::vsyncHle` 4.75 % · `gen_func_80083B84` 4.25 % · `__udivti3` 4.2 %
+    (the 128-bit divide inside `EmulatedTime::hSyncCount`, paid per VSync query)
+- A clean 7-minute run (no channels) produced ZERO new log lines past CD_init: at ~0.6 CD commands/s
+  the retail init cannot reach a first present in practical time. This mirrors why Tomba ported its
+  vblank busy-waits natively rather than executing them.
+
+**Ranked next steps:**
+1. Make the per-store attribution path pay rent only when it can record anything: `trackStoreSlow`
+   should be unreachable (inlined/early-out at the mem_w32 call site) when the game's packet pool is
+   unconfigured — Tekken's is 0 — without weakening it where the pool exists. Hermetic test first.
+2. Give `EmulatedTime::hSyncCount` a Q32-shift/divide-free fast path (multiply by a precomputed
+   reciprocal) or cache fields-per-tick; `__udivti3` at 4 % is pure waste.
+3. After those, re-measure commands/s; if still impractical, own Tekken's CD wait primitive natively
+   (the Tomba playbook: sync_native.cpp gains the leaf, RE-proven).
+4. ONLY THEN retarget `verify_hardware_stop` against the measured stop under a provisioned run.
