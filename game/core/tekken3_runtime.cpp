@@ -54,6 +54,11 @@ bool Tekken3Runtime::guestVramIsPicture(const Game &) const {
   return false;
 }
 
+const PlatformHlePlan *Tekken3Runtime::platformHlePlan() const {
+  // The measured SCEI library bindings (sync_native.cpp holds each address's RE provenance).
+  return &tekken3::platformHlePlan();
+}
+
 void *Tekken3Runtime::createContext(Core &) {
   return nullptr;
 }

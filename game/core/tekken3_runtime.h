@@ -1,6 +1,7 @@
 #pragma once
 
 #include "game_runtime.h"
+#include "sync_native.h"
 
 #include <cstdint>
 
@@ -23,6 +24,7 @@ public:
 
   bool configureRenderPath();
   bool guestVramIsPicture(const Game &game) const override;
+  const PlatformHlePlan *platformHlePlan() const override;
   void *createContext(Core &core) override;
   void destroyContext(void *context) override;
   void registerOverrides(Game &game) override;

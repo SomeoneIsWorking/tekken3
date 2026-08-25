@@ -64,6 +64,10 @@ int runPort(Tekken3Runtime &runtime, int argc, char **argv) {
   game->spu_audio.init();
   game->gpu.gpu_native_init();
   game->pad.overridesInit();
+  // Direct-boot path: native_boot's game_init never runs, so the platform-HLE table must be
+  // populated here (same seam Spider-Man drives from its own main; see platform_hle.h). The plan
+  // comes from the runtime; initBuiltins announces what it installed either way.
+  game->platform_hle.initBuiltins();
   render_path_install(core);
 
   core->r[4] = 1;

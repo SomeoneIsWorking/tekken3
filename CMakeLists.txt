@@ -29,7 +29,7 @@ set(PSXPORT_BUILD_SMOKE ON CACHE BOOL "Build the framework agnosticism smoke" FO
 add_subdirectory("${PSXPORT_DIR}" psxport_build)
 add_custom_target(tekken3_scaffold DEPENDS psxport_smoke)
 
-add_library(tekken3_runtime STATIC game/core/tekken3_runtime.cpp)
+add_library(tekken3_runtime STATIC game/core/tekken3_runtime.cpp game/core/sync_native.cpp)
 target_include_directories(tekken3_runtime PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/game/core")
 target_compile_features(tekken3_runtime PUBLIC cxx_std_20)
 target_link_libraries(tekken3_runtime PUBLIC psxport)
