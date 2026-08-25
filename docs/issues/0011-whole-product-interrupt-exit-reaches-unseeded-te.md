@@ -122,3 +122,22 @@ each measured on live runs:
 3. After those, re-measure commands/s; if still impractical, own Tekken's CD wait primitive natively
    (the Tomba playbook: sync_native.cpp gains the leaf, RE-proven).
 4. ONLY THEN retarget `verify_hardware_stop` against the measured stop under a provisioned run.
+
+## 2026-08-25 (fifth pass) — two hypotheses tested and one falsified; the ba2 lead
+
+- **Census-tax lever DEAD.** Live A/B by flipping `g_producer_census_armed` inside the running
+  process (`gdb -p PID -batch -ex 'set variable g_producer_census_armed=false'`): 13.1 → 12.9
+  fields/s (×0.99). The 37 % profile share is the price of the workload's own store volume, not a
+  removable drag. NOTE the related latent defect this exposed: the arm is assigned in
+  native_boot.cpp:883, which direct-boot runtimes NEVER run — so PSXPORT_PRODUCERS silently does
+  nothing on tekken3 today. Wherever that assignment lands long-term, it must be on a path every
+  loop executes.
+- **Sharper lead for why CdSync never concludes**: its drain is gated on FUN_80085D1C() ==
+  *DAT_80099ba2, but the cdcr traces show every FUN_800833A8 invocation arriving from the HookEntryInt
+  handler (FUN_80084A30 called at ra=0x80085F10 INSIDE FUN_80085E34) — and FUN_80085E34 sets ba2=1
+  at entry and clears it before returning. If nothing else writes ba2, CdSync's gate reads it only
+  BETWEEN handler runs, i.e. always 0, so the inner drain-and-flag-read never executes from CdSync's
+  own context and the loop can end only via the 960-field deadline (~74 s at today's 13 fields/s).
+  Next RE question: on retail, what writes ba2 outside the handler window (an INT3-hooked callback?
+  the BIOS dispatcher prologue?), i.e. what makes the gate observable to the interrupted stream.
+  Ghidra xref on 0x80099BA2 stores is the first command.
