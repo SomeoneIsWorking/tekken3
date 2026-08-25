@@ -168,3 +168,34 @@ their `param_1` argument (Ghidra xref + decompile each caller). Decide from THAT
 is (a) a caller polling non-blocking forever because a flag the HANDLER should set lands in the
 wrong buffer, or (b) genuinely blocking waits whose responses carry unexpected types. Do not
 modify CDC semantics until that decision is written down — beetle agrees with our current model.
+
+## 2026-08-25 (seventh pass, delegated + operator discriminator run) — mechanism decided; wedge is upstream of the read path
+
+Full evidence: scratch/t3-11-seventh-pass-notes.md (READ-ONLY agent session; decompiles
+scratch/decomp/t3-11-*.c). Decision: **mechanism (c)** — neither framed hypothesis survives:
+
+- (b) dead: CdSync has exactly TWO call sites in the image, both constant mode=1 NON-blocking
+  (0x80082d84 passthrough via FUN_80082D7C←FUN_80084DC8; 0x8008fc58 literal `(1, param_1)`).
+  No blocking call site exists anywhere.
+- (a) dead: handler-side and poller-side drains feed identical slots; completion chain
+  drain cases 1/4/5 → slot 0x80099754 (FUN_8009073C) → DAT_800A3EE0 = FUN_8008F850 → done-flags
+  DAT_800A3D68/58 — statically coherent end-to-end. Callback registrations installed by
+  FUN_8008F958 (slot750=FUN_80090128 ack-class, slot754=FUN_8009073C completion-class,
+  vblank event 0 = FUN_8008FDE8 — the retail IDLE GETSTAT TICKER, which explains the cmd-0x01
+  spam as normal behaviour).
+- Beetle oracle cross-check: ReadN/Setloc/Setmode/Nop/Demute are single-INT3 (func2=NULL);
+  read DATA rides INT1-per-sector — nothing in our CDC needs changing for those.
+
+**Operator discriminator run** (provisioned, `PSXPORT_DEBUG=cdc,cdcr`, 90 s): command histogram
+49× 0x01, 1× 0x0A, 1× 0x0C — and irq flags ONLY E0/E3/E2 (acks + the two-phase completions of
+0x0A/0x0C). Per the seventh-pass decision table this is the third locus: **the read group
+{Pause, Setmode, Setloc, ReadN} built by FUN_80090F78 is never queued at all** — no 0x06/0x09/0x02/
+0x0E ever issues. The wedge is therefore UPSTREAM of libcd's read machinery: whatever gates the
+FIRST sync-op (the caller chain feeding FUN_80090F78/FUN_80091E5C, pumped by game-main
+FUN_8006AB64 case 3) never fires within 90 s emulated.
+
+**Next implementation step:** Ghidra-xref FUN_80090F78's callers; for each, evaluate its enable
+condition against LIVE RAM during a provisioned run (WWATCH or gated diagnostics on the exact flag
+address). Suspect ordering: another earlier wait/starvation in Tekken's pre-read init — the
+vblank-ticker running (FUN_8008FDE8 alive) proves CD-system init completed, so the gate is above
+the CD subsystem, not inside it.
