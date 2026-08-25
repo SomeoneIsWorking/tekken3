@@ -141,3 +141,30 @@ each measured on live runs:
   Next RE question: on retail, what writes ba2 outside the handler window (an INT3-hooked callback?
   the BIOS dispatcher prologue?), i.e. what makes the gate observable to the interrupted stream.
   Ghidra xref on 0x80099BA2 stores is the first command.
+
+## 2026-08-25 (sixth pass) — oracle comparison kills the INT2 theory; the open question sharpened
+
+- **Beetle ground truth**: Nop/Getstat (`Commands[0x01]`) has `func2 = NULL` — on the vendored
+  oracle a Getstat produces a SINGLE INT3 ack and no completion interrupt (cdc.c:2227, :304).
+  So "our CDC never queues INT2 for zero-delay commands" is CORRECT behaviour, not the bug; the
+  sixth-pass INT2 theory is withdrawn.
+- **CdSync structure** (full decompile, scratch/decomp/t3-cdsync-full.c): blocking only when
+  `param_1 == 0`; completes via `DAT_80099a32` (INT2/case 4) OR `DAT_80099a31` (set by drain cases
+  1/4/5 — data-ready/error — but NEVER by case 3, the pure ack). A Getstat-only command therefore
+  cannot complete through this function on ANY implementation — so retail must either call it
+  non-blocking (`param_1 != 0`, returns 0 immediately) from a caller that tracks completion
+  elsewhere, or the responses Tekken waits on carry types 1/2/4/5, not bare acks.
+- **Sample histogram** (10 single-SIGINT runs, 6–33 s): gen_func_80083B84 ×3 at host offsets
+  +0x10/+0x671/+0x879 (host offsets do not map to source branches), plus prior samples in its
+  caller 0x80091328. Consistent with heavy churn through CD sync paths, not one tight spin.
+- **New tool**: tools/ghidra_query.py (adapted from spider1's; project tekken3_boot, program
+  /ram_boot.bin) — `python3 tools/ghidra_query.py xrefs <addr>` gives real data xrefs. It proved
+  0x80099BA2 has exactly 3 references (read FUN_80085D1C; write×2 FUN_80085E34), closing the ba2
+  question: nothing else writes the gate.
+
+**Sharpened open question for the next session:** map Tekken's libcd callback registration
+(DAT_80099754/DAT_80099750 writers — Ghidra xref both) and enumerate callers of 0x80083B84 with
+their `param_1` argument (Ghidra xref + decompile each caller). Decide from THAT whether the wedge
+is (a) a caller polling non-blocking forever because a flag the HANDLER should set lands in the
+wrong buffer, or (b) genuinely blocking waits whose responses carry unexpected types. Do not
+modify CDC semantics until that decision is written down — beetle agrees with our current model.
