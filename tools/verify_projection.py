@@ -94,7 +94,9 @@ def projection_manifest(manifest: Mapping[str, Any]) -> Mapping[str, Any]:
 
 
 def verify_control_writers(projection: Mapping[str, Any], image: Any) -> int:
-    entries = require_list(projection.get("control_writers"), "projection.control_writers")
+    entries = require_list(
+        projection.get("control_writers"), "projection.control_writers"
+    )
     expected: list[tuple[int, int, int]] = []
     for index, value in enumerate(entries):
         field = f"projection.control_writers[{index}]"
@@ -138,11 +140,15 @@ def int_sequence(value: object, field: str, length: int) -> tuple[int, ...]:
     items = require_list(value, field)
     if len(items) != length:
         raise Refused(f"manifest field {field} must contain {length} integers")
-    return tuple(require_int(item, f"{field}[{index}]") for index, item in enumerate(items))
+    return tuple(
+        require_int(item, f"{field}[{index}]") for index, item in enumerate(items)
+    )
 
 
 def verify_presets(projection: Mapping[str, Any], image: Any) -> tuple[int, int]:
-    presets = require_object(projection.get("display_presets"), "projection.display_presets")
+    presets = require_object(
+        projection.get("display_presets"), "projection.display_presets"
+    )
     address = parse_hex(presets.get("address"), "projection.display_presets.address")
     entries = require_list(presets.get("entries"), "projection.display_presets.entries")
     if not entries:
@@ -176,14 +182,24 @@ def verify_presets(projection: Mapping[str, Any], image: Any) -> tuple[int, int]
         )
         initial_h_values.add(require_int(entry.get("initial_h"), f"{field}.initial_h"))
 
-    boot = require_object(projection.get("boot_preset_call"), "projection.boot_preset_call")
+    boot = require_object(
+        projection.get("boot_preset_call"), "projection.boot_preset_call"
+    )
     boot_address = parse_hex(boot.get("address"), "projection.boot_preset_call.address")
     boot_target = parse_hex(boot.get("target"), "projection.boot_preset_call.target")
-    boot_index = require_int(boot.get("preset_index"), "projection.boot_preset_call.preset_index")
+    boot_index = require_int(
+        boot.get("preset_index"), "projection.boot_preset_call.preset_index"
+    )
     if not 0 <= boot_index < len(entries):
-        raise Refused("projection.boot_preset_call.preset_index is outside the preset table")
+        raise Refused(
+            "projection.boot_preset_call.preset_index is outside the preset table"
+        )
     boot_call = decode.decode(boot_address, image.word(boot_address))
-    check_exact("boot preset call mnemonic", (boot_call.kind, boot_call.op), (decode.JUMP, "jal"))
+    check_exact(
+        "boot preset call mnemonic",
+        (boot_call.kind, boot_call.op),
+        (decode.JUMP, "jal"),
+    )
     check_exact("boot preset call target", boot_call.target, boot_target)
     boot_delay = decode.decode(boot_address + 4, image.word(boot_address + 4))
     check_exact(
@@ -193,14 +209,18 @@ def verify_presets(projection: Mapping[str, Any], image: Any) -> tuple[int, int]
     )
     check_exact("boot preset index", boot_index, 0)
 
-    initial_h = require_object(projection.get("initial_h_call"), "projection.initial_h_call")
+    initial_h = require_object(
+        projection.get("initial_h_call"), "projection.initial_h_call"
+    )
     h_address = parse_hex(initial_h.get("address"), "projection.initial_h_call.address")
     h_target = parse_hex(initial_h.get("target"), "projection.initial_h_call.target")
     h_delay_word = parse_hex(
         initial_h.get("delay_slot_word"), "projection.initial_h_call.delay_slot_word"
     )
     h_call = decode.decode(h_address, image.word(h_address))
-    check_exact("initial H call mnemonic", (h_call.kind, h_call.op), (decode.JUMP, "jal"))
+    check_exact(
+        "initial H call mnemonic", (h_call.kind, h_call.op), (decode.JUMP, "jal")
+    )
     check_exact("initial H call target", h_call.target, h_target)
     check_exact("initial H delay word", image.word(h_address + 4), h_delay_word)
     h_delay = decode.decode(h_address + 4, h_delay_word)
@@ -215,12 +235,52 @@ def verify_presets(projection: Mapping[str, Any], image: Any) -> tuple[int, int]
     first_active = int_sequence(first.get("active_rect"), "preset 0 active_rect", 4)
     first_view = int_sequence(first.get("view_extent"), "preset 0 view_extent", 2)
     if first_active[2] == first_view[0]:
-        raise Mismatch("boot active display width unexpectedly equals title projection width")
+        raise Mismatch(
+            "boot active display width unexpectedly equals title projection width"
+        )
     return len(entries), 4
 
 
+def verify_post_cd_owner_chain(projection: Mapping[str, Any], image: Any) -> int:
+    values = require_list(
+        projection.get("post_cd_owner_chain"), "projection.post_cd_owner_chain"
+    )
+    if len(values) != 5:
+        raise Refused("projection.post_cd_owner_chain must contain five measured calls")
+    measured: list[tuple[int, int]] = []
+    for index, value in enumerate(values):
+        field = f"projection.post_cd_owner_chain[{index}]"
+        entry = require_object(value, field)
+        address = parse_hex(entry.get("address"), f"{field}.address")
+        target = parse_hex(entry.get("target"), f"{field}.target")
+        instruction = decode.decode(address, image.word(address))
+        check_exact(
+            f"post-CD owner call {index}",
+            (instruction.kind, instruction.op, instruction.target),
+            (decode.JUMP, "jal", target),
+        )
+        measured.append((address, target))
+    check_exact(
+        "post-CD initializer call order",
+        tuple(address for address, _ in measured[:3]),
+        (0x800B0564, 0x800B056C, 0x800B0574),
+    )
+    check_exact(
+        "first post-CD projection owner",
+        measured[2:],
+        [
+            (0x800B0574, 0x800B0840),
+            (0x800B086C, 0x80080848),
+            (0x80080890, 0x80080A40),
+        ],
+    )
+    return len(measured)
+
+
 def verify_stage_visibility(projection: Mapping[str, Any], image: Any) -> int:
-    stage = require_object(projection.get("stage_visibility"), "projection.stage_visibility")
+    stage = require_object(
+        projection.get("stage_visibility"), "projection.stage_visibility"
+    )
     parse_hex(stage.get("owner"), "projection.stage_visibility.owner")
     selector = parse_hex(stage.get("selector"), "projection.stage_visibility.selector")
     calls = require_list(stage.get("calls"), "projection.stage_visibility.calls")
@@ -229,23 +289,37 @@ def verify_stage_visibility(projection: Mapping[str, Any], image: Any) -> int:
         field = f"projection.stage_visibility.calls[{index}]"
         call = require_object(value, field)
         address = parse_hex(call.get("address"), f"{field}.address")
-        load_address = parse_hex(call.get("angle_load_address"), f"{field}.angle_load_address")
+        load_address = parse_hex(
+            call.get("angle_load_address"), f"{field}.angle_load_address"
+        )
         angle = require_int(call.get("retail_angle"), f"{field}.retail_angle")
         expected_calls.append(address)
         instruction = decode.decode(load_address, image.word(load_address))
         check_exact(
             f"stage angle load {index}",
-            (instruction.kind, instruction.op, instruction.rs, instruction.rt, instruction.simm),
+            (
+                instruction.kind,
+                instruction.op,
+                instruction.rs,
+                instruction.rt,
+                instruction.simm,
+            ),
             (decode.ALU_RRI, "addiu", 0, 4, angle),
         )
     if len(set(expected_calls)) != len(expected_calls):
         raise Refused("projection.stage_visibility.calls contains duplicate addresses")
-    check_exact("stage selector direct-call census", call_census(image, selector), tuple(expected_calls))
+    check_exact(
+        "stage selector direct-call census",
+        call_census(image, selector),
+        tuple(expected_calls),
+    )
     return len(calls) * 2
 
 
 def verify_retail_right_bound(projection: Mapping[str, Any], image: Any) -> int:
-    bound = require_object(projection.get("retail_right_bound"), "projection.retail_right_bound")
+    bound = require_object(
+        projection.get("retail_right_bound"), "projection.retail_right_bound"
+    )
     value = require_int(bound.get("value"), "projection.retail_right_bound.value")
     render_sites = parse_address_list(
         bound.get("render_sites"), "projection.retail_right_bound.render_sites"
@@ -281,6 +355,7 @@ def verify_projection(manifest: Mapping[str, Any], executable: pathlib.Path) -> 
     _, offset_call_count = verify_leaf_calls(projection, image, "set_geom_offset")
     _, screen_call_count = verify_leaf_calls(projection, image, "set_geom_screen")
     preset_count, preset_call_count = verify_presets(projection, image)
+    post_cd_count = verify_post_cd_owner_chain(projection, image)
     stage_count = verify_stage_visibility(projection, image)
     bound_count = verify_retail_right_bound(projection, image)
     fact_count = (
@@ -289,6 +364,7 @@ def verify_projection(manifest: Mapping[str, Any], executable: pathlib.Path) -> 
         + screen_call_count
         + preset_count
         + preset_call_count
+        + post_cd_count
         + stage_count
         + bound_count
     )
@@ -296,7 +372,8 @@ def verify_projection(manifest: Mapping[str, Any], executable: pathlib.Path) -> 
         f"[projection] MATCH {fact_count}/{fact_count} measured facts: "
         f"{writer_count} canonical CR24/25/26 writers, "
         f"{offset_call_count + screen_call_count} projection-leaf calls, "
-        f"{preset_count} display/view presets, {stage_count // 2} stage-wedge calls, "
+        f"{preset_count} display/view presets, {post_cd_count} post-CD owner-chain calls, "
+        f"{stage_count // 2} stage-wedge calls, "
         f"{bound_count - 1} render bounds plus one retail-2D bound"
     )
     print(
@@ -327,10 +404,14 @@ def selftest(executable: pathlib.Path) -> bool:
     scratch.mkdir(exist_ok=True)
     results: list[tuple[str, bool]] = []
 
-    with tempfile.TemporaryDirectory(prefix="projection-selftest-", dir=scratch) as temp:
+    with tempfile.TemporaryDirectory(
+        prefix="projection-selftest-", dir=scratch
+    ) as temp:
         directory = pathlib.Path(temp)
 
-        def check(candidate_manifest: Mapping[str, Any], candidate_data: bytes) -> type[Exception] | None:
+        def check(
+            candidate_manifest: Mapping[str, Any], candidate_data: bytes
+        ) -> type[Exception] | None:
             path = directory / "SLUS_004.02"
             path.write_bytes(candidate_data)
             try:
@@ -352,7 +433,8 @@ def selftest(executable: pathlib.Path) -> bool:
         results.append(
             (
                 "reserved-bit COP2 writer is rejected by the shared decoder",
-                check(manifest_for_bytes(manifest, reserved_writer), reserved_writer) is Mismatch,
+                check(manifest_for_bytes(manifest, reserved_writer), reserved_writer)
+                is Mismatch,
             )
         )
 
@@ -363,7 +445,10 @@ def selftest(executable: pathlib.Path) -> bool:
         results.append(
             (
                 "new canonical data-shaped writer changes the complete census",
-                check(manifest_for_bytes(manifest, canonical_data_word), canonical_data_word)
+                check(
+                    manifest_for_bytes(manifest, canonical_data_word),
+                    canonical_data_word,
+                )
                 is Mismatch,
             )
         )
@@ -377,7 +462,9 @@ def selftest(executable: pathlib.Path) -> bool:
         results.append(
             (
                 "changed active-display width is rejected",
-                check(manifest_for_bytes(manifest, wrong_preset_bytes), wrong_preset_bytes)
+                check(
+                    manifest_for_bytes(manifest, wrong_preset_bytes), wrong_preset_bytes
+                )
                 is Mismatch,
             )
         )
@@ -392,16 +479,34 @@ def selftest(executable: pathlib.Path) -> bool:
         results.append(
             (
                 "changed stage right bound is rejected",
-                check(manifest_for_bytes(manifest, wrong_bound), wrong_bound) is Mismatch,
+                check(manifest_for_bytes(manifest, wrong_bound), wrong_bound)
+                is Mismatch,
             )
         )
 
         call_address = 0x80080E84
-        wrong_call = mutate_word(data, image, call_address, image.word(call_address) + 1)
+        wrong_call = mutate_word(
+            data, image, call_address, image.word(call_address) + 1
+        )
         results.append(
             (
                 "changed projection call target is rejected",
                 check(manifest_for_bytes(manifest, wrong_call), wrong_call) is Mismatch,
+            )
+        )
+
+        post_cd_call = 0x800B086C
+        wrong_post_cd_call = mutate_word(
+            data, image, post_cd_call, image.word(post_cd_call) + 1
+        )
+        results.append(
+            (
+                "changed post-CD projection-owner edge is rejected",
+                check(
+                    manifest_for_bytes(manifest, wrong_post_cd_call),
+                    wrong_post_cd_call,
+                )
+                is Mismatch,
             )
         )
 

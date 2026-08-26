@@ -57,6 +57,13 @@
       "target": "0x800B0840",
       "preset_index": 0
     },
+    "post_cd_owner_chain": [
+      {"label": "current CD-init wedge", "address": "0x800B0564", "target": "0x8006AB64"},
+      {"label": "intervening non-projection initializer", "address": "0x800B056C", "target": "0x800B0788"},
+      {"label": "first reachable projection preset owner", "address": "0x800B0574", "target": "0x800B0840"},
+      {"label": "preset to view configuration", "address": "0x800B086C", "target": "0x80080848"},
+      {"label": "view configuration to dimension owner", "address": "0x80080890", "target": "0x80080A40"}
+    ],
     "initial_h_call": {
       "address": "0x800B0928",
       "target": "0x80081238",
@@ -87,6 +94,36 @@
         "0x8006E478"
       ],
       "retail_2d_site": "0x80054CB4"
+    }
+  },
+  "cd_response_boundary": {
+    "entry": "0x80084A30",
+    "sentinel": "0x80010000",
+    "stack": "0x801FF000",
+    "functions": [
+      {"start": "0x800833A8", "end": "0x80083904", "entry_word": "0x27BDFFD0"},
+      {"start": "0x80084A30", "end": "0x80084B08", "entry_word": "0x3C02800A"},
+      {"start": "0x80090128", "end": "0x800901E4", "entry_word": "0x27BDFFE0"},
+      {"start": "0x800903C8", "end": "0x80090650", "entry_word": "0x27BDFFE8"},
+      {"start": "0x800907D0", "end": "0x80090880", "entry_word": "0x27BDFFE8"},
+      {"start": "0x8009095C", "end": "0x800909A4", "entry_word": "0x10A0000C"}
+    ],
+    "data": {
+      "sync_callback": "0x80099750",
+      "sync_callback_target": "0x80090128",
+      "current_libcd_command": "0x80099771",
+      "getstat_int3_route": "0x8009981C",
+      "ack_buffer": "0x800A3BD8",
+      "state_command": "0x8009B734",
+      "published_status": "0x8009B748",
+      "response_copy": "0x8009B740",
+      "callback_class": "0x8009B74C",
+      "cd_state": "0x8009B750",
+      "cd_substate": "0x8009B754",
+      "cd_init_step": "0x8009B758",
+      "motor_on_flag": "0x8009B767",
+      "cd_init_fields": "0x8009B768",
+      "getstat_response_length": "0x8009B804"
     }
   },
   "startup": {

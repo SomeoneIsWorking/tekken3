@@ -3,21 +3,10 @@
 PC-native PlayStation port of Tekken 3, built on
 [psxport](https://github.com/SomeoneIsWorking/psxport).
 
-Current status: the USA target executable can be provisioned and translated into the dedicated
-`tekken3_port` player product; its direct-to-main startup shape is verified, and independent
-Mednafen agrees with generated execution at five boundaries through the first unsupported device
-access. The shared oracle's real IRQ controller keeps the same CPU running
-through Tekken's I_MASK-write/read and I_STAT-write sequence, then both paths agree on 35/35 CPU
-fields at `0x80085DB4`, where the oracle reports Tekken's `0x33333333` write to DPCR
-(`0x1F8010F0`) instead of inventing DMA behavior. The generated path independently proves that exact
-DPCR value, and the isolated IRQ comparison still agrees on 3/3 device observations at `0x80085DA4`.
-Both harnesses and the player install one process-lifetime `Tekken3Runtime` through psxport's direct
-runtime seam. No extracted executable or generated source is tracked. A complete emitted resident
-substrate and a player executable now exist, but that is a packaging/build milestone: no independent
-CPU execution after the DPCR access, completed frame, gameplay, native producer, or widescreen path
-is claimed yet. Tekken 3
-(`SLUS_004.02`) already
-runs at 60 fps, so this port deliberately has no fps60 or interpolation target.
+The factual capability inventory and current focus live in `docs/project-state.md`; the ordered
+binary-evidence dependency chain lives in `docs/re-frontier.md`. Tekken 3 (`SLUS_004.02`) already
+runs at 60 fps, so this port exposes no fps60/interpolation option and no native-renderer option. Its
+rendering target is the measured guest path plus true widescreen.
 
 ## Build and launch the player
 
@@ -96,10 +85,11 @@ delay slot and before `game_main` begins. The generated harness reuses that veri
 state and executes exact shipping-emitter slices containing six `game_main` instructions, the
 28-instruction first initializer, the following two-instruction call, and the measured
 second-initializer call chain. It compares all 35 CPU fields at the initializer entry, its return,
-the next initializer entry, `0x80085D98` immediately after the first I_MASK store, and the unsupported
+the next initializer entry, `0x80085D98` immediately after the first I_MASK store, and the measured
 DPCR boundary at `0x80085DB4`. The framework oracle links Mednafen's narrow IRQ controller so the exact
 I_MASK-write/read and I_STAT-write sequence runs on that same CPU. Its retained GPUSTAT negative case
 still stops, proving unsupported device reads are not silently zero-filled. The harness also validates
 the generated `0x33333333` DPCR store and keeps the isolated IRQ controller's zero/non-zero and 3/3
-comparison gates. Independent CPU stepping after DPCR, later DMA behavior, later initialization,
-frames, and gameplay remain outside the result.
+comparison gates. The independent CPU now continues through Tekken's context-save path to a strict
+pre-BIOS capture at `0x80085DE4`, without executing the jump into unmodeled vector `0xB0`.
+Independent B(19) behavior, later initialization, frames, and gameplay remain outside the result.

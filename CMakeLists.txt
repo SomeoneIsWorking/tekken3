@@ -85,7 +85,7 @@ add_custom_command(
 add_custom_target(
   tekken3_recomp_generate DEPENDS "${TEKKEN3_GENERATED}/boundary_slices.json")
 add_executable(
-  tekken3_recomp_boundary EXCLUDE_FROM_ALL
+  tekken3_recomp_boundary
   tests/recomp_boundary.cpp
   "${TEKKEN3_GENERATED}/boundary_slices.c")
 add_dependencies(tekken3_recomp_boundary tekken3_recomp_generate)
@@ -95,6 +95,55 @@ target_compile_features(tekken3_recomp_boundary PRIVATE cxx_std_20)
 target_compile_options(
   tekken3_recomp_boundary PRIVATE -O0 -fno-strict-aliasing -fwrapv)
 target_link_libraries(tekken3_recomp_boundary PRIVATE tekken3_runtime)
+
+add_custom_command(
+  OUTPUT "${TEKKEN3_GENERATED}/cd_response_slices.json"
+  COMMAND
+    "${CMAKE_COMMAND}" -E env "PSXPORT_DIR=${PSXPORT_DIR}" "PYTHONDONTWRITEBYTECODE=1"
+    "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tools/cd_response_boundary.py"
+    --emit --exe "${TEKKEN3_EXE}" --output "${TEKKEN3_GENERATED}"
+  BYPRODUCTS "${TEKKEN3_GENERATED}/cd_response_slices.c"
+  DEPENDS
+    "${TEKKEN3_EXE}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/titles/tekken3/executable.json"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/cd_response_boundary.py"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/provision_executable.py"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/recomp_boundary.py"
+    "${PSXPORT_DIR}/tools/recomp/decode.py"
+    "${PSXPORT_DIR}/tools/recomp/emit.py"
+    "${PSXPORT_DIR}/tools/recomp/psexe.py"
+  COMMENT "Tekken 3: emitting measured Getstat response boundary"
+  VERBATIM)
+add_custom_target(
+  tekken3_cd_response_generate DEPENDS "${TEKKEN3_GENERATED}/cd_response_slices.json")
+add_executable(
+  tekken3_cd_response_boundary
+  tests/cd_response_boundary.cpp
+  "${TEKKEN3_GENERATED}/cd_response_slices.c")
+add_dependencies(tekken3_cd_response_boundary tekken3_cd_response_generate)
+set_source_files_properties("${TEKKEN3_GENERATED}/cd_response_slices.c" PROPERTIES LANGUAGE CXX)
+target_compile_features(tekken3_cd_response_boundary PRIVATE cxx_std_20)
+target_compile_options(tekken3_cd_response_boundary PRIVATE -O0 -fno-strict-aliasing -fwrapv)
+target_link_libraries(tekken3_cd_response_boundary PRIVATE tekken3_runtime)
+add_test(
+  NAME tekken3_cd_response_boundary
+  COMMAND tekken3_cd_response_boundary "${TEKKEN3_EXE}")
+add_test(
+  NAME tekken3_cd_response_source
+  COMMAND
+    "${CMAKE_COMMAND}" -E env "PSXPORT_DIR=${PSXPORT_DIR}" "PYTHONDONTWRITEBYTECODE=1"
+    "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tools/cd_response_boundary.py"
+    --check --exe "${TEKKEN3_EXE}" --output "${TEKKEN3_GENERATED}")
+add_custom_target(
+  tekken3_cd_response_boundary_check
+  COMMAND
+    "${CMAKE_COMMAND}" -E env "PSXPORT_DIR=${PSXPORT_DIR}" "PYTHONDONTWRITEBYTECODE=1"
+    "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tools/cd_response_boundary.py"
+    --check --exe "${TEKKEN3_EXE}" --output "${TEKKEN3_GENERATED}"
+  COMMAND "$<TARGET_FILE:tekken3_cd_response_boundary>" "${TEKKEN3_EXE}"
+  DEPENDS tekken3_cd_response_boundary
+  USES_TERMINAL
+  VERBATIM)
 
 add_executable(tekken3_runtime_seam tests/runtime_seam.cpp)
 target_link_libraries(tekken3_runtime_seam PRIVATE tekken3_runtime)
@@ -204,6 +253,7 @@ add_custom_target(
     cpp_policy
     psxport_smoke
     tekken3_boot_oracle_selftest
+    tekken3_cd_response_boundary_check
     tekken3_recomp_boundary_check
     tekken3_runtime_contract_check
     tekken3_runtime_seam_check

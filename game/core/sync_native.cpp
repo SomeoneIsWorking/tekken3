@@ -35,15 +35,15 @@ constexpr uint32_t kVSyncBodyEnd = 0x80085B20u;
 } // namespace
 
 const PlatformHlePlan &platformHlePlan() {
-    static const PlatformHlePlan plan = [] {
-        PlatformHlePlan p{};
-        p.bindingCount = 1;
-        p.bindings[0] = {kVSyncAddr, Timing::vsyncHle};
-        p.windowLo[0] = kVSyncAddr;
-        p.windowHi[0] = kVSyncBodyEnd;
-        return p;
-    }();
-    return plan;
+  static const PlatformHlePlan plan = [] {
+    PlatformHlePlan p{};
+    p.bindingCount = 1;
+    p.bindings[0] = {kVSyncAddr, Timing::vsyncHle};
+    p.windowLo[0] = kVSyncAddr;
+    p.windowHi[0] = kVSyncBodyEnd;
+    return p;
+  }();
+  return plan;
 }
 
 } // namespace tekken3

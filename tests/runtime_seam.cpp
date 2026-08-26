@@ -38,6 +38,29 @@ int main() {
   static tekken3::Tekken3Runtime runtime{kFixtureRange};
   psxport_install_game(runtime);
 
+  const RenderCapabilities capabilities = runtime.renderCapabilities();
+  if (capabilities.defaultPath != RenderPath::Gte || capabilities.nativeRenderPath ||
+      capabilities.temporalInterpolation) {
+    std::fprintf(stderr, "runtime_seam: FAIL — Tekken did not declare the widescreen-only profile\n");
+    return 1;
+  }
+  if (!capabilities.supports(RenderPath::Gte) || !capabilities.supports(RenderPath::Psx) ||
+      capabilities.supports(RenderPath::Native)) {
+    std::fprintf(stderr, "runtime_seam: FAIL — Tekken render-path support does not match its scope\n");
+    return 1;
+  }
+  if (!capabilities.playerSelectable(RenderPath::Gte) || capabilities.playerSelectable(RenderPath::Psx) ||
+      capabilities.playerSelectable(RenderPath::Native) || capabilities.playerPathCount() != 1) {
+    std::fprintf(stderr, "runtime_seam: FAIL — Tekken exposed a diagnostic or native player path\n");
+    return 1;
+  }
+  if (render_path_resolve(RenderPath::Native, capabilities) != RenderPath::Gte ||
+      render_path_next_supported(RenderPath::Gte, capabilities, RenderPathAudience::Player) != RenderPath::Gte ||
+      render_path_next_supported(RenderPath::Gte, capabilities, RenderPathAudience::Diagnostic) != RenderPath::Psx) {
+    std::fprintf(stderr, "runtime_seam: FAIL — shared path resolution ignored Tekken capabilities\n");
+    return 1;
+  }
+
   const auto policyGame = std::make_unique<Game>();
   if (game_guest_vram_is_picture(*policyGame)) {
     std::fprintf(stderr, "runtime_seam: FAIL — boundary-only Tekken runtime treated guest VRAM as a picture\n");
@@ -62,8 +85,10 @@ int main() {
   }
 
   std::printf("runtime_seam: PASS — Core owns the direct runtime, 2/2 resident-range facts reach "
-              "GuestProgramImage, 3/3 legacy views are null, 1/1 invalid range is refused, and "
-              "guest VRAM picture ownership is false\n");
+              "GuestProgramImage, 3/3 legacy views are null, 1/1 invalid range is refused, "
+              "13/13 render-capability facts enforce guest rendering without temporal interpolation, "
+              "and guest VRAM picture "
+              "ownership is false\n");
   std::printf("runtime_seam: NOT covered — generated execution, devices, frames, or gameplay\n");
   return 0;
 }

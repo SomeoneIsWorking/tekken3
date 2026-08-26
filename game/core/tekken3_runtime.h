@@ -22,7 +22,7 @@ public:
   explicit Tekken3Runtime(ResidentProgramRange residentProgram);
   Tekken3Runtime(ResidentProgramRange residentProgram, std::uint32_t programEntry);
 
-  bool configureRenderPath();
+  RenderCapabilities renderCapabilities() const override;
   bool guestVramIsPicture(const Game &game) const override;
   const PlatformHlePlan *platformHlePlan() const override;
   void *createContext(Core &core) override;

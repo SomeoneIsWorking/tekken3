@@ -12,8 +12,9 @@ is not the recorded pin. Framework edits happen in the shared clone (`$PSX/psxpo
 
 Tekken 3 (`SLUS_004.02`) already runs at 60 fps. Its rendering-enhancement scope is widescreen only: do not add an
 fps60 mode, interpolation/lerp, or temporal state maintained solely for interpolation. Widescreen
-work remains RE-driven; identify the game's camera/projection owner first, add only the native
-ownership the measured wide path requires, and never reconstruct pictures from GTE/OT/GP0 output.
+work remains RE-driven; bind the measured guest camera/projection/culling owners through the shared
+non-temporal guest-widescreen contract. Do not add a title-owned native renderer, and never
+reconstruct pictures from GTE/OT/GP0 diagnostic output.
 Establish a faithful, measurable base before the widescreen enhancement.
 
 Host ownership follows Dusklight's composition boundary: `game/core/tekken3_runtime.*` is the one

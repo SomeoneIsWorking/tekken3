@@ -42,12 +42,6 @@ int runPort(Tekken3Runtime &runtime, int argc, char **argv) {
   // disc subsystem itself. This keeps env/.env/drop-in resolution available without reviving the
   // legacy config adapter.
   game->disc.env_key = "PSXPORT_TEKKEN3_DISC";
-  // Game loads persisted configuration, so validate the effective selection only after that layer
-  // exists.  Checking earlier would allow a saved native path to replace Tekken's required GTE
-  // path between validation and installation.
-  if (!runtime.configureRenderPath()) {
-    return 2;
-  }
   Core *const core = &game->core;
 
   watchdog_init();

@@ -56,7 +56,7 @@ identifies that path as `FUN_800b0548 -> FUN_80055884 -> FUN_80079964/FUN_800799
 
 Independent Mednafen executes the whole window. Both engines agree on 35/35 CPU fields at
 first-initializer entry step 106159, after return at `0x80028BB8` step 106181, at next-initializer
-entry `0x800B0548` step 106183, at `0x80085D98` step 106388, and at the next unsupported-device
+entry `0x800B0548` step 106183, at `0x80085D98` step 106388, and at the measured DPCR
 boundary `0x80085DB4` step 106395. The generated leg routes the measured indirect call through its
 game-local generated registry rather than replacing it with a direct call.
 
@@ -65,11 +65,12 @@ I_STAT at `0x80085DA0`, then stores `0x33333333` to DPCR `0x1F8010F0` at `0x8008
 checks all five hardware-frontier instruction words directly against the hashed executable. The shared
 oracle routes only I_STAT/I_MASK through vendored Mednafen `irq.c`, so the same independent CPU executes
 the complete interrupt reset with its real load delay; its retained GPUSTAT negative case still stops.
-The oracle then reports the DPCR WRITE32 rather than inventing DMA semantics. The generated path proves
-the exact DPCR value, while a separate IRQ process still demonstrates non-zero and zero states and
-agrees with generated execution on 3/3 observations at `0x80085DA4`. Deliberate
-register/source/boundary/hardware-register changes must fail. This does not independently step the CPU
-after DPCR or establish later DMA behavior, initialization, a frame, or gameplay.
+The oracle models DPCR and continues through the executable's context-save path to a strict capture at
+the measured pre-BIOS call site `0x80085DE4`; it does not execute the jump into unmodeled vector `0xB0`.
+The generated path proves the exact DPCR value, while a separate IRQ process still demonstrates
+non-zero and zero states and agrees with generated execution on 3/3 observations at `0x80085DA4`.
+Deliberate register/source/boundary/capture changes must fail. This does not independently model B(19),
+establish agreement at its return, later initialization, a frame, or gameplay.
 
 ## Measured display and projection ownership
 
@@ -104,6 +105,11 @@ The title-level owners above the Psy-Q leaves are now identified:
   active display rectangle `(0,20,368,448)`, a 384x480 title view, and initial OFX/OFY 192/240.
   Preset 1 owns `(0,10,320,224)`, a 320x240 title view, and initial OFX/OFY 160/120. Both publish
   H=500. Boot calls `FUN_800B0840(0)`.
+- That preset call at `0x800B0574` is the first measured widescreen owner after the current
+  `FUN_8006AB64` CD-init wedge at `0x800B0564` (the only intervening call is `FUN_800B0788`).
+  `FUN_800B0840` calls `FUN_80080848` at `0x800B086C`, which reaches dimension owner
+  `FUN_80080A40` at `0x80080890` before the preset derives centre and H. The real-executable
+  verifier checks all five call edges and a mutated opposite answer.
 - `FUN_8006D014` is the stage submit owner. It calls `FUN_8006D95C` with a horizontal visibility
   angle of 600 normally and `0x30C` in mode 6. That helper traces the two rays at camera yaw plus and
   minus half the supplied angle and selects visible cells from the stage's 6x6 tile grid.
@@ -135,8 +141,8 @@ display/frame boundary, a final-presentation A/B must show a bit-identical 4:3 c
 vertical projection, horizontal translation about the widened centre without scale change, and new
 scene geometry in the added margins.
 
-The durable real-executable gate currently passes 33/33 measured projection/display/culling facts and
-7/7 positive, disagreement, and refusal cases:
+The durable real-executable gate currently passes 38/38 measured projection/display/culling facts and
+8/8 positive, disagreement, and refusal cases:
 
 ```sh
 python3 tools/verify_projection.py
@@ -163,16 +169,16 @@ cmake --build build --target tekken3_recomp_boundary_check -j16
 Resolution is CLI argument > `PSXPORT_TEKKEN3_DISC` > `.env` > one root `*.chd` drop-in. A selected
 path that does not exist refuses rather than falling through to another disc, and ambiguous drop-ins
 also refuse. No disc-derived file belongs in git. The latest comparison establishes generated
-execution and independent CPU agreement at five boundaries through the DPCR stop at `0x80085DB4`,
-plus independent IRQ-controller agreement through the reset boundary at `0x80085DA4`. Past that
-stop, the generated substrate alone executes the measured post-DPCR continuation (`FUN_80085d5c`
+execution and independent CPU agreement at five boundaries through `0x80085DB4`, plus independent
+IRQ-controller agreement through the reset boundary at `0x80085DA4`. The independent CPU continues
+past DPCR through the measured context-save path and stops before executing the BIOS call at
+`0x80085DE4`. The generated substrate additionally executes the B(19) return (`FUN_80085d5c`
 clears a 1050-word buffer through `FUN_80086264`, saves callee-saved state through
 `FUN_800862D8`, and calls the A/B stub `FUN_800862C8`, whose tail jump reaches kernel vector `0xB0`
 function `0x19` — HookEntryInt in the public PSX kernel ABI — before returning to `ra=0x80085DEC`)
 with framework HLE modeling the callee; the verifier captures all 35 CPU fields there but claims
-NO independent-CPU agreement at that edge. Independent execution needs both generic DPCR handling
-and an independently sourced B(19) HookEntryInt model: a saved DPCR-resumed trace leaves mapped
-title text at `pc=0x000000B0`, `t1=0x19`, `ra=0x80085DEC`; its later `0xFFFF8C94` access is garbage
-execution, not a hardware frontier (issue #10). These gates do not establish DPCR/DMA semantics,
-later initialization, that a Tekken 3 port boots a frame, or that a whole recompiled substrate
-exists.
+NO independent-CPU agreement at that edge. Independent execution still needs an independently
+sourced B(19) HookEntryInt model. An older unbounded trace left mapped title text at
+`pc=0x000000B0`, `t1=0x19`, `ra=0x80085DEC`; its later `0xFFFF8C94` access is garbage execution,
+not a hardware frontier (issue #10). These gates do not establish later initialization, that a
+Tekken 3 port boots a frame, or that a whole recompiled substrate exists.

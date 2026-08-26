@@ -4,6 +4,7 @@ title: Framework decodes Tekken's GP1 368 mode as 256
 status: investigating
 symptom: Tekken 3 preset 0 presents or widens from 256 pixels instead of its measured 368-pixel active display
 tags: rendering,display,gp1,framework,tekken3
+state_items: S006,S007
 created: 2026-08-22
 updated: 2026-08-22
 ---

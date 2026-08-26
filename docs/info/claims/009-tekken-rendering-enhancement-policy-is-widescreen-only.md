@@ -4,17 +4,17 @@ kind: claim
 status: holds
 created: 2026-08-22
 tags: enhancement,widescreen,scope,architecture
-depends: game/core/tekken3_runtime.cpp#Tekken3Runtime::bootInit
-reconfirmed: 2026-08-24
-verified_at: 2026-08-24 20:05:27
+depends: game/core/tekken3_runtime.cpp#Tekken3Runtime::renderCapabilities
+reconfirmed: 2026-08-27
+verified_at: 2026-08-27 00:18:00
 ---
 
 ## Claim
 
 Tekken 3 (`SLUS_004.02`) already runs at 60 fps, so its rendering-enhancement target is widescreen only. The title
-must not gain an fps60 mode, interpolation/lerp, or temporal state that exists solely to support
-interpolation. Native camera/projection or graphics ownership is added only when RE of the true wide
-path proves it necessary, not as an interpolation prerequisite.
+must not gain an fps60 mode, interpolation/lerp, temporal state that exists solely to support
+interpolation, or a title-owned native renderer. The wide path binds RE-proven guest
+camera/projection/culling owners through the shared non-temporal guest-widescreen contract.
 
 ## Evidence
 
@@ -27,7 +27,8 @@ removed. The current milestone advances boot fidelity only and introduces no ren
 ## What would falsify it
 
 The user changes Tekken 3's target scope, the original executable is shown not to run at 60 fps, or
-shipping Tekken code introduces an fps60/interpolation mode or temporal state used only by lerp.
+shipping Tekken code introduces an fps60/interpolation mode, lerp-only temporal state, or a
+title-owned native renderer.
 
 ## Re-confirmed 2026-08-22 15:26:34
 
@@ -55,3 +56,14 @@ On pinned psxport bc8c8897, repository audit still found no operational Tekken f
 ## Re-confirmed 2026-08-24
 
 Post-landing verify and runtime seam retain direct widescreen-only boundary ownership; no temporal/interpolation/lerp path added
+
+## Re-confirmed 2026-08-26
+
+User scope remains widescreen-only with no native renderer or interpolation/lerp; touched runtime and repository policy audit retain that boundary, and focused Clang checks pass.
+
+## Re-confirmed 2026-08-27
+
+Against recorded psxport `99a42aa3`, CTest 11/11 and full Clang `verify` pass; the runtime seam proves
+13/13 capability facts. A bounded product run rejected a persisted Native request and resolved it to
+GTE. The product did not reach a first present or X11 window, so actual Native/60fps menu-row absence
+remains static-only rather than visually verified.

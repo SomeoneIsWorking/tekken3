@@ -5,21 +5,28 @@ status: holds
 created: 2026-08-22
 tags: t3-04,oracle,dma,dpcr
 depends: tools/recomp_boundary.py#compare_boundary, tests/recomp_boundary.cpp#main, titles/tekken3/executable.json
-reconfirmed: 2026-08-24
-verified_at: 2026-08-24 20:05:28
+reconfirmed: 2026-08-27
+verified_at: 2026-08-27 00:17:00
 ---
 
 ## Claim
 
-Tekken 3 SLUS_004.02 reaches the unsupported DPCR write boundary at 0x80085DB4 on one independent Mednafen CPU and agrees with shipping-emitted execution on all 35 CPU fields.
+Tekken 3 SLUS_004.02 reaches the DPCR write boundary at 0x80085DB4 on one independent Mednafen CPU and agrees with shipping-emitted execution on all 35 CPU fields.
 
 ## Evidence
 
-On fbda8b68..., the verifier checked the five hardware-frontier instruction words, kept the same independent CPU through I_MASK/I_STAT, and compared 35/35 fields at five boundaries including oracle step 106395 / PC 0x80085DB4. The oracle stopped on DPCR 0x1F8010F0; the generated path stored a1=0x33333333 there. Boundary SELFTEST 9/9, IRQ SELFTEST 2/2, Clang policy, CTest 6/6, and framework oracle 43/43 / CTest 85/85 passed.
+On fbda8b68..., the verifier checks the five hardware-frontier instruction words, keeps the same
+independent CPU through I_MASK/I_STAT and DPCR, and compares 35/35 fields at five boundaries including
+oracle step 106395 / PC 0x80085DB4. The generated path stores `a1=0x33333333` there. On psxport
+`99a42aa3`, the independent CPU continues through the measured context-save path to an exact
+`--capture-at 0x80085DE4` pre-BIOS stop without leaving mapped game text. Boundary SELFTEST 11/11,
+IRQ SELFTEST 2/2, CTest 11/11, and the full Clang `verify` target pass.
 
 ## What would falsify it
 
-Falsified if the selected executable or tracked frontier words change, the same-CPU oracle no longer reaches 0x80085DB4 at DPCR 0x1F8010F0, any of the 35 CPU fields differ there, or generated execution does not store 0x33333333.
+Falsified if the selected executable or tracked frontier words change, the same-CPU oracle no longer
+reaches 0x80085DB4 at DPCR 0x1F8010F0, any of the 35 CPU fields differ there, generated execution does
+not store 0x33333333, or the bounded pre-BIOS trace leaves mapped game text.
 
 ## Re-confirmed 2026-08-22
 

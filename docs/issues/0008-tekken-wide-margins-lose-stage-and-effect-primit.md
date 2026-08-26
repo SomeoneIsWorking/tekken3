@@ -4,6 +4,7 @@ title: Tekken wide margins lose stage and effect primitives at retail culling bo
 status: investigating
 symptom: Tekken 3 widescreen shows missing stage tiles or effects in the added horizontal margins
 tags: rendering,widescreen,culling,tekken3
+state_items: S006,S007
 created: 2026-08-22
 updated: 2026-08-22
 ---

@@ -4,11 +4,32 @@ title: Whole-product interrupt exit reaches unseeded Tekken re-entry
 status: investigating
 symptom: tekken3_port aborts at recomp-MISS 0x80085DC4 after IRQ 0x004
 tags: runtime,recompiler,interrupt,t3-04
+state_items: S004,S008
 created: 2026-08-25
-updated: 2026-08-25
+updated: 2026-08-26
 ---
 
 ## Root cause
+
+The current whole-product wedge is libcd queue-kick starvation while the CD-system state is not
+ready state `1`. It is not upstream of the first read request: the saved
+provisioned discriminator's watchdog stack is inside
+`FUN_80091858 -> FUN_80091E5C -> FUN_80091328`, after `FUN_80090F78` has accepted the four-command
+`Pause -> Setmode -> Setloc -> ReadN` group and entered its sector-count wait.
+
+`FUN_8008F08C` allocates all four queue entries and returns a nonzero group ID, but calls queue
+executor `FUN_8008E8B8` only when `DAT_8009B750 == 1`. The same run issued only Getstat (`0x01`)
+after CdInit's Reset/Demute traffic and never issued a queued command. This excludes state `1`, but
+does **not** discriminate initializing state `2` from failed state `3`; the earlier state-3 inference
+was too strong.
+
+The saved trace proves more of the response path than the earlier write-up credited: each Getstat
+reaches `FUN_800833A8` as INT3, reads response FIFO byte `0x02`, and acknowledges it. A new controlled
+interpreter-versus-shipping-recompiler test proves the normal guest path copies that byte through
+`DAT_800A3BD8`, invokes `FUN_80090128/FUN_800907D0`, publishes `DAT_8009B748=0x02`, and advances
+init step `0x16 -> 0x17`. The remaining root cause is therefore a **live IRQ-context discriminator**:
+the current command, route-table value, callback pointer/class, or CD state differs from that normal
+path. It is not a static mistranslation of the six measured response functions.
 
 
 ## What was tried / dead ends
@@ -199,3 +220,75 @@ condition against LIVE RAM during a provisioned run (WWATCH or gated diagnostics
 address). Suspect ordering: another earlier wait/starvation in Tekken's pre-read init — the
 vblank-ticker running (FUN_8008FDE8 alive) proves CD-system init completed, so the gate is above
 the CD subsystem, not inside it.
+
+## 2026-08-26 (eighth pass) — saved runtime stack falsifies the upstream-call gate; queue state is the wedge
+
+The seventh-pass command histogram proved that no read-group command reached the CDC, but not that
+Tekken never requested the group. Its saved runtime log contains the missing opposite-side
+observation:
+
+- `scratch/logs/tekken3-discriminate.log` ends inside
+  `gen_func_80091328 <- gen_func_80091E5C <- gen_func_80091858 <- gen_func_80091558`.
+  `FUN_80091E5C` calls `FUN_80090F78` once before entering that wait, so the read request was reached
+  and accepted. This **falsifies** the seventh-pass conclusion that the wedge is upstream of the
+  first sync operation.
+- Ghidra's complete xref census gives one caller of `FUN_80090F78` (`FUN_80091E5C`), three calls to
+  `FUN_80091E5C` (two in `FUN_80091858`, one in `FUN_80091BC0`), and both higher-level functions are
+  only called by `FUN_80091558`. The observed stack is the real directory-read path.
+- `FUN_8008F08C` queues four entries, increments `DAT_800A3E40` four times, and returns the group ID
+  whether or not it kicks the head. The sole immediate-kick condition is
+  `FUN_8008FBB4(0) == 1`, or `DAT_8009B750 == 1`; no later callback retries the kick.
+- Persistent post-enqueue Getstat excludes ready state `1`. It does not by itself distinguish state
+  `2` from state `3`; the ninth pass below corrects that inference.
+
+This pass changes no CDC semantics. The next serialized provisioned run must watch
+`[0x8009B734,0x8009B780)` and capture current command, published status, callback class, and the
+state `2`/`3` discriminator in one range. The proper fix belongs at the first live value that differs
+from the differential-green path. Forcing state `1`, explicitly kicking the queued head, or
+accepting state `3` would only bypass the broken invariant.
+
+Run it only when no other game instance is active. `timeout` owns and signals only the child it
+starts; it never matches the shared executable name:
+
+```sh
+timeout --signal=INT --kill-after=5s 40s \
+  env PSXPORT_NOPACE=1 PSXPORT_NOAUDIO=1 PSXPORT_DEBUG=cdc,cdcr \
+      PSXPORT_WWATCH=8009B734,8009B780 \
+      PSXPORT_LOG_FILE=scratch/logs/t3-state-watch.log \
+  ./scratch/bin/tekken3_port scratch/bin/tekken3/SLUS_004.02
+```
+
+The high watch address is exclusive, so `0x8009B780` includes the complete state word at
+`0x8009B77C`. This run must first record whether the live path is state `2` or `3`, plus
+`DAT_8009B734` (current command), `DAT_8009B748` (published status), and `DAT_8009B74C` (callback
+class). If status receives a different value, the next bounded run watches the ack buffer
+`PSXPORT_WWATCH=800A3BD8,800A3BE0`; if it is never written, the fault is earlier in
+`FUN_800833A8`, and if it holds `0x02`, the fault is the callback argument/publication path.
+
+## 2026-08-26 (ninth pass) — normal Getstat publication is differential-green; live IRQ context remains
+
+`tools/cd_response_boundary.py` now emits 668 instructions from the six measured executable
+functions using psxport's shipping emitter and verifies 2/2 generated artifacts before execution.
+`tests/cd_response_boundary.cpp` seeds the same one-byte
+INT3/Getstat controller response seen in the saved trace and runs `FUN_80084A30` once in the
+interpreter and once in emitted C. The two engines agree 34/34 CPU values, 38/38 unique RAM bytes,
+and 4/4 CDC queue fields. Both copy `0x02` to `DAT_800A3BD8`, publish
+`DAT_8009B748=0x02`, set the motor-on flag, and advance init step `0x16 -> 0x17`.
+The `0x00` negative control produces the other answer in both engines: published status and motor
+flag remain zero and init step remains `0x16`.
+
+This falsifies a normal-path translation defect in
+`FUN_80084A30/FUN_800833A8/FUN_80090128/FUN_800903C8/FUN_800907D0/FUN_8009095C`. It also corrects
+the eighth pass: state `3` was inferred, not observed, and state `2` also prevents the enqueue-time
+kick. The proper next observation is the existing bounded state watch above. Forcing state `1`,
+kicking the queued head, or bypassing CdInit would still be a hack.
+
+## 2026-08-27 — exact pinned product falsifier
+
+The exact Clang product built against recorded psxport `99a42aa3` dispatched the retail entry,
+installed the measured VSync HLE, and reached IRQ/CD initialization. It produced no first present or
+visible X11 window within the 20-second bounded run, so there is still no frame or live menu evidence.
+The exact launched PID was terminated with the scoped safe-kill helper and confirmed gone. The run
+also rejected a persisted `native` render request and resolved it to GTE; that proves capability
+resolution but does not advance the CD frontier. The next honest observation remains the bounded
+`[0x8009B734,0x8009B780)` state watch above.

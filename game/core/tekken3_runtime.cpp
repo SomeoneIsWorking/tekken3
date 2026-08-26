@@ -1,9 +1,6 @@
 #include "tekken3_runtime.h"
 
-#include "config_var.h"
-#include "config_vars.h"
 #include "core.h"
-#include "render_mode.h"
 
 #include <lucent/log.h>
 
@@ -35,22 +32,13 @@ Tekken3Runtime::Tekken3Runtime(ResidentProgramRange residentProgram, std::uint32
   }
 }
 
-bool Tekken3Runtime::configureRenderPath() {
-  psx::config::cv_render_path.set(psx::config::Layer::Default, render_path_name(RenderPath::Gte));
-  const RenderPath selected = psx::config::render_path();
-  if (selected != RenderPath::Gte && selected != RenderPath::Psx) {
-    lucent::error("tekken3-render",
-                  "render path '{}' is unsupported before Tekken owns native picture producers; "
-                  "select 'gte' for the retail geometry stream or 'psx' for the software reference",
-                  render_path_name(selected));
-    return false;
-  }
-  return true;
+RenderCapabilities Tekken3Runtime::renderCapabilities() const {
+  return RenderCapabilities::widescreenOnly();
 }
 
 bool Tekken3Runtime::guestVramIsPicture(const Game &) const {
-  // Tekken's verified boundary harness produces no picture. Future widescreen ownership is native;
-  // guest VRAM must not become an implicit fallback for an unimplemented frame.
+  // Tekken's verified boundary harness produces no picture. Widescreen remains on the shared guest
+  // projection path; this boundary must not claim an implicit framebuffer before a frame is proven.
   return false;
 }
 

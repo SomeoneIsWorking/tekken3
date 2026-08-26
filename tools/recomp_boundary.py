@@ -3,9 +3,10 @@
 
 The port executes the verified entry-to-main window in psxport's interpreter, then executes C
 emitted by the shipping recompiler through ``game_main``'s first initializer return and the next
-initializer call. The true-CPU-oracle leg executes through the first device access in vendored
-Mednafen; a separate process built from Mednafen's IRQ controller verifies that access and its reset
-response. No later game code, BIOS behavior, or whole-image seed set is guessed.
+initializer call. The true-CPU-oracle leg executes through the measured pre-BIOS call site in
+vendored Mednafen; a separate process built from Mednafen's IRQ controller verifies the earlier
+interrupt-controller access and its reset response. No BIOS behavior or whole-image seed set is
+guessed.
 """
 
 from __future__ import annotations
@@ -61,8 +62,10 @@ TRACE_END_RE = re.compile(
     r"ended pc=0x(?P<pc>[0-9A-Fa-f]{8})$",
     re.MULTILINE,
 )
-HARDWARE_ADDRESS_RE = re.compile(
-    r"^# hardware address: 0x(?P<address>[0-9A-Fa-f]{8})$", re.MULTILINE
+PC_CAPTURE_RE = re.compile(
+    r"^# requested PC 0x(?P<address>[0-9A-Fa-f]{8}) reached after "
+    r"(?P<steps>\d+) executed instruction\(s\); its instruction was not executed$",
+    re.MULTILINE,
 )
 RECOMP_DEVICE_RE = re.compile(
     r"^# RECOMP-DEVICE I_STAT=0x(?P<status>[0-9A-Fa-f]+) "
@@ -679,23 +682,21 @@ def parse_oracle_trace(text: str, *, target: int, delay_address: int) -> Boundar
     return captures[0]
 
 
-def verify_hardware_stop(text: str, *, boundary: int, register: int) -> None:
+def verify_pre_bios_capture(text: str, *, boundary: int) -> None:
     trace_end = TRACE_END_RE.search(text)
-    hardware = HARDWARE_ADDRESS_RE.search(text)
-    if (
-        trace_end is None
-        or hardware is None
-        or "# stop reason: hardware register touched" not in text
-    ):
-        raise Refused("oracle trace did not end at a hardware-register boundary")
+    capture = PC_CAPTURE_RE.search(text)
+    if trace_end is None or capture is None:
+        raise Refused("oracle trace did not end at the requested pre-BIOS boundary")
     observed_pc = int(trace_end.group("pc"), 16)
-    observed_register = int(hardware.group("address"), 16)
-    if observed_pc != boundary or observed_register != register:
+    observed_capture = int(capture.group("address"), 16)
+    if observed_pc != boundary or observed_capture != boundary:
         raise Refused(
-            "oracle hardware stop differs from the measured frontier: "
-            f"pc=0x{observed_pc:08X}/register=0x{observed_register:08X}, "
-            f"expected 0x{boundary:08X}/0x{register:08X}"
+            "oracle pre-BIOS stop differs from the measured frontier: "
+            f"pc=0x{observed_pc:08X}/capture=0x{observed_capture:08X}, "
+            f"expected 0x{boundary:08X}"
         )
+    if "# LEFT THE MAPPED TEXT" in text or "# left mapped text at step" in text:
+        raise Refused("oracle left mapped game text before the pre-BIOS capture")
 
 
 def parse_recomp(text: str, expected_boundary: int) -> BoundaryState:
@@ -712,11 +713,22 @@ def capture_oracle_trace(
     steps: int,
     trace: pathlib.Path,
     timeout: float,
+    *,
+    capture_at: int,
 ) -> str:
     trace.parent.mkdir(parents=True, exist_ok=True)
     trace.unlink(missing_ok=True)
     result = run_process(
-        [str(oracle), str(executable), "--steps", str(steps), "--out", str(trace)],
+        [
+            str(oracle),
+            str(executable),
+            "--steps",
+            str(steps),
+            "--capture-at",
+            f"0x{capture_at:08X}",
+            "--out",
+            str(trace),
+        ],
         timeout,
     )
     if result.returncode != 0:
@@ -924,12 +936,9 @@ def compare_boundary(
         steps,
         trace_path,
         timeout,
+        capture_at=prefix.external_call_return - 8,
     )
-    verify_hardware_stop(
-        trace_text,
-        boundary=prefix.dma_control_boundary,
-        register=prefix.dma_control_register,
-    )
+    verify_pre_bios_capture(trace_text, boundary=prefix.external_call_return - 8)
     edges = (
         (
             "first initializer entry",
@@ -1018,9 +1027,8 @@ def compare_boundary(
     )
     print(f"trace: {trace_path}")
     print(
-        "NOT covered: independent CPU stepping after the DPCR write (generic DPCR plus an "
-        "independently sourced B(19) model are required), independent agreement at the "
-        "BIOS-call return, the next real hardware boundary, a frame, or gameplay"
+        "NOT covered: independent execution of B(19) HookEntryInt, independent agreement at "
+        "the BIOS-call return, the next real hardware boundary, a frame, or gameplay"
     )
     return results
 
@@ -1091,23 +1099,20 @@ def selftest(
         raise Refused("oracle parser accepted a trace that never reached the call")
     print("PASS refusal: trace without the requested edge is rejected")
 
-    wrong_hardware_trace = (
-        "# stop reason: hardware register touched (window ended here)\n"
-        "# hardware address: 0x1F801070\n"
+    pre_bios_boundary = prefix.external_call_return - 8
+    wrong_capture_trace = (
         f"# traced 1 of 1 requested step(s), 5 cycle(s), "
-        f"ended pc=0x{prefix.dma_control_boundary:08X}\n"
+        f"ended pc=0x{pre_bios_boundary:08X}\n"
+        f"# requested PC 0x{pre_bios_boundary + 4:08X} reached after "
+        "1 executed instruction(s); its instruction was not executed\n"
     )
     try:
-        verify_hardware_stop(
-            wrong_hardware_trace,
-            boundary=prefix.dma_control_boundary,
-            register=prefix.dma_control_register,
-        )
+        verify_pre_bios_capture(wrong_capture_trace, boundary=pre_bios_boundary)
     except Refused:
         pass
     else:
-        raise Refused("hardware-stop verifier accepted the wrong register")
-    print("PASS refusal: wrong hardware register is rejected")
+        raise Refused("pre-BIOS capture verifier accepted the wrong requested PC")
+    print("PASS refusal: wrong pre-BIOS capture is rejected")
 
     manifest = load_manifest(MANIFEST)
     header = manifest.get("header")
