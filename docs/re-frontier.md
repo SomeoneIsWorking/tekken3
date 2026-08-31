@@ -77,6 +77,37 @@ names an honest remaining gap; `todo` is not started. No hacks are tracked.
   kick is not a fix. The exact `99a42aa3` product run on 2026-08-27 reconfirmed this literal frontier:
   retail entry dispatch and IRQ/CD initialization occurred, but no first present or X11 window was
   produced within 20 seconds. Its exact PID was safely terminated and confirmed gone.
+  The later isolated `3c342ec3` product PID `3172936` advanced through both native queue owners and
+  into the result-release chain, then correctly tripped the protected VSync fatal in response-ready
+  poller `FUN_80083B84` at return address `0x80083BC0`. The title now has a readable native owner for
+  that poller's completion-before-ack response contract; its hermetic contract is green, but the owner
+  has not yet been driven in another authorized product run. No frame or presentation is covered.
+  PID `3185894` subsequently passed that response owner with no guest VSync call and falsified the
+  retained asynchronous queue itself: before the native frame loop starts, neither its native field
+  deadline nor its guest per-sector callback count can advance. The replacement uses the shared
+  synchronous Setloc/CdRead owners for the sole `(location,sectors,destination)` queue call domain and
+  publishes success only after real disc bytes reach RAM. Its focused contract is green but it is not
+  yet product-verified.
+  PID `3196289` passed that read owner, opened the real CHD, and made no guest VSync call. Its watchdog
+  backtrace exposed the next retained asynchronous owner: generic blocking command wrapper
+  `FUN_80090D88` spinning in `FUN_8008F3DC` for GetTN/GetTD. The new owner routes commands through the
+  synchronous native protocol and derives TOC bytes from actual CHD track metadata. It is combined-
+  gate green and PID `3216829` subsequently passed it. That run reached ResetGraph and exposed the
+  next protected VSync query in GPU timeout armer `FUN_8007E8F0`, through the exact chain
+  `8007E8F0 <- 8007E154 <- 8007C528 <- 800B07C8 <- 800B07A8 <- 800B07A0 <- 800B0794 <- 800B0788
+  <- 800B0548`. Exact generated code and Ghidra show the call only stores a 240-field deadline and
+  clears a poll counter; paired `FUN_8007E924` checks that deadline, retains an independent `0xF0000`
+  poll failsafe, and performs the linked queue/GPU/DMA reset only on timeout. The new cohesive owner
+  sources the deadline from the native frame ledger, preserves that failsafe/reset sequence, retains
+  both generated supers, and is combined-gate green against current pinned psxport `fb08d30f` but not
+  yet product-verified on that framework. PID `3216829`
+  exited itself; no frame, present, or audio sample was produced.
+  A complete Ghidra xref pass closes this measured sync domain: the five live callers of the armer and
+  all ten calls to the poller are the resident driver-table DMA/image/queue/DrawSync owners; the three
+  SDK helpers that inline the clock have zero executable references. ResetGraph mode 0 and its driver
+  initializer contain no VSync, and direct display initializer `FUN_800B0954` is already natively
+  owned. The next product run therefore targets first presentation, not another adjacent GPU-clock
+  call.
 - notes: Ghidra identifies the observed path as `FUN_800b0548 -> FUN_80055884 -> FUN_80079964/FUN_800799a8`,
   then indirect `FUN_80085bc8 -> FUN_80085d5c`. The generated leg preserves that indirect dispatch instead of
   replacing it with a direct call. `Tekken3Runtime` owns the framework seam directly and carries the measured
@@ -91,15 +122,15 @@ names an honest remaining gap; `todo` is not started. No hacks are tracked.
 ## Widescreen ownership and enhancement
 
 ### T3-05 — Identify the widescreen projection owner
-- status: re-partial
+- status: ready
 - deps: T3-04
 - evidence: C012/I007. Static analysis of the complete hashed `SLUS_004.02` image plus Ghidra decompilation identifies all six canonical CR24/CR25/CR26 writes. `FUN_80080a40` owns the title's view dimensions; `FUN_80081148` derives the retail projection centre from those dimensions; `FUN_80080da8` publishes the centre plus the current double-buffer offsets through `SetGeomOffset` at `0x80082728`. `FUN_80063c64` clamps the title-owned focal length and publishes it through `SetGeomScreen` at `0x80082748`; `FUN_80064080` selects a six-field fight-camera pose containing that focal length and `FUN_80064170` blends between authored poses. The two resident display presets prove that title view/projection width is distinct from the active PSX display width: the boot preset owns a 384x480 view and OFX/OFY 192/240 while its active display rectangle is 368x448; the alternate preset owns 320x240 and OFX/OFY 160/120. Both initialize H=500. The first measured widescreen owner after the current `FUN_8006AB64` CD wedge is `FUN_800B0840(0)` at `0x800B0574`; it routes preset 0 through `FUN_80080848` to dimension owner `FUN_80080A40` before deriving the centre and H. The stage owner `FUN_8006D014` supplies horizontal visibility angles 600/780 to the 6x6 tile selector `FUN_8006D95C`; stage/effect primitive clippers `FUN_8006CC28` and `FUN_8006E44C` contain eleven plus one rendering-path signed `-368` right-edge comparisons. `tools/verify_projection.py` now proves 38/38 facts on the real executable and passes 8/8 real agreement, mutated disagreement, and refusal cases. Those bounds must widen with the resolved display plan; the separate player-select text-slide use remains 2D retail layout.
 - where: `tools/verify_projection.py`; `titles/tekken3/executable.json`; `titles/tekken3/README.md`; Ghidra project and decompilation under gitignored `scratch/`
-- gap: Before consuming the shared non-temporal guest-widescreen contract, fix its generic GP1 display-mode decoder: issue #9 proves that the documented 368-pixel bit is ignored and Tekken's preset 0 becomes 256 pixels in framework state. Then bind the measured view-centre/H owners and A/B the resulting geometry and final presentation against 4:3. A real pixel comparison remains blocked because the whole product does not reach its first present at the T3-04 CD frontier. OT, GP0, and GTE output are diagnostic evidence, never producer input.
+- gap: Framework commit `2e840231` fixed the generic 368-mode decoder and `game/core/widescreen.*` now binds the measured dimension and clipping owners to one guest-wide plan. A real pixel comparison remains gated on the whole product reaching its first present at the T3-04 CD frontier. OT, GP0, and GTE output are diagnostic evidence, never producer input.
 
 ### T3-06 — Owned widescreen
-- status: todo
+- status: partial
 - deps: T3-05
-- evidence: Not started.
-- where: future title-owned projection policy plus the shared non-temporal guest-widescreen contract
-- gap: Tekken 3 already runs at 60 fps. Implement only true widescreen from the measured view-centre and focal-length state, preserving H and vertical scale while widening horizontal field of view through the shared guest-widescreen path. The 4:3 path must remain identical and the wide path must widen guest geometry, draw coverage, and final sampling together; a host viewport stretch or a projection-only crop is not completion. There is no title-owned native renderer, fps60 mode, interpolation/lerp, or interpolation-supporting temporal pipeline in this title's target scope.
+- evidence: `Tekken3Widescreen` publishes the shared plan at `FUN_80080A40`, preserves vertical extent/H ownership, widens the view 384->512 at 16:9, and feeds the corresponding 492-pixel draw width to readable wide-only ports of the two measured stage/effect clippers. The 4:3 route retains each generated body. `tekken3_widescreen_contract` proves both measured display/view pairs plus stage/effect primitives in the added margin.
+- where: `game/core/widescreen.*`; `tests/widescreen_contract.cpp`; shared `guest_widescreen_projection.*`
+- gap: The product still has no completed frame, so final sampling, 4:3 pixel identity, and actual added scene coverage are unverified. A real A/B must also determine whether the authored 600/780 stage-tile visibility wedge culls needed wide-margin tiles; any adjustment must derive from the resolved projection. Tekken 3 already runs at 60 fps: there remains no native renderer, fps60 mode, interpolation/lerp, or interpolation-supporting temporal pipeline in this title's target scope.

@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import os
 import platform
+import runpy
 import shutil
 import subprocess
 import sys
@@ -201,15 +202,21 @@ def announce_framework(
         )
 
 
-def parse_args(argv: Sequence[str]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
+def argument_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__, add_help=False)
+    parser.add_argument(
+        "-h",
+        "--help",
+        action="store_true",
+        help="show this help message and exit",
+    )
     parser.add_argument("disc", nargs="?", help="path to the user's Tekken 3 USA disc image")
     parser.add_argument(
         "--prepare-only",
         action="store_true",
         help="provision and build the player product without launching it",
     )
-    return parser.parse_args(list(argv))
+    return parser
 
 
 def run_launcher(
@@ -225,7 +232,11 @@ def run_launcher(
     environment = dict(os.environ if environ is None else environ)
     machine = host or Host()
     try:
-        options = parse_args(argv)
+        parser = argument_parser()
+        options = parser.parse_args(list(argv))
+        if options.help:
+            parser.print_help(file=stdout)
+            return 0
         for tool in ("cmake", "git", "pkg-config"):
             require_tool(machine, tool)
         require_libraries(machine, root=root, environment=environment)
@@ -313,15 +324,12 @@ def run_launcher(
         say("Tekken 3 is built and ready.", stdout)
         return 0
 
-    launch_environment = dict(environment)
+    policy = runpy.run_path(str(framework / "tools/port/launch_environment.py"))
+    launch_environment = policy["player_environment"](environment)
     if options.disc:
         launch_environment["PSXPORT_TEKKEN3_DISC"] = str(
             Path(options.disc).expanduser().resolve()
         )
-    if launch_environment.get("PSXPORT_NOWINDOW"):
-        launch_environment["PSXPORT_VK_HEADLESS"] = "1"
-    else:
-        launch_environment["PSXPORT_VK_WINDOW"] = "1"
     launch_environment.setdefault("PSXPORT_ASSET_DIR", str(framework))
     say("launching Tekken 3…", stdout)
     try:

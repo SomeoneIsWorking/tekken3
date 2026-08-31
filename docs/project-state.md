@@ -18,8 +18,8 @@ dependencies in `docs/re-frontier.md`.
 
 ## Current focus
 
-S004 is the current focus: resolve the earliest live CD-initialization state divergence, then resume
-the independently compared boot spine toward the first frame.
+S004 is the current focus: product execution has passed native CD/TOC initialization and now owns the
+first linked GPU queue timeout clock; drive that owner through ResetGraph toward the first frame.
 
 ## Capability details
 
@@ -43,10 +43,13 @@ The player composition installs `Tekken3Runtime`, derives resident functions fro
 executable, loads that executable, binds framework devices, and dispatches the retail entry.
 
 Gap: A built whole-program target and saved product traces do not prove a completed frame or gameplay.
-The exact `99a42aa3` product run on 2026-08-27 dispatched the retail entry and reached IRQ/CD
-initialization but produced no X11 window or first present within the bounded run. Its exact PID was
-terminated and confirmed gone. The generated candidate set includes unexecuted roots; runtime reach
-must be established at each real boundary.
+The isolated `3c342ec3` product PID `3216829` dispatched the retail entry, opened the real CHD, and
+passed the synchronous directory-read and GetTN/GetTD owners. It then reached ResetGraph and trapped
+the next protected guest VSync query in linked GPU timeout armer `FUN_8007E8F0`. Its exact PID exited
+and is confirmed gone. The resulting native-ledger GPU arm/poll owner is combined-gate green but not
+yet product-verified. A later 1,200-frame windowless run against the real CHD produced a presented
+sink image and the `NAMCO PRESENTS` title card, but the generated substrate still reports `UNKNOWN`
+and no menu or gameplay scene is covered.
 
 ### S004 — differential boot and CD initialization
 
@@ -56,11 +59,10 @@ interpreter with shipping-emitted C and agrees on 34/34 CPU values, 38/38 unique
 CDC fields for both a publishing response and a non-publishing control.
 
 Gap: The independent CPU now continues through DPCR and the measured context-save path, but cannot yet
-execute B(19) HookEntryInt and return for another two-engine comparison. Whole-product execution
-reaches IRQ/CD initialization and the first directory-read queue but does not issue its commands;
-issue 0011 requires a
-serialized watch of the real IRQ-context and CD state to identify the earliest divergence. No frame or
-gameplay is covered.
+execute B(19) HookEntryInt and return for another two-engine comparison. Whole-product execution now
+passes CD/TOC initialization with no guest VSync call and reaches ResetGraph. Issue 0011 records the
+exact GPU timeout-arm chain and the combined-gate-green native field/poll owner for
+`FUN_8007E8F0/FUN_8007E924`. No frame or gameplay is covered.
 
 ### S005 — title render-capability contract
 
@@ -68,8 +70,8 @@ gameplay is covered.
 checks GTE as the only player-selectable path, PSX as a supported diagnostic path, Native as
 unsupported, and temporal interpolation as unsupported.
 
-Evidence: The shared capability implementation is recorded at `psxport.pin` `99a42aa3`. The exact
-Clang gate passes CTest 11/11, clang-tidy 11/11, and the 13/13 capability seam. A bounded product run
+Evidence: The shared capability implementation is recorded at `psxport.pin` `fb08d30f`. The exact
+Clang gate passes CTest 17/17, clang-tidy 19/19, and the 13/13 capability seam. A bounded product run
 also rejected a persisted `native` selection as unsupported and resolved it to GTE.
 
 Gap: The product did not reach a first present or create an X11 window, so the absence of Native and
@@ -81,9 +83,16 @@ C012/I007 and `tools/verify_projection.py` identify the complete six-writer CR24
 the view-dimension and projection-centre chain, focal-length owner, both display presets, stage
 visibility angles, and rendering-path right-edge comparisons on the hashed executable.
 
-Gap: Framework issue 0009 still misdecodes Tekken's GP1 368-pixel mode, and the measured owners have
-not been driven in a completed frame or A/B-tested against a faithful 4:3 image. Issue 0008 tracks
-the coordinated culling/coverage work.
+Framework commit `2e840231` now decodes Tekken's GP1 368-pixel mode generically. The title's
+`Tekken3Widescreen` owner binds the measured 384x480-view/368-draw and 320x240/320 facts to the shared
+projection plan, then uses the same resolved guest draw width for the stage/effect primitive
+clippers while retaining their generated 4:3 supers. The hermetic contract proves the wide
+384->512 projection and x=400/450 added-margin cases.
+
+Gap: These owners have not been driven in a completed gameplay frame or A/B-tested against a faithful
+4:3 image. The first presented frame is currently the title-loader card, not a completed gameplay
+frame. The separate 600/780 stage-tile visibility wedge remains measurement-dependent: a real wide
+frame must show whether it requires a derived frustum adjustment.
 
 ### S007 — true widescreen output
 
@@ -98,4 +107,5 @@ gameplay input, produced verified title audio, or sustained gameplay.
 ### S009 — default playable widescreen product
 
 Missing capability: `./run.sh` builds and launches the intended product, but that product does not yet
-satisfy the observable frame, gameplay, or widescreen conditions of S007 and S008.
+satisfy the observable frame, gameplay, or widescreen conditions of S007 and S008. Launcher and direct
+product `-h/--help` contracts both exit zero before dependency, runtime, or disc discovery.

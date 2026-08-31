@@ -1,6 +1,9 @@
 #include "tekken3_port.h"
 
+#include "c_subsys.h"
+#include "cfg.h"
 #include "core.h"
+#include "frame_loop_shell.h"
 #include "game.h"
 #include "recomp_register.h"
 #include "render_mode.h"
@@ -58,17 +61,25 @@ int runPort(Tekken3Runtime &runtime, int argc, char **argv) {
   game->spu_audio.init();
   game->gpu.gpu_native_init();
   game->pad.overridesInit();
-  // Direct-boot path: native_boot's game_init never runs, so the platform-HLE table must be
-  // populated here (same seam Spider-Man drives from its own main; see platform_hle.h). The plan
-  // comes from the runtime; initBuiltins announces what it installed either way.
-  game->platform_hle.initBuiltins();
   render_path_install(core);
 
   core->r[4] = 1;
   core->r[5] = 0;
   runtime.registerOverrides(*game);
+  FrameLoopShell shell;
+  shell.prepareProduct(*game);
   runtime.bootInit(*core);
-  lucent::info("boot", "Tekken 3 retail entry returned");
+
+  const int requestedFrames = cfg_int("PSXPORT_NATIVE_FRAMES", 0);
+  std::uint32_t frameLimit = requestedFrames > 0 ? static_cast<std::uint32_t>(requestedFrames) : 0u;
+  if (frameLimit == 0 && !gpu_windowed()) {
+    frameLimit = 120;
+  }
+  lucent::info("frame", "entering Tekken 3 native-owned frame loop ({})", frameLimit ? "capped" : "interactive");
+  for (std::uint32_t frame = 0; frameLimit == 0 || frame < frameLimit; ++frame) {
+    shell.step(*core, frame);
+  }
+  lucent::info("frame", "Tekken 3 frame loop completed after {} frame(s)", frameLimit);
   return 0;
 }
 

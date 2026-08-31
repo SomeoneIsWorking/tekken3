@@ -29,7 +29,14 @@ set(PSXPORT_BUILD_SMOKE ON CACHE BOOL "Build the framework agnosticism smoke" FO
 add_subdirectory("${PSXPORT_DIR}" psxport_build)
 add_custom_target(tekken3_scaffold DEPENDS psxport_smoke)
 
-add_library(tekken3_runtime STATIC game/core/tekken3_runtime.cpp game/core/sync_native.cpp)
+add_library(
+  tekken3_runtime STATIC
+  game/core/cd_sync.cpp
+  game/core/frame_loop.cpp
+  game/core/gpu_sync.cpp
+  game/core/tekken3_runtime.cpp
+  game/core/sync_native.cpp
+  game/core/widescreen.cpp)
 target_include_directories(tekken3_runtime PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/game/core")
 target_compile_features(tekken3_runtime PUBLIC cxx_std_20)
 target_link_libraries(tekken3_runtime PUBLIC psxport)
@@ -165,6 +172,46 @@ add_custom_target(
   USES_TERMINAL
   VERBATIM)
 
+add_executable(tekken3_frame_loop_contract tests/frame_loop_contract.cpp)
+target_link_libraries(tekken3_frame_loop_contract PRIVATE tekken3_runtime)
+add_test(NAME tekken3_frame_loop_contract COMMAND tekken3_frame_loop_contract)
+add_custom_target(
+  tekken3_frame_loop_contract_check
+  COMMAND "$<TARGET_FILE:tekken3_frame_loop_contract>"
+  DEPENDS tekken3_frame_loop_contract
+  USES_TERMINAL
+  VERBATIM)
+
+add_executable(tekken3_cd_protocol_contract tests/cd_protocol_contract.cpp)
+target_link_libraries(tekken3_cd_protocol_contract PRIVATE tekken3_runtime)
+add_test(NAME tekken3_cd_protocol_contract COMMAND tekken3_cd_protocol_contract)
+add_custom_target(
+  tekken3_cd_protocol_contract_check
+  COMMAND "$<TARGET_FILE:tekken3_cd_protocol_contract>"
+  DEPENDS tekken3_cd_protocol_contract
+  USES_TERMINAL
+  VERBATIM)
+
+add_executable(tekken3_gpu_sync_contract tests/gpu_sync_contract.cpp)
+target_link_libraries(tekken3_gpu_sync_contract PRIVATE tekken3_runtime)
+add_test(NAME tekken3_gpu_sync_contract COMMAND tekken3_gpu_sync_contract)
+add_custom_target(
+  tekken3_gpu_sync_contract_check
+  COMMAND "$<TARGET_FILE:tekken3_gpu_sync_contract>"
+  DEPENDS tekken3_gpu_sync_contract
+  USES_TERMINAL
+  VERBATIM)
+
+add_executable(tekken3_widescreen_contract tests/widescreen_contract.cpp)
+target_link_libraries(tekken3_widescreen_contract PRIVATE tekken3_runtime)
+add_test(NAME tekken3_widescreen_contract COMMAND tekken3_widescreen_contract)
+add_custom_target(
+  tekken3_widescreen_contract_check
+  COMMAND "$<TARGET_FILE:tekken3_widescreen_contract>"
+  DEPENDS tekken3_widescreen_contract
+  USES_TERMINAL
+  VERBATIM)
+
 # Device-side oracle for T3-04's first hardware sequence. This compiles the vendored Mednafen IRQ
 # controller itself in a separate process; it neither shares state nor an implementation with
 # psxport's Core::io_read/io_write path.
@@ -210,6 +257,9 @@ add_custom_target(
     "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tools/test_run.py"
   COMMAND
     "${Python3_EXECUTABLE}" -B
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/test_launcher_help.py"
+  COMMAND
+    "${Python3_EXECUTABLE}" -B
     "${CMAKE_CURRENT_SOURCE_DIR}/tools/verify_interrupt_reentry.py"
     --selftest --exe "${TEKKEN3_EXE}"
   COMMAND
@@ -230,6 +280,11 @@ add_test(
   NAME tekken3_launcher_selftest
   COMMAND
     "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tools/test_run.py")
+add_test(
+  NAME tekken3_launcher_help_contract
+  COMMAND
+    "${Python3_EXECUTABLE}" -B
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/test_launcher_help.py")
 add_test(
   NAME tekken3_interrupt_reentry_selftest
   COMMAND
@@ -253,10 +308,17 @@ add_custom_target(
     cpp_policy
     psxport_smoke
     tekken3_boot_oracle_selftest
+    tekken3_cd_protocol_contract_check
     tekken3_cd_response_boundary_check
+    tekken3_frame_loop_contract_check
+    tekken3_gpu_sync_contract_check
     tekken3_recomp_boundary_check
     tekken3_runtime_contract_check
     tekken3_runtime_seam_check
     tekken3_tool_selftests
+    tekken3_widescreen_contract_check
   USES_TERMINAL
   VERBATIM)
+if(TARGET tekken3_product_help_contract_check)
+  add_dependencies(verify tekken3_product_help_contract_check)
+endif()

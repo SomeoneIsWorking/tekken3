@@ -1,5 +1,6 @@
 #include "core.h"
 #include "game.h"
+#include "platform_hle.h"
 #include "tekken3_runtime.h"
 
 #include <cstdint>
@@ -61,6 +62,28 @@ int main() {
     return 1;
   }
 
+  const PlatformHlePlan *const hle = runtime.platformHlePlan();
+  if (!hle || hle->vsyncAddress != 0x800859A8u || hle->bindingCount != 0 || hle->windowLo[0] != 0x800859A8u ||
+      hle->windowHi[0] != 0x80085B20u) {
+    std::fprintf(stderr,
+                 "runtime_seam: FAIL — Tekken did not declare protected VSync ownership at the "
+                 "measured address\n");
+    return 1;
+  }
+
+  const GuestPadBufferLayout *const pad = runtime.guestPadBufferLayout();
+  if (!pad || pad->slot0Buffer != 0x800A9132u || pad->slot1Buffer != 0x800A915Cu || pad->slotPointerTable != 0 ||
+      pad->slotPointerStride != 4) {
+    std::fprintf(stderr,
+                 "runtime_seam: FAIL — Tekken did not declare the two measured Sony libpad "
+                 "receive buffers\n");
+    return 1;
+  }
+  if (!runtime.guestWidescreenProjection()) {
+    std::fprintf(stderr, "runtime_seam: FAIL — Tekken did not publish its measured guest projection owner\n");
+    return 1;
+  }
+
   const auto policyGame = std::make_unique<Game>();
   if (game_guest_vram_is_picture(*policyGame)) {
     std::fprintf(stderr, "runtime_seam: FAIL — boundary-only Tekken runtime treated guest VRAM as a picture\n");
@@ -87,7 +110,8 @@ int main() {
   std::printf("runtime_seam: PASS — Core owns the direct runtime, 2/2 resident-range facts reach "
               "GuestProgramImage, 3/3 legacy views are null, 1/1 invalid range is refused, "
               "13/13 render-capability facts enforce guest rendering without temporal interpolation, "
-              "and guest VRAM picture "
+              "5/5 platform-HLE facts declare protected VSync ownership, 4/4 pad-layout facts reach "
+              "the shared host service, the guest projection owner is present, and guest VRAM picture "
               "ownership is false\n");
   std::printf("runtime_seam: NOT covered — generated execution, devices, frames, or gameplay\n");
   return 0;

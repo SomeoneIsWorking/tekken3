@@ -1,12 +1,12 @@
 ---
 id: 9
 title: Framework decodes Tekken's GP1 368 mode as 256
-status: investigating
+status: resolved
 symptom: Tekken 3 preset 0 presents or widens from 256 pixels instead of its measured 368-pixel active display
 tags: rendering,display,gp1,framework,tekken3
 state_items: S006,S007
 created: 2026-08-22
-updated: 2026-08-22
+updated: 2026-08-27
 ---
 
 ## Root cause
@@ -24,5 +24,8 @@ broken.
 
 ## Resolution
 
-Pending a generic GP1 display-mode decoder fix with a 368 positive case and a
-neighboring-mode opposite-answer test in psxport.
+Framework commit `2e840231` gives the split GP1(08) field one pure decoder:
+`HRES2` bit 6 selects 368 independently of the low two bits, otherwise the low bits select
+256/320/512/640. `test_gpu_display_mode` covers all four bit-6 combinations and all four neighboring
+modes. Tekken consumes that framework state through the shared guest-projection plan; there is no
+title-side display-width exception.

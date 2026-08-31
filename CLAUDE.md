@@ -18,7 +18,8 @@ reconstruct pictures from GTE/OT/GP0 diagnostic output.
 Establish a faithful, measurable base before the widescreen enhancement.
 
 Host ownership follows Dusklight's composition boundary: `game/core/tekken3_runtime.*` is the one
-process-lifetime game owner, `game/core/tekken3_port.*` composes framework devices around it, and
+process-lifetime game owner, `game/core/frame_loop.*` owns the finite title frame and its measured
+service order, `game/core/tekken3_port.*` composes framework devices around them, and
 `game/core/main.cpp` is the narrow player entry point. The generated whole-program substrate is
 owned by `tools/ensure_recomp.py` and lives only under gitignored `generated/port/`; never edit it by
 hand. Probe entry points only parse their inputs, install the same owner, and drive the framework.

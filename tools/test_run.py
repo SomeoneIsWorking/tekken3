@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import io
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -66,6 +67,11 @@ class LauncherTest(unittest.TestCase):
         framework_cmake = self.root / "external/psxport/cmake/psxport.cmake"
         framework_cmake.parent.mkdir(parents=True)
         framework_cmake.write_text("# fixture\n")
+        policy = self.root / "external/psxport/tools/port/launch_environment.py"
+        policy.parent.mkdir(parents=True)
+        shutil.copyfile(
+            REPO_ROOT / "external/psxport/tools/port/launch_environment.py", policy
+        )
 
     def tearDown(self) -> None:
         self.temp.cleanup()
@@ -140,18 +146,25 @@ class LauncherTest(unittest.TestCase):
         )
         self.assertFalse(any(command[0].endswith("tekken3_port") for command in commands))
 
-    def test_nowindow_changes_only_final_launch_environment(self) -> None:
+    def test_player_exec_strips_ambient_agent_policy(self) -> None:
         host = FakeHost()
         code, _, stderr = self.invoke(
             host,
-            environment={"PATH": os.environ.get("PATH", ""), "PSXPORT_NOWINDOW": "1"},
+            environment={
+                "PATH": os.environ.get("PATH", ""),
+                "PSXPORT_NOWINDOW": "1",
+                "PSXPORT_VK_HEADLESS": "1",
+                "PSXPORT_NOAUDIO": "1",
+                "PSXPORT_NOPACE": "1",
+            },
         )
 
         self.assertEqual(code, 0)
         self.assertEqual(stderr, "")
         launch_environment = host.commands[-1][1]["env"]
-        self.assertEqual(launch_environment["PSXPORT_VK_HEADLESS"], "1")
-        self.assertNotIn("PSXPORT_VK_WINDOW", launch_environment)
+        self.assertEqual(launch_environment["PSXPORT_VK_WINDOW"], "1")
+        for key in ("PSXPORT_NOWINDOW", "PSXPORT_VK_HEADLESS", "PSXPORT_NOAUDIO", "PSXPORT_NOPACE"):
+            self.assertNotIn(key, launch_environment)
 
     def test_missing_cmake_names_exact_fedora_install_before_mutation(self) -> None:
         host = FakeHost(missing={"cmake"})

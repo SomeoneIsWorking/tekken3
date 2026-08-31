@@ -11,15 +11,23 @@ endif()
 
 include("${TEKKEN3_PORT_GENERATED}/rec_sources.cmake")
 list(TRANSFORM GEN_REC_SRCS PREPEND "${TEKKEN3_PORT_GENERATED}/")
+set(TEKKEN3_GENERATED_OPTIMIZATION "-O1" CACHE STRING
+    "Optimization level for generated Tekken 3 bodies (-O0 is useful for short frontier builds)")
+if(NOT TEKKEN3_GENERATED_OPTIMIZATION MATCHES "^-O[0123sz]$")
+  message(FATAL_ERROR
+    "TEKKEN3_GENERATED_OPTIMIZATION=${TEKKEN3_GENERATED_OPTIMIZATION} is not a supported optimization flag")
+endif()
 set_source_files_properties(
   ${GEN_REC_SRCS}
   PROPERTIES
     LANGUAGE CXX
     # Generated bodies can be several megabytes each. Cross-function inlining expands them
     # pathologically while adding no guest semantics; sibling-call optimization remains enabled so
-    # emitted guest tail jumps stay bounded native tail calls.
+    # emitted guest tail jumps stay bounded native tail calls. Keep debug records on first-party
+    # ownership code, but not on generated bodies: the emitted function symbols retain guest-address
+    # backtraces, while full line tables make the 120k-line shards take minutes each to compile.
     COMPILE_OPTIONS
-      "-O1;-fno-inline-functions;-foptimize-sibling-calls;-fno-strict-aliasing;-fwrapv;-w")
+      "${TEKKEN3_GENERATED_OPTIMIZATION};-fno-inline-functions;-foptimize-sibling-calls;-fno-strict-aliasing;-fwrapv;-w;-g0")
 
 add_executable(
   tekken3_port
@@ -38,3 +46,16 @@ set_target_properties(
   tekken3_port PROPERTIES
   ENABLE_EXPORTS ON
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/scratch/bin")
+add_test(
+  NAME tekken3_product_help_contract
+  COMMAND
+    "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tools/test_product_help.py"
+    "$<TARGET_FILE:tekken3_port>")
+add_custom_target(
+  tekken3_product_help_contract_check
+  COMMAND
+    "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tools/test_product_help.py"
+    "$<TARGET_FILE:tekken3_port>"
+  DEPENDS tekken3_port
+  USES_TERMINAL
+  VERBATIM)

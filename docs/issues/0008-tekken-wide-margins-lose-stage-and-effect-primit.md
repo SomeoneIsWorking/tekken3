@@ -6,7 +6,7 @@ symptom: Tekken 3 widescreen shows missing stage tiles or effects in the added h
 tags: rendering,widescreen,culling,tekken3
 state_items: S006,S007
 created: 2026-08-22
-updated: 2026-08-22
+updated: 2026-08-27
 ---
 
 ## Root cause
@@ -31,7 +31,12 @@ not the missing wide implementation or its pixel A/B.
 
 ## Resolution
 
-Pending. Title-owned overrides must consume one shared resolved guest-wide draw/clip
-extent. A real A/B must determine whether the tile wedge needs widening; if so, the
-replacement derives from the authored angle and resolved projection. The 4:3 generated
-bodies remain the differential control.
+`Tekken3Widescreen` now latches one shared projection plan at measured dimension owner
+`FUN_80080A40`. Wide-only readable ports of `FUN_8006CC28` and `FUN_8006E44C` consume that plan's
+guest draw width instead of their twelve retail x=368 comparisons; 4:3 routes to the retained
+generated bodies. The hermetic contract proves stage/effect primitives at x=400/450 survive the
+492-pixel 16:9 draw span while projection widens 384->512 with height 480 unchanged.
+
+This is implemented, not visually verified. A real 4:3/wide product A/B must still verify packet
+fidelity and determine whether the separate authored 600/780 stage-tile visibility wedge needs a
+derived wide-frustum adjustment.

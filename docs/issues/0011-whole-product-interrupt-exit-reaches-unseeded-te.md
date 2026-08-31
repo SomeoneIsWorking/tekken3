@@ -3,10 +3,10 @@ id: 11
 title: Whole-product interrupt exit reaches unseeded Tekken re-entry
 status: investigating
 symptom: tekken3_port aborts at recomp-MISS 0x80085DC4 after IRQ 0x004
-tags: runtime,recompiler,interrupt,t3-04
 state_items: S004,S008
+tags: runtime,recompiler,interrupt,t3-04
 created: 2026-08-25
-updated: 2026-08-26
+updated: 2026-08-31
 ---
 
 ## Root cause
@@ -190,14 +190,15 @@ is (a) a caller polling non-blocking forever because a flag the HANDLER should s
 wrong buffer, or (b) genuinely blocking waits whose responses carry unexpected types. Do not
 modify CDC semantics until that decision is written down — beetle agrees with our current model.
 
-## 2026-08-25 (seventh pass, delegated + operator discriminator run) — mechanism decided; wedge is upstream of the read path
+## 2026-08-25 (seventh pass, delegated + operator discriminator run) — command trace narrowed the read-path wedge
 
 Full evidence: scratch/t3-11-seventh-pass-notes.md (READ-ONLY agent session; decompiles
-scratch/decomp/t3-11-*.c). Decision: **mechanism (c)** — neither framed hypothesis survives:
+scratch/decomp/t3-11-*.c). The response-path evidence below survived, but the call-site census did
+not: the complete Ghidra xref query run on 2026-08-27 reports five direct calls to `0x80083904`
+(`0x80082D64`, `0x80083138`, `0x80083F0C`, `0x8008469C`, and `0x8008FC34`), and the live boot chain
+enters it from `FUN_80083E4C` with blocking mode `0`. The earlier two-caller/nonblocking-only premise
+must not be used to choose the mechanism.
 
-- (b) dead: CdSync has exactly TWO call sites in the image, both constant mode=1 NON-blocking
-  (0x80082d84 passthrough via FUN_80082D7C←FUN_80084DC8; 0x8008fc58 literal `(1, param_1)`).
-  No blocking call site exists anywhere.
 - (a) dead: handler-side and poller-side drains feed identical slots; completion chain
   drain cases 1/4/5 → slot 0x80099754 (FUN_8009073C) → DAT_800A3EE0 = FUN_8008F850 → done-flags
   DAT_800A3D68/58 — statically coherent end-to-end. Callback registrations installed by
@@ -292,3 +293,233 @@ The exact launched PID was terminated with the scoped safe-kill helper and confi
 also rejected a persisted `native` render request and resolved it to GTE; that proves capability
 resolution but does not advance the CD frontier. The next honest observation remains the bounded
 `[0x8009B734,0x8009B780)` state watch above.
+
+## 2026-08-27 — finite native frame-owner implementation (not yet product-verified)
+
+The title boundary now has a source-complete finite driver rather than dispatching `0x80028BA0` as
+an unbounded guest loop. It retains the generated bodies as registered supers, runs the measured two-
+initializer boot prefix once, and exposes one bounded iteration to `FrameLoopShell`. The title-owned
+iteration preserves the measured prior-buffer presentation callback, CD/XA state-machine, buffer/
+geometry/OT setup, mode dispatch, and OT splice order. The replaced `0x800296C4` barrier still runs
+its timer snapshot, conditional OT compaction, PRNG update, and callback guard effects; its one finite
+RCntCNT2 turn is delivered through the shipping BIOS event owner as class `0xF2000002`, spec `2`, so
+registration/enabled state and interrupt-context register preservation are not duplicated. A missing
+event release is a named fatal contract failure. The replaced display init retains the measured body
+except its leading VSync call. `0x800859A8` is now declared as the typed protected VSync address, with
+no `Timing::vsyncHle` binding.
+
+The direct-runtime pad layout is also measured rather than inferred: `FUN_800B0B9C` initializes two
+42-byte title pad records and passes their `+2` receive buffers to linked libpad initialization, giving
+slot 0 `0x800A9132` and slot 1 `0x800A915C`. The frame barrier publishes host packets through the
+shared pad service immediately before RCntCNT2 event delivery, so the retained guest callback's
+`0x800291D8 -> 0x80029DC0` pad parse consumes the current packet.
+
+An earlier focused Clang compilation of the frame-loop/runtime targets completed before the final
+retail-body corrections and `FrameLoopShell::prepareProduct` integration. It is useful prior evidence,
+not evidence for the current tree. A current product build, focused CTest, product execution, and
+clang-tidy remain deliberately unclaimed until they actually complete; the existing exact product
+falsifier above therefore still governs live status.
+
+The integration comparison against shipping-emitted `gen_func_80028BA0` caught and corrected two
+source transcription defects before product launch. After the mode call, the retail body restores
+`v0=0x800B0000`; the finite body now does the same. More importantly, the two `0x8007BAB0` OT-splice
+calls consume the guest pointers stored at `0x800A9218` and `0x800ADD54`, not those variables'
+addresses. The frame contract now seeds distinct pointer values and asserts all six splice arguments,
+so substituting either address cannot pass the production-seam test.
+
+## 2026-08-27 — first finite-driver product run and first residual owner
+
+The current Clang product installed one fatal sync primitive, resolved the renderer to GTE with PC
+enhancements locked out, dispatched the finite boot prefix, and aborted before any frame/presentation
+fence. This is a successful ownership falsifier, not a working-game result:
+
+```text
+GUEST VSYNC VIOLATION: reached 0x800859A8 a0=-1 ra=0x80083940 pc=0x800859A8
+```
+
+The generated/native backtrace is `0x80083904 <- 0x80083E4C <- 0x800844F0 <- 0x8008F958 <-
+0x8008EBD8 <- 0x8006AB64 <- 0x800B0548`. Ghidra decompilation and the exact
+`[0x80083904,0x80083B84)` disassembly agree that `FUN_80083904` is Tekken's linked `CdSync`; its two
+`VSync(-1)` calls only arm/check a 960-field timeout around the response drain. The live call hit the
+first query even though `DAT_80099A30` was already ready (`2`).
+
+The first implementation removed the timeout calls but retained the asynchronous controller drain.
+The real product falsified it immediately: CdControl had no synchronous response yet, so removing its
+clock could not make the underlying asynchronous operation native. That implementation was replaced,
+not papered over. `CdSync` and `CdControl` now preserve Tekken's validation, Setloc/Setfilter mirrors,
+command/status globals, and return convention while delegating the hardware operation to psxport's
+shipping synchronous stock-libcd owner. The generated `gen_func_80083904` and
+`gen_func_80083E4C` remain registered supers.
+
+## 2026-08-27 — synchronous controller passed; queue VSync owners exposed
+
+Two serialized real-disc product runs advanced the fatal VSync frontier without weakening the trap:
+
+- PID `3135550`: synchronous `CdControl` completed, then `FUN_80090F78` called VSync(-1) at return
+  address `0x80091050`. Ghidra shows this query only records the start field for a command-group
+  timeout after `FUN_8008F08C` accepts the group.
+- PID `3141032`: the native `FUN_80090F78` owner passed, then `FUN_80091328` called VSync(-1) at
+  return address `0x80091344`. Ghidra shows this query only compares the same start field against a
+  1200-field timeout before releasing the group.
+
+Both runs resolved an unsupported persisted Native request to GTE and reached no frame, present, or
+audio sample. PID `3141032` overlapped another title's process, so it is frontier evidence only, not
+isolated product verification. Both PIDs exited on the intentional trap and were confirmed absent.
+
+`game/core/cd_sync.*` now owns both queue functions using `Game::timing.vblank`—the counter advanced
+only by the native frame owner—in place of their VSync(-1) queries, while retaining queue allocation,
+callbacks, timeout/cancel behavior, release behavior, guest globals, register ABI, and generated
+supers. This current second queue owner is Clang-built and focused-contract green but not yet live-
+verified. No guest VSync binding exists; any unowned caller still aborts by construction.
+
+## 2026-08-27 — isolated queue-result run exposes the response-poll owner
+
+The canonical Clang tree was rebuilt and verified against clean, pushed psxport `3c342ec3`: full
+CTest 15/15, C++ policy formatting/size 25/25, clang-tidy 17/17, and the provenance check passed.
+Isolated real-disc PID `3172936` then proved both native queue owners execute through the result
+release path. It exited itself before a frame because the protected VSync trap correctly rejected the
+next unowned caller:
+
+```text
+GUEST VSYNC VIOLATION: reached 0x800859A8 a0=-1 ra=0x80083BC0 pc=0x800859A8
+```
+
+The exact generated/native chain is `FUN_80091328 -> FUN_8008F5CC -> FUN_8008FC4C ->
+FUN_80083B84 -> VSync`. `FUN_80083B84` is Tekken's response-ready poller. Exact generated code and
+the prior complete xref census show both callers use non-blocking mode 1, but the function still calls
+VSync(-1) before checking the completion-class byte at `0x80099A32` and acknowledgement-class byte at
+`0x80099A31`; its only use for time is the 960-field asynchronous drain deadline.
+
+Native CD commands already finish synchronously before this poll. `CdProtocol::ready` therefore owns
+the same title response priority, clears the consumed status byte, copies the corresponding eight-byte
+response (`0x800A3BE8` before `0x800A3BE0`), and returns zero when neither response is ready. It neither
+calls VSync nor creates another CD hardware owner; the exact generated `gen_func_80083B84` remains the
+registered super. The hermetic contract covers acknowledgement copying, completion priority, status
+consumption, and the no-VSync invariant. The focused Clang product build, contract 2/2, and clang-tidy
+17/17 pass. This new owner is not yet product-verified; no relaunch was authorized after the diagnosis.
+
+PID `3172936` is absent. The run produced no present and a zero-byte WAV, so no frame, widescreen
+image, menu, or gameplay is claimed.
+
+## 2026-08-27 — response poll passes; retained asynchronous queue is falsified
+
+Isolated PID `3185894` ran the product with the native `CdReady` owner for roughly 45 seconds and
+made no guest VSync call. It then exited on the boot-progress watchdog with the exact active chain
+`FUN_80091328 <- FUN_80091E5C <- FUN_80091858 <- FUN_80091558 <- FUN_8006AB64 <- FUN_800B0548`.
+No frame/present occurred and the WAV remained zero bytes.
+
+This falsifies the first queue implementation at its ownership boundary. It replaced the queue's
+VSync timestamps with `Game::timing.vblank` but retained `FUN_8008F08C`'s asynchronous command group.
+During the finite boot prefix the native frame loop has not started, so that field counter remains
+zero; more importantly, the retained per-sector callbacks never decrement `DAT_8009B890` under the
+synchronous native controller. `FUN_80091E5C` therefore polls a positive remaining-sector count
+forever. Raising the watchdog or advancing a fake clock would hide the cause, not complete the read.
+
+Ghidra supplies the closed call domain: `FUN_80090F78` and `FUN_80091328` each have exactly one direct
+caller, `FUN_80091E5C`. That caller converts its LBA to a `CdlLOC`, then passes `(location, sector
+count, destination)` to the queue; its three callers use the result as a synchronous boolean read.
+The replacement queue owner now calls psxport's shared `cd_control_sync` Setloc bookkeeping and
+`cd_read_stock_sync` real-disc transfer, publishes zero remaining sectors on success or `-1` on
+failure, and returns without allocating or releasing an asynchronous guest command group. This is the
+same synchronous ownership boundary as the native CdControl/CdSync path, not a fabricated completion:
+success is published only after the real requested sectors are in guest RAM.
+
+The expanded hermetic contract proves the exact location/count/destination reach the read owner,
+success publishes zero, failure publishes `-1`, busy requests do not start another read, and no guest
+VSync is called. Focused Clang build, product link, contract, and clang-tidy 17/17 pass. This fully
+synchronous queue owner has not yet been driven in another authorized product run.
+
+## 2026-08-27 — synchronous read passes; blocking TOC command wrapper exposed
+
+Isolated PID `3196289` opened the real Tekken 3 CHD and advanced beyond the synchronous directory
+read with no guest VSync call. The boot-progress watchdog then captured a new active chain:
+
+```text
+FUN_80090D88 -> FUN_8008F3DC
+  <- FUN_80090DF8 <- FUN_8006AB64 <- FUN_800B0548
+```
+
+`FUN_80090DF8` enumerates the disc TOC through GetTN (`0x13`) and GetTD (`0x14`). Its callee
+`FUN_80090D88(command, parameters, result)` allocates a generic asynchronous command and spins in
+`FUN_8008F3DC` until the returned status becomes nonzero, accepting only status 2. This is the same
+invalid ownership split as the retired data queue: a blocking guest command group cannot be the
+completion owner under synchronous native CD.
+
+The native `FUN_80090D88` owner now routes the original command ABI through `CdProtocol::control` and
+returns its boolean success contract. GetTN/GetTD result bytes are derived from the opened CHD's actual
+`DiscState` track metadata: first/last track for GetTN, and track-start or lead-out MSF for GetTD.
+This preserves the TOC data the caller parses instead of acknowledging with fabricated zero bytes.
+The exact generated body remains its registered super. Canonical Clang product build, full CTest
+15/15, verify, psxport `3c342ec3` provenance, and clang-tidy 17/17 all pass. This owner is not yet
+product-verified.
+
+PID `3196289` exited itself and is absent. No frame/present occurred and its WAV is zero bytes.
+
+## 2026-08-27 — TOC commands pass; ResetGraph exposes the GPU timeout clock
+
+Isolated PID `3216829` opened the real CHD, passed the synchronous directory-read and GetTN/GetTD
+owners, and reached Tekken's ResetGraph path with no earlier guest VSync. The product printed
+`ResetGraph:jtb=80098b70,env=80098bb8`, then the protected VSync trap captured the next unowned call:
+
+```text
+GUEST VSYNC VIOLATION: reached 0x800859A8 a0=-1 ra=0x8007E900 pc=0x800859A8
+FUN_8007E8F0 <- FUN_8007E154 <- FUN_8007C528 <- FUN_800B07C8
+  <- FUN_800B07A8 <- FUN_800B07A0 <- FUN_800B0794 <- FUN_800B0788 <- FUN_800B0548
+```
+
+The exact generated body and Ghidra agree that `FUN_8007E8F0` does not wait or submit GPU work. It
+only arms the linked GPU queue's timeout by storing `VSync(-1)+240` and clearing a poll counter.
+`FUN_8007E924` is the paired poll owner: it compares the same field deadline, retains an independent
+`0xF0000` poll-count failsafe, and only on a real timeout logs queue/register state and performs the
+measured critical-section, queue, GP1, DMA-channel, and GP0 reset sequence. Queue production and
+draining remain in their generated title bodies.
+
+`game/core/gpu_sync.*` now supplies those two clock functions with `Game::timing.vblank`, the native
+frame ledger, without calling guest VSync. Its hermetic contract proves the inclusive field boundary,
+poll-count fallback, queue-depth report, two critical-section return PCs, and exact reset writes. The
+generated `gen_func_8007E8F0` and `gen_func_8007E924` remain registered supers. Canonical Clang build,
+CTest 17/17, C++ policy 28/28, clang-tidy 19/19, verify, and exact psxport `3c342ec3` provenance pass
+for this GPU owner. It is not yet product-verified.
+
+PID `3216829` exited itself and is absent. It reached no frame or present and its WAV is zero bytes.
+The saved evidence is `scratch/logs/tekken3-isolated-toc-3c342ec3.log`,
+`scratch/logs/tekken3-isolated-toc-3c342ec3.stdout.log`, and
+`scratch/raw/tekken3-isolated-toc.wav`.
+
+The same combined batch closes the product's own help boundary. The Python launcher already handled
+`-h/--help` before dependency and asset discovery, but a direct `tekken3_port --help` probe exposed
+that the executable treated the flag as a disc path and armed its runtime watchdog. `main.cpp` now
+prints product usage and exits zero before constructing `Tekken3Runtime`; a stripped-environment
+product contract proves both spellings make no runtime/disc discovery output.
+
+Before the next product run, shared psxport advanced cleanly from `3c342ec3` to `fb08d30f`. Tekken's
+pin and canonical Clang build now match `fb08d30f`; CTest 17/17, C++ policy 28/28, clang-tidy 19/19,
+the complete `verify` target, and framework provenance all pass. No older product artifact is valid
+for the next live claim.
+
+A complete Ghidra xref census closes the measured ResetGraph/display-initialization synchronization
+domain before that run. `FUN_8007E8F0` has exactly five callers: GPU DMA submit `FUN_8007D874`, image
+load/store `FUN_8007DB84/FUN_8007DDC0`, command queue `FUN_8007E154`, and DrawSync
+`FUN_8007E7B4`. Their ten timeout checks all call paired `FUN_8007E924`, so the two native owners cover
+every live driver-table path. Three adjacent SDK image helpers (`FUN_8007EB08/FUN_8007EBF4/
+FUN_8007ECE0`) inline the same VSync clock but have zero executable references and are not part of the
+selected product's caller domain. ResetGraph mode 0 itself initializes the measured driver table at
+`0x80098B70` through `FUN_8007E664` without VSync; the subsequent clear reaches table slot +8,
+`FUN_8007E154`. Direct display initializer `FUN_800B0954` is already the finite native owner that
+retains its body while removing its leading VSync(0). This census leaves no adjacent owned GPU sync
+call for the next run to discover one at a time.
+
+## 2026-08-31 — current product reaches presentation, then stalls in the title-loader scene
+
+After rebuilding against shared psxport `8eb9a79e`, a windowless product run with the real CHD completed
+1,200 native frames and emitted a presented 960x720 sink image. Frame 1 was black while the display
+initialized; frame 119 and frame 1,199 both showed the centered `NAMCO PRESENTS` title card. The run
+had no fatal, watchdog, guest-VSync, or dropped-layer report. This is the first observed product
+present, but it is not a faithful-release claim: the generated substrate still reports `UNKNOWN`, and
+the run never reached a menu or gameplay scene.
+
+The bounded run narrows the next frontier to the title-loader state after the Namco card, not the
+frame cadence or GPU timeout owners. Do not raise the frame cap or add a synthetic delay to mask the
+stall. The next discriminator must trace the loader's CD request/completion state and compare it with
+the independent retail boot, then implement the missing queue callback/event ownership at that measured
+boundary.

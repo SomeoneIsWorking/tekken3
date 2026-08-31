@@ -1,7 +1,9 @@
 #pragma once
 
 #include "game_runtime.h"
+#include "recompiled_program_bindings.h"
 #include "sync_native.h"
+#include "widescreen.h"
 
 #include <cstdint>
 
@@ -21,19 +23,27 @@ public:
   Tekken3Runtime() = default;
   explicit Tekken3Runtime(ResidentProgramRange residentProgram);
   Tekken3Runtime(ResidentProgramRange residentProgram, std::uint32_t programEntry);
+  Tekken3Runtime(ResidentProgramRange residentProgram,
+                 std::uint32_t programEntry,
+                 const RecompiledProgramBindings &bindings);
 
   RenderCapabilities renderCapabilities() const override;
   bool guestVramIsPicture(const Game &game) const override;
   const PlatformHlePlan *platformHlePlan() const override;
+  const GuestPadBufferLayout *guestPadBufferLayout() const override;
+  const GuestWidescreenProjection *guestWidescreenProjection() const override;
   void *createContext(Core &core) override;
   void destroyContext(void *context) override;
   void registerOverrides(Game &game) override;
-  [[noreturn]] void bootInit(Core &core) override;
+  void bootInit(Core &core) override;
+  std::unique_ptr<FrameDriver> createFrameDriver(Game &game) override;
   const GuestProgramImage *guestProgramImage() const override;
 
 private:
   const GuestProgramImage programImage_{};
   const std::uint32_t programEntry_ = 0;
+  const RecompiledProgramBindings *bindings_ = nullptr;
+  Tekken3Widescreen widescreen_;
 };
 
 } // namespace tekken3
