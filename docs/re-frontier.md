@@ -145,14 +145,14 @@ paths are migration evidence only: do not generate, build, or run them again.
 ## Widescreen ownership and enhancement
 
 ### T3-05 — Identify the widescreen projection owner
-- status: ready
+- status: re-partial
 - deps: T3-04
 - evidence: C012/I007. Static analysis of the complete hashed `SLUS_004.02` image plus Ghidra decompilation identifies all six canonical CR24/CR25/CR26 writes. `FUN_80080a40` owns the title's view dimensions; `FUN_80081148` derives the retail projection centre from those dimensions; `FUN_80080da8` publishes the centre plus the current double-buffer offsets through `SetGeomOffset` at `0x80082728`. `FUN_80063c64` clamps the title-owned focal length and publishes it through `SetGeomScreen` at `0x80082748`; `FUN_80064080` selects a six-field fight-camera pose containing that focal length and `FUN_80064170` blends between authored poses. The two resident display presets prove that title view/projection width is distinct from the active PSX display width: the boot preset owns a 384x480 view and OFX/OFY 192/240 while its active display rectangle is 368x448; the alternate preset owns 320x240 and OFX/OFY 160/120. Both initialize H=500. The first measured widescreen owner after the current `FUN_8006AB64` CD wedge is `FUN_800B0840(0)` at `0x800B0574`; it routes preset 0 through `FUN_80080848` to dimension owner `FUN_80080A40` before deriving the centre and H. The stage owner `FUN_8006D014` supplies horizontal visibility angles 600/780 to the 6x6 tile selector `FUN_8006D95C`; stage/effect primitive clippers `FUN_8006CC28` and `FUN_8006E44C` contain eleven plus one rendering-path signed `-368` right-edge comparisons. `tools/verify_projection.py` now proves 38/38 facts on the real executable and passes 8/8 real agreement, mutated disagreement, and refusal cases. Those bounds must widen with the resolved display plan; the separate player-select text-slide use remains 2D retail layout.
 - where: `tools/verify_projection.py`; `titles/tekken3/executable.json`; `titles/tekken3/README.md`; Ghidra project and decompilation under gitignored `scratch/`
 - gap: Framework commit `2e840231` fixed the generic 368-mode decoder and `game/core/widescreen.*` now binds the measured dimension and clipping owners to one guest-wide plan. A real 4:3/wide visual A/B remains gated on the native/Lightrec product reaching representative gameplay. OT, GP0, and GTE output are diagnostic evidence, never producer input.
 
 ### T3-06 — Owned widescreen
-- status: partial
+- status: re-partial
 - deps: T3-05
 - evidence: `Tekken3Widescreen` publishes the shared plan at `FUN_80080A40`, preserves vertical extent/H ownership, widens the view 384->512 at 16:9, and feeds the corresponding 492-pixel draw width to readable wide-only ports of the two measured stage/effect clippers. The 4:3 route retains each generated body. `tekken3_widescreen_contract` proves both measured display/view pairs plus stage/effect primitives in the added margin.
 - where: `game/core/widescreen.*`; `tests/widescreen_contract.cpp`; shared `guest_widescreen_projection.*`

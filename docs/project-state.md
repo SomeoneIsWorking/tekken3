@@ -43,13 +43,13 @@ are refused.
 
 ### S003 — native/Lightrec gameplay product
 
-Target: player composition installs `Tekken3Runtime`, loads the identity-checked executable as runtime
+Missing capability: player composition must install `Tekken3Runtime`, load the identity-checked executable as runtime
 data, binds framework devices, installs image-and-address-keyed native overrides, and dispatches the
 retail entry through psxport's per-Core Lightrec executor. Lightrec owns translated-code memory and
 its cache. psxport owns CPU/machine synchronization, HLE/device callbacks, bounded executor exits,
 override-aware original calls, and executable-memory invalidation.
 
-Gap: the native/Lightrec executor is not integrated, so the target product has not executed a guest
+Current gap: the native/Lightrec executor is not integrated, so the target product has not executed a guest
 block. Existing generated-path evidence remains useful only as the measured migration frontier: the
 isolated `3c342ec3` product PID `3216829` dispatched the retail entry, opened the real CHD, and
 passed the synchronous directory-read and GetTN/GetTD owners. It then reached ResetGraph and trapped
