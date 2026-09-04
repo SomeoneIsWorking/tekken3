@@ -2,25 +2,35 @@
 
 ## G001 — Faithful playable PC port
 
-Build a PC product from the selected USA Tekken 3 executable and user-supplied disc content. The
-default launcher must boot the real game, render its frames, accept input, produce audio, and sustain
-gameplay. Independent reference execution must cover the behavioral boundaries used as evidence;
-compilation, isolated function tests, or a framework smoke target do not satisfy this goal.
+Build one native/Lightrec psxport product from the selected USA Tekken 3 executable and
+user-supplied disc content. The authenticated executable is runtime data: native overrides own
+selected verified functions and Lightrec dynamically executes every remaining guest instruction.
+The default launcher must boot the real game, render its frames, accept input, produce audio, and
+sustain gameplay. Independent reference execution must cover the behavioral boundaries used as
+evidence; compilation, isolated function tests, or a framework smoke target do not satisfy this
+goal.
 
 Success conditions:
 
-- `./run.sh` provisions the required user assets, derives the generated substrate, and launches the
-  intended Tekken 3 product without maintainer-only RE tools.
+- `./run.sh` provisions the required user assets and launches the intended Tekken 3 product without
+  offline guest-code generation or maintainer-only RE tools.
+- The gameplay product executes nonzero Lightrec blocks, routes native overrides and address-based
+  original calls through the shipping dispatcher, and neither links nor selects an interpreter.
 - The product reaches and sustains visible gameplay with working input and audio.
 - Faithful behavior is compared against independent retail execution at deterministic boundaries,
   with every known divergence recorded rather than hidden by a fallback.
 
 Constraints and non-goals:
 
-- Generated code is derived from verified user-supplied executable bytes and is never hand-edited or
-  committed.
+- No offline, build-time, install-time, or provisioning-time step emits guest C/C++, object code, or
+  a precompiled title substrate. Runtime JIT output is disposable user data, never an install input.
+- An interpreter may exist only in a separately built test/diagnostic target. It is absent from the
+  gameplay product and is never a fallback.
 - Disc images and extracted game files remain outside git.
 - A test executable, boot probe, or psxport smoke binary is not the product.
+- The existing generator, generated corpus, seed manifest, and static dispatcher are removed only
+  after the native/Lightrec product passes the representative-gameplay gate; they are not rebuilt or
+  run during the migration.
 
 ## G002 — True widescreen through Tekken-owned projection state
 
@@ -45,7 +55,7 @@ Constraints and non-goals:
 
 ## G003 — Reproducible evidence and player setup
 
-Keep executable identity, generated-code derivation, framework provenance, and verification
+Keep executable identity, runtime-image provisioning, framework provenance, and verification
 reproducible from a fresh clone with the documented native dependencies, `uv`, a compatible C/C++
 compiler, and user-supplied game assets.
 
@@ -53,6 +63,6 @@ Success conditions:
 
 - Executable selection and extraction refuse incorrect regional or mutated inputs by measured
   identity.
-- One frozen Python environment drives provisioning, generation, configuration, build, and checks.
+- One frozen Python environment drives provisioning, configuration, build, and checks.
 - The recorded psxport pin names the exact framework revision used for product evidence.
 - Maintainer-only tools such as Ghidra are unnecessary for a player build.

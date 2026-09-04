@@ -8,18 +8,22 @@ dependencies in `docs/re-frontier.md`.
 |---|---|---|---|---|
 | S001 | The selected USA disc executable is reproducibly identified and provisioned | verified | — | G001, G003 |
 | S002 | Retail entry and direct-main startup execute deterministically to an independent boundary | verified | S001 | G001, G003 |
-| S003 | A shipping Tekken 3 product is derived from the resident executable substrate | partial | S001, S002 | G001, G003 |
-| S004 | Boot and CD initialization are compared across independent or distinct execution engines | partial | S002, S003 | G001, G003 |
+| S003 | The authenticated executable runs through the native/Lightrec gameplay product | missing | S001, S002 | G001, G003 |
+| S004 | Boot and CD initialization are compared across independent or distinct execution engines | partial | S002 | G001, G003 |
 | S005 | The title declares a non-temporal, guest-rendered widescreen capability contract | partial | S003 | G002 |
 | S006 | Tekken-owned projection, display, visibility, and clipping state is identified for widescreen | partial | S001 | G002 |
 | S007 | True widescreen renders additional correctly projected content | missing | S004, S005, S006 | G002 |
 | S008 | Product frames, input, audio, and gameplay execute correctly | missing | S003, S004 | G001 |
 | S009 | The default launcher delivers the playable widescreen product | missing | S007, S008 | G001, G002, G003 |
+| S010 | Static generated execution is removed after native/Lightrec representative-gameplay conformance | missing | S003, S008 | G001, G003 |
 
 ## Current focus
 
-S004 is the current focus: product execution has passed native CD/TOC initialization and now owns the
-first linked GPU queue timeout clock; drive that owner through ResetGraph toward the first frame.
+S003 is the current focus. The first discriminator is the native/Lightrec product reaching `NAMCO
+PRESENTS` within 1,200 frames while executing nonzero Lightrec blocks and routing all 14
+address-based original calls through the shipping dispatcher. Link and selector inspection must
+prove that the gameplay product contains no interpreter. That checkpoint is followed by a
+representative interactive gameplay run; only that later gate permits removal of generated paths.
 
 ## Capability details
 
@@ -37,19 +41,24 @@ bytes and Ghidra, then compare psxport and an independent Mednafen CPU at the ca
 engines are deterministic and agree on 35/35 CPU fields; forced disagreement and too-short execution
 are refused.
 
-### S003 — shipping generated product substrate
+### S003 — native/Lightrec gameplay product
 
-The player composition installs `Tekken3Runtime`, derives resident functions from the identity-checked
-executable, loads that executable, binds framework devices, and dispatches the retail entry.
+Target: player composition installs `Tekken3Runtime`, loads the identity-checked executable as runtime
+data, binds framework devices, installs image-and-address-keyed native overrides, and dispatches the
+retail entry through psxport's per-Core Lightrec executor. Lightrec owns translated-code memory and
+its cache. psxport owns CPU/machine synchronization, HLE/device callbacks, bounded executor exits,
+override-aware original calls, and executable-memory invalidation.
 
-Gap: A built whole-program target and saved product traces do not prove a completed frame or gameplay.
-The isolated `3c342ec3` product PID `3216829` dispatched the retail entry, opened the real CHD, and
+Gap: the native/Lightrec executor is not integrated, so the target product has not executed a guest
+block. Existing generated-path evidence remains useful only as the measured migration frontier: the
+isolated `3c342ec3` product PID `3216829` dispatched the retail entry, opened the real CHD, and
 passed the synchronous directory-read and GetTN/GetTD owners. It then reached ResetGraph and trapped
 the next protected guest VSync query in linked GPU timeout armer `FUN_8007E8F0`. Its exact PID exited
 and is confirmed gone. The resulting native-ledger GPU arm/poll owner is combined-gate green but not
 yet product-verified. A later 1,200-frame windowless run against the real CHD produced a presented
 sink image and the `NAMCO PRESENTS` title card, but the generated substrate still reports `UNKNOWN`
-and no menu or gameplay scene is covered.
+and no menu or gameplay scene is covered. No further static generation, build, or run is part of the
+forward plan.
 
 ### S004 — differential boot and CD initialization
 
@@ -109,3 +118,12 @@ gameplay input, produced verified title audio, or sustained gameplay.
 Missing capability: `./run.sh` builds and launches the intended product, but that product does not yet
 satisfy the observable frame, gameplay, or widescreen conditions of S007 and S008. Launcher and direct
 product `-h/--help` contracts both exit zero before dependency, runtime, or disc discovery.
+
+### S010 — generated-path removal
+
+Missing capability: the generator, generated corpus, seed manifest, static dispatcher, and
+generated-symbol tests remain migration inputs. Remove them together only after S003 reaches `NAMCO
+PRESENTS` through the shipping native/Lightrec dispatcher and S008 proves representative interactive
+gameplay with correct timing, rendering, input, and audio on each released host architecture. The
+interpreter remains available only in a separately built test target and is not retained as a
+product compatibility mode.

@@ -3,6 +3,23 @@
 Statuses: `re-verified` means binary/disc ground truth plus executable verification; `re-partial`
 names an honest remaining gap; `todo` is not started. No hacks are tracked.
 
+## Execution migration gate
+
+The product execution owner is native psxport code plus a pinned Lightrec integration. The
+authenticated `SLUS_004.02` image is loaded as runtime data; Lightrec executes every guest body not
+selected by the image-and-address-keyed native override table. An override's original call returns
+to that address through the dynarec while suppressing only the current override. The gameplay binary
+neither links nor selects an interpreter; any interpreter is built only into a separate test target.
+
+The first implementation discriminator is `NAMCO PRESENTS` within 1,200 frames, nonzero Lightrec
+block execution, and all 14 address-based original calls observed through the shipping dispatcher.
+It must also exercise relevant invalidation, bounded exits, timing/interrupt/device synchronization,
+and an override/original-call positive and controlled negative. This checkpoint is followed by a
+representative interactive gameplay scenario with correct input, audio, rendering, timing, and
+declared host-architecture performance. Only that gameplay gate permits deletion of the generator,
+generated corpus, seed manifest, static dispatcher, and generated-symbol tests. Until then those
+paths are migration evidence only: do not generate, build, or run them again.
+
 ## Boot spine
 
 ### T3-01 — Select and measure the target executable
@@ -35,10 +52,11 @@ names an honest remaining gap; `todo` is not started. No hacks are tracked.
 - where: `tools/boot_probe.cpp`; `tools/boot_oracle.py`; `CMakeLists.txt` (`tekken3_boot_oracle_selftest`)
 - gap: None for deterministic execution from the selected entry to the verified direct-main call boundary. This does not execute `game_main`, generated code, BIOS/devices, a frame, or gameplay; those remain T3-04 and later work.
 
-### T3-04 — Recompile through the first real divergence
+### T3-04 — Execute through the native/Lightrec product discriminator
 - status: re-partial
 - deps: T3-03
-- evidence: C005/C006/C010/C013/C014/C016 and I005/I006/I008/I009/I010. The verifier proves the exact first
+- evidence: C005/C006/C010/C013/C014/C016 and I005/I006/I008/I009/I010 preserve the measured
+  pre-migration frontier. The verifier proves the exact first
   initializer and next call. The shipping emitter generates the observed second-initializer chain,
   including the function-table dispatch 0x80085BC8 -> 0x80085D5C. Independent Mednafen and the hybrid
   generated runner agree on all 35 CPU fields at 0x80079D10, 0x80028BB8, 0x800B0548, post-store
@@ -58,7 +76,10 @@ names an honest remaining gap; `todo` is not started. No hacks are tracked.
 - where: `game/core/tekken3_runtime.*`; `tools/recomp_boundary.py`; `tests/recomp_boundary.cpp`;
   `tools/cd_response_boundary.py`; `tests/cd_response_boundary.cpp`; generated, gitignored
   `generated/boundary_slices.c` and `generated/cd_response_slices.c`; `scratch/raw/t3-04/oracle.trace`
-- gap: One generic owner precedes another two-engine comparison. Because `oracle_trace` maps no BIOS,
+- gap: No native/Lightrec gameplay product has executed a guest block yet. Implement the shared
+  psxport Lightrec executor and title image-aware override/original-call bindings, then satisfy the
+  1,200-frame `NAMCO PRESENTS` discriminator above. Existing comparison evidence also leaves one
+  generic owner before another independent two-engine boundary: because `oracle_trace` maps no BIOS,
   an independently sourced B(19) HookEntryInt model (or mapped BIOS execution) must return the same
   CPU before comparing at 0x80085DEC. Issue #10 records why an older unbounded trace's later
   `0xFFFF8C94` access is garbage execution, not a hardware frontier. Copying psxport's B(19) HLE into
@@ -106,11 +127,13 @@ names an honest remaining gap; `todo` is not started. No hacks are tracked.
   all ten calls to the poller are the resident driver-table DMA/image/queue/DrawSync owners; the three
   SDK helpers that inline the clock have zero executable references. ResetGraph mode 0 and its driver
   initializer contain no VSync, and direct display initializer `FUN_800B0954` is already natively
-  owned. The next product run therefore targets first presentation, not another adjacent GPU-clock
-  call.
+  owned. Those measurements bound the native owners required on the dynamic path; they do not
+  authorize another static product run. The next product execution is the native/Lightrec
+  discriminator above.
 - notes: Ghidra identifies the observed path as `FUN_800b0548 -> FUN_80055884 -> FUN_80079964/FUN_800799a8`,
   then indirect `FUN_80085bc8 -> FUN_80085d5c`. The generated leg preserves that indirect dispatch instead of
-  replacing it with a direct call. `Tekken3Runtime` owns the framework seam directly and carries the measured
+  replacing it with a direct call. That result remains execution evidence rather than a shipping
+  implementation requirement. `Tekken3Runtime` owns the framework seam directly and carries the measured
   resident range in immutable `GuestProgramImage`; no adapter/config/hooks view remains. Its boundary-only
   policy explicitly returns `guestVramIsPicture=false`: no rendered picture exists yet, and the
   widescreen path must coordinate guest geometry, draw coverage, and final sampling rather than
@@ -126,7 +149,7 @@ names an honest remaining gap; `todo` is not started. No hacks are tracked.
 - deps: T3-04
 - evidence: C012/I007. Static analysis of the complete hashed `SLUS_004.02` image plus Ghidra decompilation identifies all six canonical CR24/CR25/CR26 writes. `FUN_80080a40` owns the title's view dimensions; `FUN_80081148` derives the retail projection centre from those dimensions; `FUN_80080da8` publishes the centre plus the current double-buffer offsets through `SetGeomOffset` at `0x80082728`. `FUN_80063c64` clamps the title-owned focal length and publishes it through `SetGeomScreen` at `0x80082748`; `FUN_80064080` selects a six-field fight-camera pose containing that focal length and `FUN_80064170` blends between authored poses. The two resident display presets prove that title view/projection width is distinct from the active PSX display width: the boot preset owns a 384x480 view and OFX/OFY 192/240 while its active display rectangle is 368x448; the alternate preset owns 320x240 and OFX/OFY 160/120. Both initialize H=500. The first measured widescreen owner after the current `FUN_8006AB64` CD wedge is `FUN_800B0840(0)` at `0x800B0574`; it routes preset 0 through `FUN_80080848` to dimension owner `FUN_80080A40` before deriving the centre and H. The stage owner `FUN_8006D014` supplies horizontal visibility angles 600/780 to the 6x6 tile selector `FUN_8006D95C`; stage/effect primitive clippers `FUN_8006CC28` and `FUN_8006E44C` contain eleven plus one rendering-path signed `-368` right-edge comparisons. `tools/verify_projection.py` now proves 38/38 facts on the real executable and passes 8/8 real agreement, mutated disagreement, and refusal cases. Those bounds must widen with the resolved display plan; the separate player-select text-slide use remains 2D retail layout.
 - where: `tools/verify_projection.py`; `titles/tekken3/executable.json`; `titles/tekken3/README.md`; Ghidra project and decompilation under gitignored `scratch/`
-- gap: Framework commit `2e840231` fixed the generic 368-mode decoder and `game/core/widescreen.*` now binds the measured dimension and clipping owners to one guest-wide plan. A real pixel comparison remains gated on the whole product reaching its first present at the T3-04 CD frontier. OT, GP0, and GTE output are diagnostic evidence, never producer input.
+- gap: Framework commit `2e840231` fixed the generic 368-mode decoder and `game/core/widescreen.*` now binds the measured dimension and clipping owners to one guest-wide plan. A real 4:3/wide visual A/B remains gated on the native/Lightrec product reaching representative gameplay. OT, GP0, and GTE output are diagnostic evidence, never producer input.
 
 ### T3-06 — Owned widescreen
 - status: partial
