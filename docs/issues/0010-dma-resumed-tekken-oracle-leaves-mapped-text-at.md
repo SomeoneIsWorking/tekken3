@@ -14,7 +14,7 @@ The independent `oracle_trace` maps only the selected executable, not a PSX BIOS
 call boundary. Once experimental generic DPCR handling lets the same CPU execute beyond
 `0x80085DB4`, the measured wrapper `FUN_800862C8` loads `t2=0xB0`, loads `t1=0x19` in the jump
 delay slot, and leaves mapped title text at step 110630 with `pc=0x000000B0` and
-`ra=0x80085DEC`. The generated leg returns only because psxport HLE models B(19) HookEntryInt;
+`ra=0x80085DEC`. The retired framework leg returned only because psxport HLE models B(19) HookEntryInt;
 that is not an independent implementation.
 
 ## What was tried / dead ends
@@ -29,5 +29,5 @@ or treating DMA support alone as sufficient to compare at `0x80085DEC`, is inval
 Still open. The next exact independent boundary is the BIOS ABI edge B(19), not another hardware
 register. Add a generic, independently sourced B-vector model (or execute a mapped BIOS) after
 generic DPCR support, prove B(19) with positive and unsupported-function controls, then compare the
-same independent CPU with the generated leg at caller return `0x80085DEC`. Only that resumed CPU
+same independent CPU with a distinct implementation at caller return `0x80085DEC`. Only that resumed CPU
 may identify the next real hardware boundary.

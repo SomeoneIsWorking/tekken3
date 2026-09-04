@@ -33,8 +33,8 @@ not the missing wide implementation or its pixel A/B.
 
 `Tekken3Widescreen` now latches one shared projection plan at measured dimension owner
 `FUN_80080A40`. Wide-only readable ports of `FUN_8006CC28` and `FUN_8006E44C` consume that plan's
-guest draw width instead of their twelve retail x=368 comparisons; 4:3 routes to the retained
-generated bodies. The hermetic contract proves stage/effect primitives at x=400/450 survive the
+guest draw width instead of their twelve retail x=368 comparisons; 4:3 routes to the authenticated
+original guest bodies. The hermetic contract proves stage/effect primitives at x=400/450 survive the
 492-pixel 16:9 draw span while projection widens 384->512 with height 480 unchanged.
 
 This is implemented, not visually verified. A real 4:3/wide product A/B must still verify packet

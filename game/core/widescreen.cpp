@@ -3,9 +3,8 @@
 #include "core.h"
 #include "game.h"
 #include "gpu_vk.h"
+#include "guest_execution.h"
 #include "mods.h"
-#include "override_registry.h"
-#include "recompiled_program_bindings.h"
 
 #include <array>
 #include <cstdlib>
@@ -25,6 +24,18 @@ constexpr std::uint32_t kAlternateViewWidth = 320u;
 constexpr std::uint32_t kAlternateViewHeight = 240u;
 constexpr std::uint32_t kAlternateDrawWidth = 320u;
 constexpr std::uint32_t kScratch = 0x1F800000u;
+
+void originalViewDimensions(Core *core) {
+  guest::callOriginal(*core, kViewDimensions, "Tekken3::viewDimensions original");
+}
+
+void originalStageClip(Core *core) {
+  guest::callOriginal(*core, kStageClip, "Tekken3::stageClip original");
+}
+
+void originalEffectClip(Core *core) {
+  guest::callOriginal(*core, kEffectClip, "Tekken3::effectClip original");
+}
 
 std::int16_t x(std::uint32_t packed) {
   return static_cast<std::int16_t>(packed & 0xFFFFu);
@@ -129,18 +140,13 @@ GuestProjectionGeometry Tekken3Widescreen::measuredGeometry(std::uint32_t viewWi
   return {{static_cast<int>(viewWidth), static_cast<int>(viewHeight)}, static_cast<int>(viewWidth)};
 }
 
-void Tekken3Widescreen::install(const RecompiledProgramBindings &bindings) {
-  if (!bindings.viewDimensionsSuper || !bindings.stageClipSuper || !bindings.effectClipSuper || !bindings.setOverride) {
-    lucent::error("wide", "Tekken 3 product is missing a generated widescreen super or override setter");
-    std::abort();
-  }
-  retailDimensions_ = bindings.viewDimensionsSuper;
-  retailStageClip_ = bindings.stageClipSuper;
-  retailEffectClip_ = bindings.effectClipSuper;
-  overrides::install(
-      kViewDimensions, "Tekken3::viewDimensions", publishDimensionsOverride, retailDimensions_, bindings.setOverride);
-  overrides::install(kStageClip, "Tekken3::stageClip", stageClipOverride, retailStageClip_, bindings.setOverride);
-  overrides::install(kEffectClip, "Tekken3::effectClip", effectClipOverride, retailEffectClip_, bindings.setOverride);
+void Tekken3Widescreen::install(Core &core) {
+  retailDimensions_ = originalViewDimensions;
+  retailStageClip_ = originalStageClip;
+  retailEffectClip_ = originalEffectClip;
+  guest::install(core, kViewDimensions, "Tekken3::viewDimensions", publishDimensionsOverride);
+  guest::install(core, kStageClip, "Tekken3::stageClip", stageClipOverride);
+  guest::install(core, kEffectClip, "Tekken3::effectClip", effectClipOverride);
 }
 
 void Tekken3Widescreen::publishDimensions(Core &core) const {

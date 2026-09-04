@@ -112,8 +112,7 @@ class LauncherTest(unittest.TestCase):
             [LOCKED_PYTHON, "-B", "tools/provision_executable.py", "Tekken 3.chd"],
             commands,
         )
-        self.assertIn([LOCKED_PYTHON, "-B", "tools/ensure_recomp.py"], commands)
-        self.assertTrue(commands[-1][0].endswith("scratch/bin/tekken3_port"))
+        self.assertTrue(commands[-1][0].endswith("build/bin/tekken3_port"))
         self.assertEqual(
             commands[-1][1],
             str(self.root / "scratch/bin/tekken3/SLUS_004.02"),
@@ -198,14 +197,13 @@ class LauncherTest(unittest.TestCase):
             [LOCKED_PYTHON, "tools/psxport_sync.py", "--auto"], self.commands(host)
         )
 
-    def test_provision_failure_stops_before_generation_or_player_build(self) -> None:
+    def test_provision_failure_stops_before_player_build(self) -> None:
         host = FakeHost(fail_token="tools/provision_executable.py")
         code, _, stderr = self.invoke(host)
         commands = self.commands(host)
 
         self.assertEqual(code, 1)
         self.assertIn("executable provisioning failed", stderr)
-        self.assertNotIn([LOCKED_PYTHON, "-B", "tools/ensure_recomp.py"], commands)
         self.assertFalse(any("tekken3_port" in command for command in commands))
 
     def test_shell_and_lock_are_stable_entry_contract(self) -> None:

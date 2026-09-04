@@ -294,21 +294,7 @@ def run_launcher(
             root=root,
             environment=stage_environment,
         )
-        run_stage(
-            machine,
-            [python_executable, "-B", "tools/ensure_recomp.py"],
-            "whole-program substrate generation failed",
-            root=root,
-            environment=stage_environment,
-        )
-        run_stage(
-            machine,
-            configure,
-            "cmake reconfigure after substrate generation failed",
-            root=root,
-            environment=stage_environment,
-        )
-        say("building Tekken 3…", stdout)
+        say("building the Tekken 3 native/Lightrec product…", stdout)
         run_stage(
             machine,
             ["cmake", "--build", "build", "--target", "tekken3_port", "-j", jobs],
@@ -335,7 +321,7 @@ def run_launcher(
     try:
         result = machine.run(
             [
-                str(root / "scratch/bin/tekken3_port"),
+                str(root / "build/bin/tekken3_port"),
                 str(root / "scratch/bin/tekken3/SLUS_004.02"),
             ],
             cwd=root,

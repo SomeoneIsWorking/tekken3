@@ -2,9 +2,9 @@
 
 #include <cstdint>
 
-namespace tekken3 {
+class Core;
 
-struct RecompiledProgramBindings;
+namespace tekken3 {
 
 // Narrow boundary for Tekken's linked GPU queue timeout owner. The retail implementation reads
 // libetc VSync(-1) only as a timeout clock; the host frame loop is the sole cadence owner, so this
@@ -28,8 +28,8 @@ public:
   [[nodiscard]] static std::int32_t poll(GpuSyncMachine &machine);
 };
 
-// Replace the two linked GPU timeout-clock functions that query guest VSync. Generated bodies stay
-// registered as oracle/super legs; all GPU command production and queue draining remain retail.
-void installGpuSyncOverrides(const RecompiledProgramBindings &bindings);
+// Replace the two linked GPU timeout-clock functions that query guest VSync. Original calls enter
+// the guest bodies through Lightrec; all GPU command production and queue draining remain retail.
+void installGpuSyncOverrides(Core &core);
 
 } // namespace tekken3

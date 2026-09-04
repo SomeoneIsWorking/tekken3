@@ -2,8 +2,7 @@
 
 #include "core.h"
 #include "game.h"
-#include "override_registry.h"
-#include "recompiled_program_bindings.h"
+#include "guest_execution.h"
 
 #include <cstdlib>
 #include <lucent/log.h>
@@ -54,7 +53,7 @@ public:
   std::uint32_t setCriticalSection(std::uint32_t enabled, std::uint32_t returnPc) override {
     core_.r[kA0] = enabled;
     core_.r[kRa] = returnPc;
-    rec_dispatch(&core_, kCriticalSection);
+    guest::call(core_, kCriticalSection, "Tekken3 GPU critical-section guest call");
     return core_.r[kV0];
   }
 
@@ -137,21 +136,9 @@ std::int32_t GpuSyncProtocol::poll(GpuSyncMachine &machine) {
   return -1;
 }
 
-void installGpuSyncOverrides(const RecompiledProgramBindings &bindings) {
-  if (!bindings.gpuTimeoutArmSuper || !bindings.gpuTimeoutPollSuper || !bindings.setOverride) {
-    lucent::error("gpu-sync", "Tekken 3 product is missing a generated GPU sync super or override setter");
-    std::abort();
-  }
-  overrides::install(kGpuTimeoutArm,
-                     "Tekken3::gpuTimeoutArm",
-                     gpuTimeoutArmOverride,
-                     bindings.gpuTimeoutArmSuper,
-                     bindings.setOverride);
-  overrides::install(kGpuTimeoutPoll,
-                     "Tekken3::gpuTimeoutPoll",
-                     gpuTimeoutPollOverride,
-                     bindings.gpuTimeoutPollSuper,
-                     bindings.setOverride);
+void installGpuSyncOverrides(Core &core) {
+  guest::install(core, kGpuTimeoutArm, "Tekken3::gpuTimeoutArm", gpuTimeoutArmOverride);
+  guest::install(core, kGpuTimeoutPoll, "Tekken3::gpuTimeoutPoll", gpuTimeoutPollOverride);
 }
 
 } // namespace tekken3

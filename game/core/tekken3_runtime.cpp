@@ -43,18 +43,6 @@ Tekken3Runtime::Tekken3Runtime(ResidentProgramRange residentProgram, std::uint32
   }
 }
 
-Tekken3Runtime::Tekken3Runtime(ResidentProgramRange residentProgram,
-                               std::uint32_t programEntry,
-                               const RecompiledProgramBindings &bindings)
-    : programImage_(makeProgramImage(residentProgram)), programEntry_(programEntry), bindings_(&bindings) {
-  if (programEntry_ == 0) {
-    throw std::invalid_argument("Tekken 3 retail program entry is zero");
-  }
-  if (!bindings.complete()) {
-    throw std::invalid_argument("Tekken 3 recompiled program bindings are incomplete");
-  }
-}
-
 RenderCapabilities Tekken3Runtime::renderCapabilities() const {
   return RenderCapabilities::widescreenOnly();
 }
@@ -91,16 +79,14 @@ void Tekken3Runtime::registerOverrides(Game &game) {
     std::abort();
   }
   driver->installOverrides();
-  installCdOverrides(*bindings_);
-  installGpuSyncOverrides(*bindings_);
-  widescreen_.install(*bindings_);
+  installCdOverrides(game.core);
+  installGpuSyncOverrides(game.core);
+  widescreen_.install(game.core);
 }
 
 void Tekken3Runtime::bootInit(Core &core) {
   if (programEntry_ == 0) {
-    lucent::error("tekken3-runtime",
-                  "no retail program entry is installed; interpreter and boundary runtimes cannot "
-                  "be used as the whole-program product");
+    lucent::error("tekken3-runtime", "no authenticated retail program entry is installed");
     std::abort();
   }
   auto *const driver = core.game ? dynamic_cast<Tekken3FrameDriver *>(core.game->frameDriver.get()) : nullptr;
@@ -112,7 +98,7 @@ void Tekken3Runtime::bootInit(Core &core) {
 }
 
 std::unique_ptr<FrameDriver> Tekken3Runtime::createFrameDriver(Game &game) {
-  return std::make_unique<Tekken3FrameDriver>(game, bindings_);
+  return std::make_unique<Tekken3FrameDriver>(game);
 }
 
 const GuestProgramImage *Tekken3Runtime::guestProgramImage() const {

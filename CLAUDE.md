@@ -1,7 +1,7 @@
 # Tekken 3 port
 
-Read `external/psxport/CLAUDE.md`, `external/psxport/docs/workspace/PROTOCOL.md`, and
-`../../shared/jit-common/docs/migration.md` before work. Never commit discs, extracted executables,
+Read `external/psxport/CLAUDE.md` and `external/psxport/docs/workspace/PROTOCOL.md` before work.
+Never commit discs, extracted executables,
 runtime JIT caches, `.env`, or machine-specific paths. Run artifacts go under `scratch/`, never
 `/tmp`; builds go under `build/`.
 
@@ -15,17 +15,17 @@ through Lightrec. psxport owns machine-state synchronization, HLE/device callbac
 invalidation, executable-memory invalidation, and bounded exits; Lightrec owns its code cache and
 executable memory.
 
-An interpreter is permitted only in a separately built test/diagnostic target. The gameplay product
-must not link it, expose a selector for it, or fall back to it. No offline, build-time,
-install-time, or provisioning-time step emits guest C/C++, object code, or a precompiled title
-substrate. Do not generate, build, or run the static path during migration.
+Guest execution always enters through the Lightrec owner and the dynarec is the gameplay default.
+Lightrec may automatically interpret only a bounded block that it refuses to compile because the
+block is unsupported, unsafe to fetch, self-modifying, or failed compilation. That fallback is a
+backend detail, never a player mode: every reason and instruction is counted, a release threshold
+must fail loudly, and forced interpretation remains diagnostic/test-only. Provisioning validates
+runtime data and never emits executable code.
 
 The first implementation discriminator is `NAMCO PRESENTS` within 1,200 frames with nonzero
 Lightrec execution and all 14 address-based original calls routed through the shipping dispatcher.
-That checkpoint does not authorize deletion. Next, drive representative interactive gameplay and
-verify rendering, input, audio, timing, relevant invalidation, and released-host performance. Only
-that complete gate permits removing the generator, generated corpus, seed manifest, static
-dispatcher/bindings, and generated-symbol tests; none remains as a compatibility mode or oracle.
+Next, drive representative interactive gameplay and verify rendering, input, audio, timing,
+relevant invalidation, and released-host performance.
 
 ## Product and enhancement boundaries
 
@@ -54,5 +54,5 @@ Framework edits happen in the shared clone (`$PSX/psxport`), never here.
 `./run.sh` is the shipping zero-argument player contract: a slim `uv run --frozen` shim into
 `bootstrap.py` and `tools/run.py`. The Python initializer provisions and identity-checks the user's
 disc executable, builds `tekken3_port`, and launches only the native/Lightrec product. It must not
-run tests, probes, diagnostics, static generation, or an interpreter. CMake owns compiler discovery;
+run tests, probes, or diagnostics. CMake owns compiler discovery;
 the launcher must not add compiler-identity allowlists, denylists, or forced compiler selections.

@@ -8,8 +8,6 @@ class Core;
 
 namespace tekken3 {
 
-struct RecompiledProgramBindings;
-
 class Tekken3Widescreen final : public GuestWidescreenProjection {
 public:
   using GuestBody = void (*)(Core *);
@@ -20,7 +18,7 @@ public:
   Tekken3Widescreen(ProjectionLatch latch, GuestBody retailDimensions);
 
   PresentationAspect presentationAspect(const Core &core) const override;
-  void install(const RecompiledProgramBindings &bindings);
+  void install(Core &core);
   void publishDimensions(Core &core) const;
   void clipStagePrimitives(Core &core) const;
   void clipEffectPrimitive(Core &core) const;

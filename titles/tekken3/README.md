@@ -42,23 +42,10 @@ A fresh Ghidra 12.0.4 decompile of the provisioned image (SHA-256 above) confirm
 `FUN_80079c70` calls `FUN_80028ba0` and then traps, while `FUN_80028ba0` performs one-time calls and
 then loops forever around the mode dispatch and two `FUN_8007bab0` calls. The tracked executable and
 startup facts live in `executable.json`; `tools/verify_startup.py` checks those shipping facts against
-the real executable and has agreement/disagreement fixtures. `tools/boot_oracle.py` then executes the
-entry window in psxport and an independent Mednafen CPU, requiring two deterministic runs per leg to
-agree on all 35 CPU fields at `0x80028BA0`. This is not a claim that `game_main`, a generated substrate,
-devices, frames, or gameplay run.
-
-`tools/recomp_boundary.py` advances without compiling unrelated mode bodies: psxport's interpreter
-reproduces the already-verified entry-to-main state, then the shipping recompiler emits the measured
-startup slices plus six bounded callable slices and the seven-instruction device-response
-continuation along the observed second-initializer path. Ghidra
-identifies that path as `FUN_800b0548 -> FUN_80055884 -> FUN_80079964/FUN_800799a8`, followed by
-`FUN_80085bc8`'s indirect call through the initialized function table to `FUN_80085d5c`.
-
-Independent Mednafen executes the whole window. Both engines agree on 35/35 CPU fields at
-first-initializer entry step 106159, after return at `0x80028BB8` step 106181, at next-initializer
-entry `0x800B0548` step 106183, at `0x80085D98` step 106388, and at the measured DPCR
-boundary `0x80085DB4` step 106395. The generated leg routes the measured indirect call through its
-game-local generated registry rather than replacing it with a direct call.
+the real executable and has agreement/disagreement fixtures. Historical interpreter and independent
+Mednafen runs agreed on all 35 CPU fields at `0x80028BA0`; that retired probe is evidence rather than
+a current gate. A current execution claim needs a bounded Lightrec/oracle discriminator and cannot be
+inferred from `game_main` structure, devices, frames, or gameplay.
 
 The tracked executable writes I_MASK at `0x80085D94`, reads it at `0x80085D98`, writes that result to
 I_STAT at `0x80085DA0`, then stores `0x33333333` to DPCR `0x1F8010F0` at `0x80085DB0`. The verifier
@@ -67,9 +54,8 @@ oracle routes only I_STAT/I_MASK through vendored Mednafen `irq.c`, so the same 
 the complete interrupt reset with its real load delay; its retained GPUSTAT negative case still stops.
 The oracle models DPCR and continues through the executable's context-save path to a strict capture at
 the measured pre-BIOS call site `0x80085DE4`; it does not execute the jump into unmodeled vector `0xB0`.
-The generated path proves the exact DPCR value, while a separate IRQ process still demonstrates
-non-zero and zero states and agrees with generated execution on 3/3 observations at `0x80085DA4`.
-Deliberate register/source/boundary/capture changes must fail. This does not independently model B(19),
+The executable proves the exact DPCR value, while a separate IRQ process demonstrates non-zero and
+zero controller states. Deliberate register/source/boundary/capture changes must fail. This does not independently model B(19),
 establish agreement at its return, later initialization, a frame, or gameplay.
 
 ## Measured display and projection ownership
@@ -132,7 +118,7 @@ The stage/effect right-edge tests must consume the same resolved wide display bo
 tile visibility angle must be checked against the resolved wide frustum. Static evidence identifies
 that owner but does not select an angle formula: if the authored wedge becomes too narrow, any change
 must derive from the retail angle and resolved projection rather than a replacement constant. Porting
-those title functions must retain their generated bodies as the 4:3 differential control; the
+those title functions must call their authenticated original guest bodies as the 4:3 differential control; the
 evidence does not justify a new renderer or producer.
 
 Static ownership does not establish a rendered frame. The next execution boundary is generic DPCR/DMA
@@ -162,23 +148,14 @@ After the root README's Clang configure, run the project-owned provisioner:
 CCACHE_DISABLE=1 cmake --build build --target discdump
 python3 tools/provision_executable.py "/path/to/disc.chd"
 python3 tools/verify_startup.py
-python3 tools/boot_oracle.py
-cmake --build build --target tekken3_recomp_boundary_check -j16
 ```
 
 Resolution is CLI argument > `PSXPORT_TEKKEN3_DISC` > `.env` > one root `*.chd` drop-in. A selected
 path that does not exist refuses rather than falling through to another disc, and ambiguous drop-ins
-also refuse. No disc-derived file belongs in git. The latest comparison establishes generated
-execution and independent CPU agreement at five boundaries through `0x80085DB4`, plus independent
-IRQ-controller agreement through the reset boundary at `0x80085DA4`. The independent CPU continues
-past DPCR through the measured context-save path and stops before executing the BIOS call at
-`0x80085DE4`. The generated substrate additionally executes the B(19) return (`FUN_80085d5c`
-clears a 1050-word buffer through `FUN_80086264`, saves callee-saved state through
-`FUN_800862D8`, and calls the A/B stub `FUN_800862C8`, whose tail jump reaches kernel vector `0xB0`
-function `0x19` — HookEntryInt in the public PSX kernel ABI — before returning to `ra=0x80085DEC`)
-with framework HLE modeling the callee; the verifier captures all 35 CPU fields there but claims
-NO independent-CPU agreement at that edge. Independent execution still needs an independently
+also refuse. No disc-derived file belongs in git. The independent CPU continues through the measured
+context-save path and stops before executing the BIOS call at `0x80085DE4`. Independent execution
+still needs an independently
 sourced B(19) HookEntryInt model. An older unbounded trace left mapped title text at
 `pc=0x000000B0`, `t1=0x19`, `ra=0x80085DEC`; its later `0xFFFF8C94` access is garbage execution,
 not a hardware frontier (issue #10). These gates do not establish later initialization, that a
-Tekken 3 port boots a frame, or that a whole recompiled substrate exists.
+Tekken 3 port boots a frame, or that Lightrec reaches gameplay.

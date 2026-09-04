@@ -34,5 +34,5 @@ cycle.
 
 Pending: issue 0012's bounded real-window inspection produced no X11 window or first present before
 the product reached its current IRQ/CD-init frontier. Therefore the absence of the 60fps
-Interpolation row remains static-only and is not visually verified in the actual menu. The exact
+Interpolation row remains source-contract evidence and is not visually verified in the actual menu. The exact
 product PID was terminated and confirmed gone.

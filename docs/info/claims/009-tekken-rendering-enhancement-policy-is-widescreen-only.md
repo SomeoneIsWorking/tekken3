@@ -32,10 +32,9 @@ title-owned native renderer.
 
 ## Re-confirmed 2026-08-22 15:26:34
 
-Repository audit found 0 operational Tekken fps60/interpolation paths; runtime seam passed, and the
-production generated-boundary harness still agreed 35/35 at all four measured edges through
-post-store 0x80085D98 with SELFTEST 7/7. Policy-only documentation changes do not alter runtime
-behavior or T3-04.
+Repository audit found 0 operational Tekken fps60/interpolation paths and the runtime seam passed.
+Retained evidence records 35/35 agreement at all four measured edges through post-store 0x80085D98.
+Policy-only documentation changes do not alter runtime behavior or T3-04.
 
 ## Re-confirmed 2026-08-22
 
@@ -66,4 +65,4 @@ User scope remains widescreen-only with no native renderer or interpolation/lerp
 Against recorded psxport `99a42aa3`, CTest 11/11 and full Clang `verify` pass; the runtime seam proves
 13/13 capability facts. A bounded product run rejected a persisted Native request and resolved it to
 GTE. The product did not reach a first present or X11 window, so actual Native/60fps menu-row absence
-remains static-only rather than visually verified.
+remains source-contract evidence rather than visual verification.

@@ -36,10 +36,10 @@ from provision_executable import (
 )
 
 try:
-    import decode
+    from tools.mips.decode import ALU_RRI, ALU_RRR, GTE_MOVE, JUMP, decode
 except ImportError as exc:
     raise SystemExit(
-        "REFUSED: cannot import psxport's shipping instruction decoder; "
+        "REFUSED: cannot import psxport's shared R3000A instruction decoder; "
         "run tools/psxport_sync.py --auto or set PSXPORT_DIR"
     ) from exc
 
@@ -71,14 +71,14 @@ def parse_address_list(value: object, field: str) -> tuple[int, ...]:
 
 def decoded_words(image: Any):
     for address in range(image.load, image.text_end, 4):
-        yield decode.decode(address, image.word(address))
+        yield decode(address, image.word(address))
 
 
 def call_census(image: Any, target: int) -> tuple[int, ...]:
     return tuple(
         instruction.addr
         for instruction in decoded_words(image)
-        if instruction.kind == decode.JUMP
+        if instruction.kind == JUMP
         and instruction.op == "jal"
         and instruction.target == target
     )
@@ -114,7 +114,7 @@ def verify_control_writers(projection: Mapping[str, Any], image: Any) -> int:
     measured = sorted(
         (instruction.addr, instruction.rt, instruction.rd)
         for instruction in decoded_words(image)
-        if instruction.kind == decode.GTE_MOVE
+        if instruction.kind == GTE_MOVE
         and instruction.op == "ctc2"
         and instruction.rd in (24, 25, 26)
     )
@@ -194,18 +194,18 @@ def verify_presets(projection: Mapping[str, Any], image: Any) -> tuple[int, int]
         raise Refused(
             "projection.boot_preset_call.preset_index is outside the preset table"
         )
-    boot_call = decode.decode(boot_address, image.word(boot_address))
+    boot_call = decode(boot_address, image.word(boot_address))
     check_exact(
         "boot preset call mnemonic",
         (boot_call.kind, boot_call.op),
-        (decode.JUMP, "jal"),
+        (JUMP, "jal"),
     )
     check_exact("boot preset call target", boot_call.target, boot_target)
-    boot_delay = decode.decode(boot_address + 4, image.word(boot_address + 4))
+    boot_delay = decode(boot_address + 4, image.word(boot_address + 4))
     check_exact(
         "boot preset index delay slot",
         (boot_delay.kind, boot_delay.op, boot_delay.rs, boot_delay.rt, boot_delay.rd),
-        (decode.ALU_RRR, "addu", 0, 0, 4),
+        (ALU_RRR, "addu", 0, 0, 4),
     )
     check_exact("boot preset index", boot_index, 0)
 
@@ -217,17 +217,17 @@ def verify_presets(projection: Mapping[str, Any], image: Any) -> tuple[int, int]
     h_delay_word = parse_hex(
         initial_h.get("delay_slot_word"), "projection.initial_h_call.delay_slot_word"
     )
-    h_call = decode.decode(h_address, image.word(h_address))
+    h_call = decode(h_address, image.word(h_address))
     check_exact(
-        "initial H call mnemonic", (h_call.kind, h_call.op), (decode.JUMP, "jal")
+        "initial H call mnemonic", (h_call.kind, h_call.op), (JUMP, "jal")
     )
     check_exact("initial H call target", h_call.target, h_target)
     check_exact("initial H delay word", image.word(h_address + 4), h_delay_word)
-    h_delay = decode.decode(h_address + 4, h_delay_word)
+    h_delay = decode(h_address + 4, h_delay_word)
     check_exact(
         "initial H delay semantics",
         (h_delay.kind, h_delay.op, h_delay.rs, h_delay.rt),
-        (decode.ALU_RRI, "addiu", 0, 4),
+        (ALU_RRI, "addiu", 0, 4),
     )
     check_exact("preset H agreement", initial_h_values, {h_delay.simm})
 
@@ -253,11 +253,11 @@ def verify_post_cd_owner_chain(projection: Mapping[str, Any], image: Any) -> int
         entry = require_object(value, field)
         address = parse_hex(entry.get("address"), f"{field}.address")
         target = parse_hex(entry.get("target"), f"{field}.target")
-        instruction = decode.decode(address, image.word(address))
+        instruction = decode(address, image.word(address))
         check_exact(
             f"post-CD owner call {index}",
             (instruction.kind, instruction.op, instruction.target),
-            (decode.JUMP, "jal", target),
+            (JUMP, "jal", target),
         )
         measured.append((address, target))
     check_exact(
@@ -294,7 +294,7 @@ def verify_stage_visibility(projection: Mapping[str, Any], image: Any) -> int:
         )
         angle = require_int(call.get("retail_angle"), f"{field}.retail_angle")
         expected_calls.append(address)
-        instruction = decode.decode(load_address, image.word(load_address))
+        instruction = decode(load_address, image.word(load_address))
         check_exact(
             f"stage angle load {index}",
             (
@@ -304,7 +304,7 @@ def verify_stage_visibility(projection: Mapping[str, Any], image: Any) -> int:
                 instruction.rt,
                 instruction.simm,
             ),
-            (decode.ALU_RRI, "addiu", 0, 4, angle),
+            (ALU_RRI, "addiu", 0, 4, angle),
         )
     if len(set(expected_calls)) != len(expected_calls):
         raise Refused("projection.stage_visibility.calls contains duplicate addresses")
@@ -333,7 +333,7 @@ def verify_retail_right_bound(projection: Mapping[str, Any], image: Any) -> int:
     measured = tuple(
         instruction.addr
         for instruction in decoded_words(image)
-        if instruction.kind == decode.ALU_RRI
+        if instruction.kind == ALU_RRI
         and instruction.op in ("addi", "addiu")
         and instruction.simm == -value
     )

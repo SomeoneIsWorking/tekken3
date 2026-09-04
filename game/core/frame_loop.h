@@ -1,7 +1,6 @@
 #pragma once
 
 #include "game_runtime.h"
-#include "recompiled_program_bindings.h"
 
 #include <cstdint>
 
@@ -50,7 +49,7 @@ public:
 
 class Tekken3FrameDriver final : public FrameDriver {
 public:
-  Tekken3FrameDriver(Game &game, const RecompiledProgramBindings *bindings);
+  explicit Tekken3FrameDriver(Game &game);
 
   void installOverrides();
   void runBootPrefix(Core &core, std::uint32_t programEntry);
@@ -63,7 +62,6 @@ private:
   static void displayInitOverride(Core *core);
 
   Game &game_;
-  const RecompiledProgramBindings *bindings_ = nullptr;
   bool bootStarted_ = false;
   bool bootComplete_ = false;
 };

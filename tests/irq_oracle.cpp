@@ -73,7 +73,7 @@ int main(int argc, char **argv) {
 
   // FUN_80085d5c performs this exact device sequence at 0x80085D94..0x80085DA0:
   // write zero to I_MASK, read it back, then write that value to I_STAT. The addresses and operand
-  // flow are checked against the selected executable by tools/recomp_boundary.py; this executable
+  // flow is recorded from the selected executable; this executable
   // supplies the independent Mednafen IRQ semantics for those accesses.
   IRQ_Write(0x1F801074u, 0u);
   const std::uint32_t maskReadback = IRQ_Read(0x1F801074u) & 0xFFFFu;

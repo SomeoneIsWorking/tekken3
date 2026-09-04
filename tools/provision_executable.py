@@ -32,13 +32,12 @@ MANIFEST = ROOT / "titles" / "tekken3" / "executable.json"
 DISC_ENV = "PSXPORT_TEKKEN3_DISC"
 
 PSXPORT = pathlib.Path(os.environ.get("PSXPORT_DIR", ROOT / "external" / "psxport"))
-RECOMP_TOOLS = PSXPORT / "tools" / "recomp"
-sys.path.insert(0, str(RECOMP_TOOLS))
+sys.path.insert(0, str(PSXPORT))
 try:
-    import psexe
+    from tools.formats import psx_exe as psexe
 except ImportError as exc:
     raise SystemExit(
-        f"REFUSED: cannot import psxport's PS-X EXE loader from {RECOMP_TOOLS}; "
+        f"REFUSED: cannot import psxport's PS-X EXE loader from {PSXPORT}; "
         "run tools/psxport_sync.py --auto or set PSXPORT_DIR"
     ) from exc
 

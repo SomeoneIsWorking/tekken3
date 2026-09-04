@@ -38,5 +38,5 @@ contract.
 Pending: actual menu-row inspection remains unverified. The same bounded run dispatched the retail
 entry and reached IRQ/CD initialization but produced no first present or visible X11 window within
 20 seconds, so there was no Display pane to capture. The exact launched PID was terminated with the
-scoped safe-kill helper and confirmed gone. The absence of the Renderer row remains static-only until
+scoped safe-kill helper and confirmed gone. The absence of the Renderer row remains source-contract evidence until
 the product reaches a window.

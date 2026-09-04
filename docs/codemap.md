@@ -16,7 +16,7 @@ run.sh -> bootstrap.py -> tools/run.py -> game/core/main.cpp
           overrides +             instructions             pad/CD
         original calls
 
-separate test target -> interpreter/oracle (never linked or selectable by the gameplay product)
+separate test target -> independent oracle (never linked or selectable by the gameplay product)
 ```
 
 ## Ownership
@@ -31,11 +31,11 @@ separate test target -> interpreter/oracle (never linked or selectable by the ga
 | CD synchronization | Preserve Tekken's linked-libcd wrapper/response state while delegating commands and the sole queued directory-read path to shared synchronous stock-libcd owners; original guest bodies execute by address through the dynarec | target: `game/core/cd_sync.*` plus native override/original-call bindings | `tekken3::installCdOverrides` | `docs/issues/0011-whole-product-interrupt-exit-reaches-unseeded-te.md` |
 | GPU synchronization | Preserve Tekken's linked GPU queue timeout and reset contract while sourcing its field deadline from the native frame ledger; original arm/poll bodies execute by address through the dynarec | target: `game/core/gpu_sync.*` plus native override/original-call bindings | `tekken3::installGpuSyncOverrides` | `docs/issues/0011-whole-product-interrupt-exit-reaches-unseeded-te.md` |
 | Target executable | Record identity, load map, startup facts, projection facts, and controlled-boundary facts | `titles/tekken3/executable.json`, `titles/tekken3/README.md` | `tools/provision_executable.py` | `titles/tekken3/README.md` |
-| Startup verification | Verify direct-main structure and independently compare the entry boundary | `tools/verify_startup.py`, `tools/boot_probe.cpp`, `tools/boot_oracle.py` | `tools/boot_oracle.py` | `docs/re-frontier.md` |
+| Startup verification | Verify the authenticated executable's direct-main structure | `tools/verify_startup.py`, `titles/tekken3/executable.json` | `tools/verify_startup.py` | `docs/re-frontier.md` |
 | Dynamic execution verification | Compare bounded Lightrec execution, overrides, original calls, invalidation, exits, and machine/device state against an independent emulator or separately built test oracle | target: focused game-owned drivers under `tools/` and test-only runners under `tests/` | target: native/Lightrec discriminator gate | `docs/re-frontier.md` |
 | Projection and culling RE | Verify title-owned view, focal-length, display, stage-visibility, and clipping owners | `tools/verify_projection.py`, `titles/tekken3/executable.json` | `tools/verify_projection.py` | `titles/tekken3/README.md` |
 | Widescreen projection and clipping | Apply the shared non-temporal guest-widescreen plan to Tekken's measured view-dimension owner and stage/effect right-edge clippers, with the faithful original bodies reached through dynarec original calls | target: `game/core/widescreen.*`, `game/core/tekken3_runtime.*`, native override/original-call bindings | `tekken3::Tekken3Widescreen` | `docs/issues/0008-tekken-wide-margins-lose-stage-and-effect-primit.md` |
-| Static-path removal | Delete the generator, generated corpus, seed manifest, static dispatcher/bindings, and generated-symbol tests after the representative-gameplay gate passes | current retirement target: `generated/`; target: no generated execution path in the repository or product | native/Lightrec conformance gate | `docs/project-state.md` |
+| Runtime-input policy | Execute the authenticated user-provided executable as runtime data and keep provisioning non-executable | CMake, launcher, and repository structure | native/Lightrec conformance gate | `docs/project-state.md` |
 | Verification policy | Compose executable, tool, test, source-structure, Clang format/tidy, and framework-pin checks | `CMakeLists.txt`, `.clang-format`, `.clang-tidy`, `tools/psxport_sync.py` | `verify` target | `README.md` |
 | Project knowledge | Separate epic intent, factual capability state, atomic work, evidence, and ordered RE dependencies | `docs/project-goals.md`, `docs/project-state.md`, `docs/issues/`, `docs/info/`, `docs/re-frontier.md` | canonical shared project-info tool | `CLAUDE.md` |
 
@@ -53,7 +53,7 @@ separate test target -> interpreter/oracle (never linked or selectable by the ga
   responsibilities get their own cohesive owner rather than growing product composition
 - New executable-derived fact: `titles/tekken3/executable.json` plus its verifier
 - New independent execution comparison: the focused owner under `tools/` plus a separately built
-  test-only runner under `tests/`; never an interpreter linked into the gameplay product
+  test-only runner under `tests/`; any interpreter oracle stays test-only and out of the gameplay product
 - Epic product scope: `docs/project-goals.md`
 - Verified, partial, blocked, or missing capability: `docs/project-state.md`
 - Atomic task, bug, finding, or dead end: `docs/issues/`

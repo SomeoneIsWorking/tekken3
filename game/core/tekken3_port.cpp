@@ -5,7 +5,6 @@
 #include "core.h"
 #include "frame_loop_shell.h"
 #include "game.h"
-#include "recomp_register.h"
 #include "render_mode.h"
 #include "tekken3_runtime.h"
 
@@ -38,8 +37,6 @@ int runPort(Tekken3Runtime &runtime, int argc, char **argv) {
   const char *const executable = argc > 1 ? argv[1] : kDefaultExecutable;
 
   psxport_install_game(runtime);
-  installRecompiledProgram();
-
   auto game = std::make_unique<Game>();
   // Direct runtimes deliberately have no legacy GameConfig, so bind the title's disc key at the
   // disc subsystem itself. This keeps env/.env/drop-in resolution available without reviving the

@@ -1,8 +1,11 @@
 #include "frame_loop.h"
 
 #include "core.h"
+#include "execution_control.h"
+#include "execution_services.h"
 #include "game.h"
-#include "override_registry.h"
+#include "guest_execution.h"
+#include "native_dispatch.h"
 
 #include <array>
 #include <cstddef>
@@ -63,19 +66,13 @@ constexpr std::array<std::uint32_t, 20> kModeFunctions{
     0x800F0458u, 0x800F18E8u, 0x800501C0u, 0x800C2434u, 0x8004FF74u, 0x800FF0C4u,
 };
 
-// The retail crt0 calls the non-returning main and places a BREAK plus adjacent function body after
-// that call. Returning normally from the finite-main override would execute both. This scoped unwind
-// returns ownership directly to runBootPrefix after the two measured initializers, preserving crt0
-// setup without manufacturing a guest return path that does not exist.
-struct FiniteBootComplete final {};
-
 class CoreFrameMachine final : public FrameMachine {
 public:
   CoreFrameMachine(Game &game, Core &core) : game_(game), core_(core) {}
 
   void call(std::uint32_t address, std::uint32_t returnPc) override {
     core_.r[31] = returnPc;
-    rec_dispatch(&core_, address);
+    guest::call(core_, address, "Tekken3 frame guest call");
   }
 
   void call1(std::uint32_t address, std::uint32_t returnPc, std::uint32_t a0) override {
@@ -108,7 +105,7 @@ public:
   }
 
   void tick(std::uint32_t guestInstructions) override {
-    rec_guest_instruction_ticks(&core_, guestInstructions);
+    psx::cpu::accountGuestInstructions(core_, guestInstructions);
   }
 
   std::uint8_t read8(std::uint32_t address) const override {
@@ -132,11 +129,7 @@ public:
   }
 
   void commitPresentation() override {
-    if (game_.diff_mode) {
-      game_.presentation.commitUnpresented(&core_);
-    } else {
-      game_.presentation.commit(&core_, 1, game_.temporalPresentation.get());
-    }
+    game_.presentation.commit(&core_, 1, game_.temporalPresentation.get());
   }
 
   void serviceAudioSink() override {
@@ -250,7 +243,7 @@ void FrameLoop::runDisplayInit(FrameMachine &machine) {
 
 void FrameLoop::step(FrameMachine &machine) {
   // The callback delivered by the barrier consumes the already-published pad packet after it submits
-  // the prior buffer and advances guest sound. Commit those generated presentation/audio products in
+  // the prior buffer and advances guest sound. Commit those guest presentation/audio products in
   // the same order after the complete interrupt-context callback returns.
   machine.tick(2);
   machine.call(kFrameBarrier, 0x80028BD4u);
@@ -303,8 +296,7 @@ void FrameLoop::step(FrameMachine &machine) {
   machine.tick(2);
 }
 
-Tekken3FrameDriver::Tekken3FrameDriver(Game &game, const RecompiledProgramBindings *bindings)
-    : game_(game), bindings_(bindings) {}
+Tekken3FrameDriver::Tekken3FrameDriver(Game &game) : game_(game) {}
 
 Tekken3FrameDriver &Tekken3FrameDriver::from(Core &core) {
   if (!core.game || !core.game->frameDriver) {
@@ -328,7 +320,7 @@ void Tekken3FrameDriver::mainOverride(Core *core) {
   CoreFrameMachine machine(driver.game_, *core);
   FrameLoop::runFiniteMain(machine);
   driver.bootComplete_ = true;
-  throw FiniteBootComplete{};
+  psx::cpu::requestExecutionExit(*core, psx::cpu::ExecutionExitReason::HostService);
 }
 
 void Tekken3FrameDriver::frameBarrierOverride(Core *core) {
@@ -350,22 +342,9 @@ void Tekken3FrameDriver::displayInitOverride(Core *core) {
 }
 
 void Tekken3FrameDriver::installOverrides() {
-  if (!bindings_ || !bindings_->complete()) {
-    lucent::error("frame", "Tekken 3 product is missing generated supers or its override setter");
-    std::abort();
-  }
-  overrides::install(
-      FrameLoop::kMain, "Tekken3::finiteMain", mainOverride, bindings_->mainSuper, bindings_->setOverride);
-  overrides::install(FrameLoop::kFrameBarrier,
-                     "Tekken3::frameBarrier",
-                     frameBarrierOverride,
-                     bindings_->frameBarrierSuper,
-                     bindings_->setOverride);
-  overrides::install(FrameLoop::kDisplayInit,
-                     "Tekken3::displayInit",
-                     displayInitOverride,
-                     bindings_->displayInitSuper,
-                     bindings_->setOverride);
+  guest::install(game_.core, FrameLoop::kMain, "Tekken3::finiteMain", mainOverride);
+  guest::install(game_.core, FrameLoop::kFrameBarrier, "Tekken3::frameBarrier", frameBarrierOverride);
+  guest::install(game_.core, FrameLoop::kDisplayInit, "Tekken3::displayInit", displayInitOverride);
 }
 
 void Tekken3FrameDriver::runBootPrefix(Core &core, std::uint32_t programEntry) {
@@ -374,14 +353,13 @@ void Tekken3FrameDriver::runBootPrefix(Core &core, std::uint32_t programEntry) {
     std::abort();
   }
   bootStarted_ = true;
-  const int attributionDepth = core.idiag.otattr_depth;
-  try {
-    rec_dispatch(&core, programEntry);
-  } catch (const FiniteBootComplete &) {
-    // Expected one-way transfer from the overridden non-returning retail main. Generated wrappers
-    // normally pop this diagnostic shadow stack after a callee returns; the retail main cannot
-    // return, so restore the pre-dispatch depth at the native ownership transfer.
-    core.idiag.otattr_depth = attributionDepth;
+  const auto result = psx::cpu::dispatchGuest(core, programEntry, psx::cpu::ExecutionBudget::currentTurn(core));
+  if (result.reason != psx::cpu::ExecutionExitReason::HostService) {
+    lucent::error("boot",
+                  "Tekken 3 boot exited as {} at 0x{:08X}, expected finite-main host transfer",
+                  psx::cpu::executionExitName(result.reason),
+                  result.guestPc);
+    std::abort();
   }
   if (!bootComplete_) {
     lucent::error("boot",

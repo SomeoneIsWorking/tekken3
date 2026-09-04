@@ -31,7 +31,7 @@ Post-commit 1022430 shared-decoder-backed real-executable projection gate passes
 
 ## Re-confirmed 2026-08-22
 
-Post-change authoritative verify remained green: serial identity, five-boundary 35/35 oracle/generated comparison through DPCR, IRQ controls, projection 7/7, Clang format/size/tidy, runtime seam, pin and smoke gates passed on 2026-08-22.
+Post-change authoritative verification remained green for serial identity, the retained five-boundary 35/35 comparison through DPCR, IRQ controls, projection 7/7, Clang format/size/tidy, runtime seam, pin, and smoke gates on 2026-08-22.
 
 ## Re-confirmed 2026-08-24
 

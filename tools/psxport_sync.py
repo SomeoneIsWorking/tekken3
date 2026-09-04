@@ -37,6 +37,7 @@ because the tool could not assert anything.
 import argparse
 import os
 import re
+import shutil
 import subprocess
 import sys
 
@@ -166,7 +167,7 @@ def do_link(args):
                       f"anything unpushed in it. Inspect it, then re-run with --force.")
                 return 2
             if kind in ("clone", "plain-dir"):
-                subprocess.run(["rm", "-rf", LINK], check=True)
+                shutil.rmtree(LINK)
             elif kind == "symlink":
                 os.unlink(LINK)
             os.makedirs(os.path.dirname(LINK), exist_ok=True)

@@ -2,12 +2,12 @@
 
 #include <cstdint>
 
+class Core;
+
 namespace tekken3 {
 
-struct RecompiledProgramBindings;
-
 // Narrow machine boundary shared by the shipping Core adapter and the hermetic libcd contract.
-// CdProtocol owns Tekken's linked-library state transitions; the adapter alone owns recompiled
+// CdProtocol owns Tekken's linked-library state transitions; the adapter alone owns Lightrec guest
 // calls and guest memory access.
 class CdMachine {
 public:
@@ -39,7 +39,7 @@ public:
 };
 
 // Replace Tekken's linked libcd synchronization owners with the same command/response contract,
-// without their VSync-based timeout clocks. Generated bodies remain registered as oracle/super legs.
-void installCdOverrides(const RecompiledProgramBindings &bindings);
+// without their VSync-based timeout clocks. Original calls enter the guest bodies through Lightrec.
+void installCdOverrides(Core &core);
 
 } // namespace tekken3
