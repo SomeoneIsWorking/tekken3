@@ -15,7 +15,7 @@ dependencies in `docs/re-frontier.md`.
 | S007 | True widescreen renders additional correctly projected content | missing | S004, S005, S006 | G002 |
 | S008 | Product frames, input, audio, and gameplay execute correctly | missing | S003, S004 | G001 |
 | S009 | The default launcher delivers the playable widescreen product | missing | S007, S008 | G001, G002, G003 |
-| S010 | Asset-free hosted verification builds and checks the real supported host product boundary | partial | S003 | G001, G003 |
+| S010 | Asset-free hosted verification builds and checks the real supported host product boundary | verified | S003 | G001, G003 |
 
 ## Current focus
 
@@ -35,7 +35,7 @@ clang-tidy, and inspects the linked execution boundary. The consumer pins PSXPor
 `eb5f23a8b3506f8853b3cfadcedc024cd90818a0`; CI checks out Lightrec
 `b1457137c31cedff5f440d59da29401d021ba2da`. It contains no disc, executable, BIOS, or runtime
 translation cache and therefore claims no gameplay evidence. The same canonical Python gate passes
-locally; the first hosted run remains pending.
+locally and in the hosted run recorded in S010.
 
 Windows x86_64 is an applicable future PC host but currently unsupported: psxport still exports GNU
 linker `--wrap` options and has no MSVC/clang-cl product contract. macOS arm64 is likewise unsupported
@@ -141,5 +141,8 @@ product `-h/--help` contracts both exit zero before dependency, runtime, or disc
 ### S010 — asset-free hosted verification
 
 The Linux workflow and `tools/verify.py` own one reproducible asset-free gate over the shipping
-product boundary, title contracts, formatting, lint, and linked execution policy. The remaining gap
-is a successful hosted run of the landed workflow; unsupported host products are recorded above.
+product boundary, title contracts, formatting, lint, and linked execution policy.
+Evidence: the Linux x86_64 asset-free product composition gate passed on main commit
+`3afb4cf0fa167cf197dd6056cf00d5cfaeaa63d1` in
+[run 33960101763](https://github.com/SomeoneIsWorking/tekken3/actions/runs/33960101763).
+This verifies composition only; gameplay and unsupported host gaps remain as recorded above.
