@@ -32,8 +32,8 @@ Linux x86_64 is the only currently supported host product boundary. The tracked 
 uses full history, disables persisted credentials and caches, installs pinned Python tooling, builds
 the actual asset-free `tekken3_port`, runs every asset-free title contract plus clang-format and
 clang-tidy, and inspects the linked execution boundary. The consumer pins PSXPort
-`639e3630af3af9ed519bffa7da53c229c689b4d1`; CI checks out Lightrec
-`b764c4c9f4bc425a56bfc4c32333ff8200ce8ab9`. It contains no disc, executable, BIOS, or runtime
+`eb5f23a8b3506f8853b3cfadcedc024cd90818a0`; CI checks out Lightrec
+`b1457137c31cedff5f440d59da29401d021ba2da`. It contains no disc, executable, BIOS, or runtime
 translation cache and therefore claims no gameplay evidence. The same canonical Python gate passes
 locally; the first hosted run remains pending.
 
