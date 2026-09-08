@@ -1,4 +1,6 @@
 #include "tekken3_port.h"
+#include "hw_bind.h"
+#include "psx_exe_image.h"
 
 #include "c_subsys.h"
 #include "cfg.h"
@@ -19,8 +21,6 @@ void watchdog_init(void);
 }
 
 void gte_bind(Core *core);
-void gte_init(void);
-void load_exe(const char *path, Core *core);
 void mdec_bind(Core *core);
 void spu_bind(Core *core);
 void xa_bind(Core *core);
