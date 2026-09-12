@@ -1,25 +1,16 @@
 #!/usr/bin/env python3
-"""Query the analysed Tekken 3 image (copied from spider1/tools/ghidra_query.py; project built by
-psxport decomp.sh import from scratch/raw/miss_ram.bin). through Ghidra (PyGhidra).
+"""Query the authenticated Tekken 3 text imported into build/ghidra/tekken3 with PyGhidra.
 
-WHY THIS EXISTS. This port's RE was being done with a thin capstone wrapper plus hand-rolled
-address scans over a RAM image, and that combination produced a run of confidently WRONG
-conclusions, every one of which a real disassembler answers for free:
-
-  * "0x8008DA24 has no callers"   -> it is referenced as DATA (installed into a callback table)
-  * "*0x800B390C ships as 0"      -> it is linker-initialised .data
-  * a store attributed to the wrong `jal` -> the store sat in a BRANCH DELAY SLOT
-  * function boundaries taken from `jal` targets -> wrong for anything invoked indirectly
-
-An address scan only finds the reference FORMS you thought to look for. Ghidra's reference model
-finds the ones you did not, which is exactly where the errors were.
+WHY THIS EXISTS. A byte scan cannot establish whether a Tekken loader address is a function,
+data reference, or delay-slot side effect. Ghidra's reference model reports these distinctions
+and counts the code and data it scanned.
 
 Usage:
-    tools/ghidra_query.py xrefs 0x8008DA24    every reference TO addr, with type + owning function
-    tools/ghidra_query.py func  0x8008C3E0    containing function + decompiled C
-    tools/ghidra_query.py calls 0x80087660    what that function calls
-    tools/ghidra_query.py data  0x800B38EC 16 dump N words with symbol/xref annotation
-    tools/ghidra_query.py disasm 0x8007C4D8 0x8007C520
+    tools/ghidra_query.py xrefs 0x80052CC4    every reference TO addr, with type + owning function
+    tools/ghidra_query.py func  0x80052CC4    containing function + decompiled C
+    tools/ghidra_query.py calls 0x80052CC4    what that function calls
+    tools/ghidra_query.py data  0x8009B750 16 dump N words with symbol/xref annotation
+    tools/ghidra_query.py disasm 0x80052CC4 0x80052D20
                                                 exact instructions in [start, end)
     tools/ghidra_query.py scan  ctc2            every instruction whose mnemonic matches, with
                                                 operands + owning function + the enclosing function's
@@ -31,16 +22,16 @@ registers 24/25/26 and nothing else in the image marks them. It reports the DENO
 walked, functions defined) on every run, so "0 matches" is distinguishable from "I never looked", and
 it is blind to any site Ghidra did not disassemble as code — which it also counts and prints.
 
-Build the project first with tools/ghidra_import.sh. Nothing here ships game data: the project is
-derived from scratch/bin/spiderman/ram.bin, which tools/redump_ram.py produces from your own disc.
+The project contains no shipped game data. Import the verified text bytes from the user's
+provisioned executable at load address 0x80010000 into build/ghidra/tekken3 as text.bin.
 """
 import os
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PROJ = os.path.join(ROOT, "scratch", "ghidra")
-NAME = "tekken3_boot"
-PROGRAM = "/ram_boot.bin"
+PROJ = os.path.join(ROOT, "build", "ghidra")
+NAME = "tekken3"
+PROGRAM = "/text.bin"
 
 
 def main():

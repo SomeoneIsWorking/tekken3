@@ -16,6 +16,24 @@ title progress. The remaining discriminator is the title loader's CD request/com
 callback/event ownership. No evidence yet separates a missing queue completion from a title state
 transition that is waiting on a different retail condition.
 
+The authenticated `SLUS_004.02` text was re-imported at `0x80010000` from the provisioner-verified
+SHA-256 `fbda8b68e5799dbef4af39a161783bc670c15b0aa0e87dce65e210717da19b8c` and queried
+through Ghidra. This narrows one concrete loader wait but does **not** establish that the current
+Lightrec product reached it. `FUN_80052A70` returns byte `0x800A069F`; its caller
+`FUN_80052CC4` waits while the return is nonzero. `FUN_800529CC` starts the underlying loader:
+`FUN_8006BF20` queues its asset extent, and `FUN_8006C084` sets the wait byte to `1` before
+submitting command `0xA0` through `FUN_8008F08C` with request-mode argument `6` and callback
+`FUN_8006C26C`. The current title CD overrides do not own that `FUN_8008F08C` command path.
+
+The callback chain distinguishes completion from error. `FUN_8006C26C` registers
+`FUN_8006C2A0` with `FUN_80091F38` only on class `2`. `FUN_8006C2A0` consumes one 0x800-byte
+sector on class `1`, decrements the outstanding byte count, advances the destination, and clears
+`0x800A069F` after the last queued extent. Its class-`5` error branch records loader failure state
+`9` and leaves the wait byte set. Ghidra's narrow disassembly confirms the byte set at
+`0x8006C1A4` and the clear at `0x8006C410`. The code makes either a missing sector callback or a
+class-`5` error a possible permanent wait; only live callback/result evidence can choose between
+them and a different stalled title state.
+
 The last bounded real-CHD run completed 1,200 native fields and emitted a 960x720 sink image. Field 1
 was black while display state initialized; fields 119 and 1,199 showed the centered Namco card. The
 run reported no fatal, watchdog, guest VSync, or dropped layer. This proves presentation reached the
@@ -63,8 +81,10 @@ the protected VSync trap. PID `3216829` exited and was confirmed absent.
 
 ## Next discriminator
 
-Capture the loader's request, command, callback pointer/class, event state, destination range, and
-terminal result across the card-to-menu boundary in an independent retail run and the native/Lightrec
-product. The diagnostic must report candidates scanned and both the reached and not-reached answers.
+Capture `0x800AE204` (mode), `0x800AE224` (phase), loader wait `0x800A069F`, outstanding bytes
+`0x800A06A4`, destination `0x800A06A8`, raw-command queue count `0x800A3E40`, callback pointer
+`0x8009B8D0`, callback class, and final loader state `0x800A05D8` across the card-to-menu boundary
+in an independent retail run and the native/Lightrec product. Report both reached and not-reached
+answers for `FUN_8006C26C` and `FUN_8006C2A0`, including request and callback denominators.
 Implement only the first measured missing owner, then rerun the same bounded boundary; do not add a
 delay, phase write, or scene-pointer shortcut.
