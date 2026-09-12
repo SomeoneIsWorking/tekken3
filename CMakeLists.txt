@@ -78,6 +78,11 @@ add_custom_target(
 add_executable(tekken3_decompressor_probe_contract tests/decompressor_probe_contract.cpp)
 target_link_libraries(tekken3_decompressor_probe_contract PRIVATE tekken3_runtime)
 add_test(NAME tekken3_decompressor_probe_contract COMMAND tekken3_decompressor_probe_contract)
+add_executable(tekken3_decompressor_lightrec tests/decompressor_lightrec.cpp)
+target_link_libraries(tekken3_decompressor_lightrec PRIVATE tekken3_runtime)
+add_test(
+  NAME tekken3_decompressor_lightrec_selftest
+  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/verify_decompressor_lightrec.py" --selftest)
 add_custom_target(
   tekken3_decompressor_probe_contract_check
   COMMAND "$<TARGET_FILE:tekken3_decompressor_probe_contract>"

@@ -155,8 +155,23 @@ At the typed `BudgetExhausted` exit at `0x80031C78` (564,482 cycles), the guest 
 `complete consistent=1`; no frame had completed. The watchdog's signal backtrace follows the
 intentional failed-call abort, so the product still does not boot. This is evidence of remaining
 finite encoded input, not proof that Lightrec's output or guest state agrees with an independent
-oracle. Compare this exact stream and the continued guest state with that oracle before classifying
-the budget as too short or the data/execution as wrong.
+CPU oracle.
+
+A test-only call mapped the same authenticated SHA-256-matched EXE into the shipping Lightrec
+executor and entered original `FUN_80031BFC` directly, with source `0x800BAFCC`, destination
+`0x8012867C`, return `0x8004CA9C`, and the unchanged `564,480`-cycle current-turn budget. The call
+returned to that wrapper address after 442,550 cycles, with `v0=21,524`, source cursor at the
+7,772-byte terminator, 31,688 executed Lightrec blocks, and zero interpreter fallbacks. All 21,524
+output bytes matched a separately implemented bounded LZ decoder of the authenticated stream
+(SHA-256 `7da9ab4738ec5455d66856f6f4ae549b122fdaddc0d7b3f627ce56a436d09766`). A one-cycle
+negative arm reached one translated block and exited `budget-exhausted` after 12 guest cycles with
+zero output and zero fallback, demonstrating that the test distinguishes return from budget stop.
+The child process exited 0; its transcript is gitignored under
+`scratch/diagnostics/decompressor-lightrec.stdout`. This proves isolated decompression fits a fresh
+turn and produces the decoded bytes; it does not prove the outer first-frame call or complete guest
+state matches an independent CPU oracle. The first-frame call still exhausts its cumulative turn
+budget inside this decompressor. Diagnose turn budgeting/continuation at that boundary before
+changing a budget or title data.
 First resolve this guest-call exit; frame-end loader sampling cannot observe a run with zero
 completed frames.
 

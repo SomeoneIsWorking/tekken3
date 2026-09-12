@@ -163,7 +163,7 @@ def expected_header(manifest: Mapping[str, Any]) -> dict[str, int]:
     }
 
 
-def verify_executable(manifest: Mapping[str, Any], path: pathlib.Path) -> None:
+def verify_executable(manifest: Mapping[str, Any], path: pathlib.Path) -> bytes:
     try:
         data = path.read_bytes()
         image = psexe.load(str(path))
@@ -204,6 +204,7 @@ def verify_executable(manifest: Mapping[str, Any], path: pathlib.Path) -> None:
         f"[provision] entry=0x{image.entry:08X}, text=[0x{image.load:08X},"
         f"0x{image.text_end:08X}), stack=0x{image.sp_base + image.sp_off:08X}"
     )
+    return data
 
 
 def discdump_path(root: pathlib.Path, environ: Mapping[str, str]) -> pathlib.Path:
