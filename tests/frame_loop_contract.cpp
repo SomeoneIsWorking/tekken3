@@ -37,6 +37,18 @@ public:
     result = callResults[address];
   }
 
+  bool startModeCall(std::uint32_t address, std::uint32_t returnPc) override {
+    ++boundedStarts;
+    call(address, returnPc);
+    return boundedStartReturns;
+  }
+
+  bool resumeModeCall() override {
+    ++boundedResumes;
+    operations.push_back({"resume"});
+    return boundedResumeReturns;
+  }
+
   void deliverEvent(std::uint32_t eventClass, std::uint32_t spec) override {
     operations.push_back({"event", eventClass, spec});
     if (releaseFrameEvent) {
@@ -102,6 +114,10 @@ public:
   std::uint32_t guestTicks = 0;
   std::uint32_t result = 0;
   bool releaseFrameEvent = true;
+  bool boundedStartReturns = true;
+  bool boundedResumeReturns = true;
+  unsigned boundedStarts = 0;
+  unsigned boundedResumes = 0;
 };
 
 bool operationIs(const Operation &operation, const char *kind, std::uint32_t address = 0, std::uint32_t returnPc = 0) {
@@ -197,7 +213,8 @@ bool frameStepKeepsServiceAndRenderOrder() {
   machine.memory[0x800ADD54u] = 0x80063000u;
   machine.callResults[0x80029628u] = 0;
   machine.callResults[0x80080D98u] = 1;
-  tekken3::FrameLoop::step(machine);
+  tekken3::FrameStepState state;
+  tekken3::FrameLoop::step(machine, state);
 
   if (machine.operations.size() != 15 || !operationIs(machine.operations[0], "call", 0x800296C4u, 0x80028BD4u) ||
       machine.operations[1].kind != "present" || machine.operations[2].kind != "audio" ||
@@ -217,21 +234,66 @@ bool frameStepKeepsServiceAndRenderOrder() {
       machine.operations[14].a2 != 0x80063020u) {
     return false;
   }
-  return machine.memory[0x800AFA4Cu] == 10 && machine.memory[0x800A8C54u] == 0x800A85A4u &&
+  return !state.modeCallPending && machine.boundedStarts == 0 && machine.boundedResumes == 0 &&
+         machine.memory[0x800AFA4Cu] == 10 && machine.memory[0x800A8C54u] == 0x800A85A4u &&
          machine.registers[2] == 0x800B0000u && machine.guestTicks == 71;
+}
+
+bool modeCallSuspensionPreservesFieldOrder() {
+  RecordingMachine machine;
+  tekken3::FrameStepState state;
+  machine.memory[0x800ADEFCu] = 0;
+  machine.memory[0x800AE204u] = 0;
+  machine.memory[0x800A8594u] = 0x80070000u;
+  machine.memory[0x800A9218u] = 0x80062000u;
+  machine.memory[0x800ADD54u] = 0x80063000u;
+  machine.callResults[0x80029628u] = 1;
+
+  RecordingMachine immediate = machine;
+  tekken3::FrameStepState immediateState;
+  tekken3::FrameLoop::step(immediate, immediateState);
+  if (immediateState.modeCallPending || immediate.boundedStarts != 1 || immediate.boundedResumes != 0 ||
+      immediate.operations.size() != 13 || !operationIs(immediate.operations[11], "call3", 0x8007BAB0u, 0x80028DECu) ||
+      !operationIs(immediate.operations[12], "call3", 0x8007BAB0u, 0x80028E0Cu)) {
+    return false;
+  }
+
+  machine.boundedStartReturns = false;
+  machine.boundedResumeReturns = false;
+  tekken3::FrameLoop::step(machine, state);
+  if (!state.modeCallPending || machine.boundedStarts != 1 || machine.boundedResumes != 0 ||
+      machine.operations.size() != 11 || !operationIs(machine.operations.back(), "call", 0x800B0708u, 0x80028C9Cu)) {
+    return false;
+  }
+  const auto ticksAtSuspend = machine.guestTicks;
+  tekken3::FrameLoop::step(machine, state);
+  if (!state.modeCallPending || machine.operations.size() != 15 || machine.operations[11].kind != "pad" ||
+      machine.operations[12].kind != "present" || machine.operations[13].kind != "audio" ||
+      machine.operations[14].kind != "resume" || machine.guestTicks != ticksAtSuspend) {
+    return false;
+  }
+  machine.boundedResumeReturns = true;
+  tekken3::FrameLoop::step(machine, state);
+  return !state.modeCallPending && machine.boundedStarts == 1 && machine.boundedResumes == 2 &&
+         machine.operations.size() == 21 && machine.operations[15].kind == "pad" &&
+         machine.operations[16].kind == "present" && machine.operations[17].kind == "audio" &&
+         machine.operations[18].kind == "resume" &&
+         operationIs(machine.operations[19], "call3", 0x8007BAB0u, 0x80028DECu) &&
+         operationIs(machine.operations[20], "call3", 0x8007BAB0u, 0x80028E0Cu) &&
+         machine.guestTicks == ticksAtSuspend + 19u;
 }
 
 } // namespace
 
 int main() {
   if (!finiteBootIsOrdered() || !displayInitOmitsOnlyVsync() || !frameBarrierKeepsBothConditionalAnswers() ||
-      !frameStepKeepsServiceAndRenderOrder()) {
+      !frameStepKeepsServiceAndRenderOrder() || !modeCallSuspensionPreservesFieldOrder()) {
     std::fprintf(stderr,
                  "frame_loop_contract: FAIL — finite boot/frame sequence diverged from the "
                  "measured title contract\n");
     return 1;
   }
   std::printf("frame_loop_contract: PASS — finite boot 2/2, display init 6/6, frame barrier "
-              "enabled+disabled, and ordered presentation/audio/pad/CD/render contracts hold\n");
+              "enabled+disabled, ordered presentation/audio/pad/CD/render, and 3-field bounded continuation hold\n");
   return 0;
 }

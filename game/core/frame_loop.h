@@ -1,6 +1,7 @@
 #pragma once
 
 #include "game_runtime.h"
+#include "guest_execution.h"
 
 #include <cstdint>
 
@@ -18,6 +19,8 @@ public:
   virtual void call1(std::uint32_t address, std::uint32_t returnPc, std::uint32_t a0) = 0;
   virtual void
   call3(std::uint32_t address, std::uint32_t returnPc, std::uint32_t a0, std::uint32_t a1, std::uint32_t a2) = 0;
+  virtual bool startModeCall(std::uint32_t address, std::uint32_t returnPc) = 0;
+  virtual bool resumeModeCall() = 0;
   virtual void deliverEvent(std::uint32_t eventClass, std::uint32_t spec) = 0;
   virtual std::uint32_t returnValue() const = 0;
   virtual std::uint32_t readRegister(std::uint32_t index) const = 0;
@@ -35,6 +38,11 @@ public:
   virtual void servicePad() = 0;
 };
 
+struct FrameStepState {
+  bool modeCallPending = false;
+  std::uint32_t buffer = 0;
+};
+
 class FrameLoop {
 public:
   static constexpr std::uint32_t kMain = 0x80028BA0u;
@@ -44,7 +52,7 @@ public:
   static void runFiniteMain(FrameMachine &machine);
   [[nodiscard]] static bool runFrameBarrier(FrameMachine &machine);
   static void runDisplayInit(FrameMachine &machine);
-  static void step(FrameMachine &machine);
+  static void step(FrameMachine &machine, FrameStepState &state);
 };
 
 class Tekken3FrameDriver final : public FrameDriver {
@@ -62,6 +70,8 @@ private:
   static void displayInitOverride(Core *core);
 
   Game &game_;
+  FrameStepState frameStep_;
+  guest::BoundedCall modeCall_;
   bool bootStarted_ = false;
   bool bootComplete_ = false;
 };

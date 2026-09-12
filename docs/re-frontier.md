@@ -75,7 +75,9 @@ declared host-architecture performance.
   register/source/boundary/hardware-register/device errors.
 - where: `game/core/tekken3_runtime.*`; `game/core/guest_execution.*`;
   `game/core/frame_loop.*`; historical `scratch/raw/t3-04/oracle.trace`
-- gap: No native/Lightrec gameplay product has executed a guest block from the real title input yet.
+- gap: The authenticated Lightrec product now completes its first title frame after six bounded
+  suspensions of the 127-resource mode call (issue 0011), with 360,083 executed blocks and zero
+  interpreter fallback in a natural seven-field run. It has not reached representative gameplay.
   Exercise the wired executor and image-aware override/original-call bindings through the 1,200-frame
   `NAMCO PRESENTS` discriminator above. Existing comparison evidence also leaves one
   generic owner before another independent two-engine boundary: because `oracle_trace` maps no BIOS,
@@ -83,7 +85,7 @@ declared host-architecture performance.
   CPU before comparing at 0x80085DEC. Issue #10 records why an older unbounded trace's later
   `0xFFFF8C94` access is garbage execution, not a hardware frontier. Copying psxport's B(19) HLE into
   the reference would destroy independence. No next real hardware boundary is known until that owner
-  lands. This still does not claim later DMA behavior, a frame, or gameplay.
+  lands. The first completed frame does not establish later DMA behavior or gameplay.
   Separately, the whole-product path reaches Tekken's first directory-read request but starves its
   four-command queue before Pause issues: issue #11's saved provisioned run proves
   `FUN_80090F78` returned into `FUN_80091E5C`, while static RE proves the queue executor is skipped

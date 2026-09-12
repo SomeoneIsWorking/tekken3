@@ -36,7 +36,7 @@ def main() -> int:
             cmake_module=ROOT / "cmake" / "tekken3_port.cmake",
             test_regex=(
                 r"^tekken3_(product_help_contract|runtime_seam|runtime_contract|"
-                r"frame_loop_contract|decompressor_probe_contract|decompressor_lightrec_selftest|"
+                r"frame_loop_contract|bounded_guest_call|decompressor_probe_contract|decompressor_lightrec_selftest|"
                 r"cd_protocol_contract|gpu_sync_contract|"
                 r"widescreen_contract|irq_oracle_selftest|launcher_selftest|"
                 r"launcher_help_contract)$"

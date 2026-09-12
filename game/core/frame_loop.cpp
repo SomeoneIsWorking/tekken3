@@ -68,7 +68,8 @@ constexpr std::array<std::uint32_t, 20> kModeFunctions{
 
 class CoreFrameMachine final : public FrameMachine {
 public:
-  CoreFrameMachine(Game &game, Core &core) : game_(game), core_(core) {}
+  CoreFrameMachine(Game &game, Core &core, guest::BoundedCall &modeCall)
+      : game_(game), core_(core), modeCall_(modeCall) {}
 
   void call(std::uint32_t address, std::uint32_t returnPc) override {
     core_.r[31] = returnPc;
@@ -86,6 +87,15 @@ public:
     core_.r[5] = a1;
     core_.r[6] = a2;
     call(address, returnPc);
+  }
+
+  bool startModeCall(std::uint32_t address, std::uint32_t returnPc) override {
+    return modeCall_.start(
+        core_, address, returnPc, "Tekken3 frame mode call", psx::cpu::ExecutionBudget::currentTurn(core_));
+  }
+
+  bool resumeModeCall() override {
+    return modeCall_.resume(core_, "Tekken3 frame mode call", psx::cpu::ExecutionBudget::currentTurn(core_));
   }
 
   void deliverEvent(std::uint32_t eventClass, std::uint32_t spec) override {
@@ -143,7 +153,20 @@ public:
 private:
   Game &game_;
   Core &core_;
+  guest::BoundedCall &modeCall_;
 };
+
+void finishFrame(FrameMachine &machine, std::uint32_t buffer) {
+  machine.writeRegister(kV0, 0x800B0000u);
+  const std::uint32_t bufferPacketBase = machine.read32(buffer + 4u);
+  const std::uint32_t mainOtRoot = machine.read32(kMainOtRoot);
+  machine.tick(7);
+  machine.call3(kSpliceOt, 0x80028DECu, bufferPacketBase + 0x20u, mainOtRoot, mainOtRoot + 0x20u);
+  const std::uint32_t secondaryOtRoot = machine.read32(kSecondaryOtRoot);
+  machine.tick(8);
+  machine.call3(kSpliceOt, 0x80028E0Cu, bufferPacketBase + 0xFB8u, secondaryOtRoot, secondaryOtRoot + 0x20u);
+  machine.tick(2);
+}
 
 } // namespace
 
@@ -241,7 +264,21 @@ void FrameLoop::runDisplayInit(FrameMachine &machine) {
   machine.tick(7);
 }
 
-void FrameLoop::step(FrameMachine &machine) {
+void FrameLoop::step(FrameMachine &machine, FrameStepState &state) {
+  if (state.modeCallPending) {
+    // The guest has not reached the next frame barrier. The display repeats its held image and
+    // the audio sink advances for this field, while the guest CPU resumes the same call state.
+    machine.servicePad();
+    machine.commitPresentation();
+    machine.serviceAudioSink();
+    if (!machine.resumeModeCall()) {
+      return;
+    }
+    state.modeCallPending = false;
+    machine.tick(2);
+    finishFrame(machine, state.buffer);
+    return;
+  }
   // The callback delivered by the barrier consumes the already-published pad packet after it submits
   // the prior buffer and advances guest sound. Commit those guest presentation/audio products in
   // the same order after the complete interrupt-context callback returns.
@@ -278,22 +315,23 @@ void FrameLoop::step(FrameMachine &machine) {
   if (mode >= 0 && static_cast<std::size_t>(mode) < kModeFunctions.size()) {
     machine.tick(7);
     machine.tick(2);
-    machine.call(kModeFunctions[static_cast<std::size_t>(mode)],
-                 0x80028C9Cu + static_cast<std::uint32_t>(mode) * 0x10u);
+    const auto address = kModeFunctions[static_cast<std::size_t>(mode)];
+    const auto returnPc = 0x80028C9Cu + static_cast<std::uint32_t>(mode) * 0x10u;
+    if (mode == 0) {
+      state.buffer = buffer;
+      if (!machine.startModeCall(address, returnPc)) {
+        state.modeCallPending = true;
+        return;
+      }
+    } else {
+      machine.call(address, returnPc);
+    }
     machine.tick(mode == 19 ? 1u : 2u);
   } else {
     machine.tick(1);
   }
 
-  machine.writeRegister(kV0, 0x800B0000u);
-  const std::uint32_t bufferPacketBase = machine.read32(buffer + 4u);
-  const std::uint32_t mainOtRoot = machine.read32(kMainOtRoot);
-  machine.tick(7);
-  machine.call3(kSpliceOt, 0x80028DECu, bufferPacketBase + 0x20u, mainOtRoot, mainOtRoot + 0x20u);
-  const std::uint32_t secondaryOtRoot = machine.read32(kSecondaryOtRoot);
-  machine.tick(8);
-  machine.call3(kSpliceOt, 0x80028E0Cu, bufferPacketBase + 0xFB8u, secondaryOtRoot, secondaryOtRoot + 0x20u);
-  machine.tick(2);
+  finishFrame(machine, buffer);
 }
 
 Tekken3FrameDriver::Tekken3FrameDriver(Game &game) : game_(game) {}
@@ -317,7 +355,7 @@ void Tekken3FrameDriver::mainOverride(Core *core) {
     lucent::error("boot", "Tekken 3 finite main reached outside its one boot dispatch");
     std::abort();
   }
-  CoreFrameMachine machine(driver.game_, *core);
+  CoreFrameMachine machine(driver.game_, *core, driver.modeCall_);
   FrameLoop::runFiniteMain(machine);
   driver.bootComplete_ = true;
   psx::cpu::requestExecutionExit(*core, psx::cpu::ExecutionExitReason::HostService);
@@ -325,7 +363,7 @@ void Tekken3FrameDriver::mainOverride(Core *core) {
 
 void Tekken3FrameDriver::frameBarrierOverride(Core *core) {
   Tekken3FrameDriver &driver = from(*core);
-  CoreFrameMachine machine(driver.game_, *core);
+  CoreFrameMachine machine(driver.game_, *core, driver.modeCall_);
   if (!FrameLoop::runFrameBarrier(machine)) {
     lucent::error("frame",
                   "Tekken 3 RCntCNT2 event class 0x{:08X} spec 0x{:08X} did not release the frame barrier",
@@ -337,7 +375,7 @@ void Tekken3FrameDriver::frameBarrierOverride(Core *core) {
 
 void Tekken3FrameDriver::displayInitOverride(Core *core) {
   Tekken3FrameDriver &driver = from(*core);
-  CoreFrameMachine machine(driver.game_, *core);
+  CoreFrameMachine machine(driver.game_, *core, driver.modeCall_);
   FrameLoop::runDisplayInit(machine);
 }
 
@@ -376,10 +414,16 @@ void Tekken3FrameDriver::stepFrame(Core &core, std::uint32_t frame) {
     lucent::error("frame", "Tekken 3 frame {} ran before its finite boot prefix", frame);
     std::abort();
   }
-  game_.timing.logicFrame = frame;
-  game_.core.rsub.otAttr.beginLogicFrame(frame);
-  CoreFrameMachine machine(game_, core);
-  FrameLoop::step(machine);
+  if (frameStep_.modeCallPending != modeCall_.pending()) {
+    lucent::error("frame", "Tekken 3 mode call and frame continuation disagree at field {}", frame);
+    std::abort();
+  }
+  if (!frameStep_.modeCallPending) {
+    game_.timing.logicFrame = frame;
+    game_.core.rsub.otAttr.beginLogicFrame(frame);
+  }
+  CoreFrameMachine machine(game_, core, modeCall_);
+  FrameLoop::step(machine, frameStep_);
 }
 
 } // namespace tekken3

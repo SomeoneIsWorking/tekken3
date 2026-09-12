@@ -1,8 +1,8 @@
 ---
 id: 11
-title: Native/Lightrec product stops before its first completed title frame
+title: Native/Lightrec first-frame budget and loader frontier
 status: investigating
-symptom: the current Lightrec product exhausts its first-frame guest-call budget inside the title decompressor
+symptom: the first-frame mode call spans bounded guest turns; later loader and gameplay remain unverified
 state_items: S003,S004,S008
 tags: runtime,cd,title-loader,t3-04
 created: 2026-08-25
@@ -11,7 +11,8 @@ updated: 2026-09-12
 
 ## Current boundary
 
-The current Lightrec product has no completed title frame. An earlier bounded headless run of the
+The native/Lightrec product now completes its first title frame after resuming the mode call across
+host fields; it has not reached the Namco or gameplay discriminator. An earlier bounded headless run of the
 already linked Clang-built `build/ci/bin/tekken3_port` (SHA-256
 `3e2259031b97f72208148a379450b4b4a952b6dae746f8ec55ed68b672ed0719`, build receipt
 `psxport=8b2103294b68e082eef8fe64bb3e972da21bec09`) opened the authentic CHD, completed the
@@ -169,11 +170,31 @@ zero output and zero fallback, demonstrating that the test distinguishes return 
 The child process exited 0; its transcript is gitignored under
 `scratch/diagnostics/decompressor-lightrec.stdout`. This proves isolated decompression fits a fresh
 turn and produces the decoded bytes; it does not prove the outer first-frame call or complete guest
-state matches an independent CPU oracle. The first-frame call still exhausts its cumulative turn
-budget inside this decompressor. Diagnose turn budgeting/continuation at that boundary before
-changing a budget or title data.
-First resolve this guest-call exit; frame-end loader sampling cannot observe a run with zero
-completed frames.
+state matches an independent CPU oracle. That earlier first-frame call exhausted its cumulative
+turn budget inside this decompressor.
+
+Ghidra's authenticated `FUN_800B0708` mode-0 body calls `FUN_8004CA40`, whose table count at the
+reached wrapper was 127. The wrapper synchronously decompresses each eight-byte resource entry and
+processes its image before advancing to the next. The independently checked third resource uses 442,550
+cycles when called fresh; the cumulative outer call therefore cannot be required to return within
+one 564,480-cycle field allowance. The title's previous `guest::call` treated a typed
+`BudgetExhausted` as failure. The frame-mode call now retains its original outer return boundary and
+the guest register/memory state, resumes Lightrec at the exact stopped PC with the same per-field
+budget, and presents/services audio and pad once on each held field. It does not repeat the guest
+barrier, increment the guest frame counter, or run the frame tail until `GuestReturn`.
+
+The Clang-built shipping binary (SHA-256
+`8ffdd62e1538c4cfacc8baa5366a5825138af29ae90f86ac9f0fa5cc68846645`, psxport
+`ff3709e74b24d21de4f3dcdcd402de8c33d57df7`) ran the authenticated executable and CHD headless,
+silent, and unpaced with a seven-field cap. Exact PID `751763` exited 0. Its first mode call
+`0x800B0708` stopped at `0x80031C78` after 564,482 cycles with live nested
+`ra=0x8004CA9C`, while the saved outer return stayed `0x80028C9C`. It returned to the saved
+outer boundary after six suspended fields, and the product reported seven completed host fields
+and 360,083 executed Lightrec blocks / 2,235,207 instructions with zero fallback blocks or
+instructions. The headless run establishes a completed first frame and bounded guest-call return;
+it does not establish a visually correct card, loader callback, independent whole-frame CPU parity,
+or gameplay. A focused synthetic nested-call test distinguished suspended and single-field returns
+from a deliberately wrong outer boundary (`v0=107` versus early `v0=100`), with zero fallback.
 
 After the native/Lightrec product reaches the Namco-to-menu boundary, the next title-loader check is
 the measured loader state below. Its binary ownership is established, but its live reachability is

@@ -8,12 +8,12 @@ dependencies in `docs/re-frontier.md`.
 |---|---|---|---|---|
 | S001 | The selected USA disc executable is reproducibly identified and provisioned | verified | — | G001, G003 |
 | S002 | Retail entry and direct-main startup execute deterministically to an independent boundary | verified | S001 | G001, G003 |
-| S003 | The authenticated executable runs through the native/Lightrec gameplay product | missing | S001, S002 | G001, G003 |
+| S003 | The authenticated executable runs through the native/Lightrec gameplay product | partial | S001, S002 | G001, G003 |
 | S004 | Boot and CD initialization are compared across independent or distinct execution engines | partial | S002 | G001, G003 |
 | S005 | The title declares a non-temporal, guest-rendered widescreen capability contract | partial | S003 | G002 |
 | S006 | Tekken-owned projection, display, visibility, and clipping state is identified for widescreen | partial | S001 | G002 |
 | S007 | True widescreen renders additional correctly projected content | missing | S004, S005, S006 | G002 |
-| S008 | Product frames, input, audio, and gameplay execute correctly | missing | S003, S004 | G001 |
+| S008 | Product frames, input, audio, and gameplay execute correctly | partial | S003, S004 | G001 |
 | S009 | The default launcher delivers the playable widescreen product | missing | S007, S008 | G001, G002, G003 |
 | S010 | Asset-free hosted verification builds and checks the real supported host product boundary | verified | S003 | G001, G003 |
 
@@ -62,23 +62,24 @@ are refused.
 
 ### S003 — native/Lightrec gameplay product
 
-Missing capability: player composition must install `Tekken3Runtime`, load the identity-checked executable as runtime
-data, binds framework devices, installs image-and-address-keyed native overrides, and dispatches the
-retail entry through psxport's per-Core Lightrec executor. Lightrec owns translated-code memory and
-its cache. psxport owns CPU/machine synchronization, HLE/device callbacks, bounded executor exits,
-override-aware original calls, and executable-memory invalidation.
+Evidence: player composition installs `Tekken3Runtime`, loads the identity-checked executable as
+runtime data, binds framework devices, installs image-and-address-keyed native overrides, and
+dispatches the retail entry through psxport's per-Core Lightrec executor. The title resumes its
+first synchronous 127-resource mode call over bounded host fields without changing the field budget.
+An authenticated, headless seven-field run (issue 0011, PID `751763`, exit 0) reached the outer guest
+return after six suspensions, completed the first frame, and reported 360,083 executed blocks,
+2,235,207 executed instructions, and zero fallback. A synthetic nested-call control verifies the
+original outer return address survives a changed live `r31`.
 
-Current gap: the target is wired to psxport's per-Core Lightrec execution boundary, including shared
-per-reason fallback telemetry and the bounded fallback threshold. Historical product evidence remains
-useful only as the measured native/device frontier because it predates this executor:
+Gap: the product has not reached `NAMCO PRESENTS`, the menu, or representative gameplay. Historical
+product evidence remains useful only as the measured native/device frontier because it predates this executor:
 the isolated `3c342ec3` product PID `3216829` dispatched the retail entry, opened the real CHD, and
 passed the synchronous directory-read and GetTN/GetTD owners. It then reached ResetGraph and trapped
 the next protected guest VSync query in linked GPU timeout armer `FUN_8007E8F0`. Its exact PID exited
 and is confirmed gone. The resulting native-ledger GPU arm/poll owner is combined-gate green but not
 yet product-verified. A later 1,200-frame windowless run against the real CHD produced a presented
 sink image and the `NAMCO PRESENTS` title card, but no menu or gameplay scene is covered. The next
-product evidence must come from nonzero Lightrec execution through the shipping boundary and must
-include the executor's complete fallback report with a passing threshold.
+product evidence must pass the 1,200-field Namco discriminator and subsequent gameplay gate.
 
 ### S004 — differential boot and CD initialization
 
@@ -90,7 +91,7 @@ Gap: The independent CPU now continues through DPCR and the measured context-sav
 execute B(19) HookEntryInt and return for another two-engine comparison. Whole-product execution now
 passes CD/TOC initialization with no guest VSync call and reaches ResetGraph. Issue 0011 records the
 exact GPU timeout-arm chain and the combined-gate-green native field/poll owner for
-`FUN_8007E8F0/FUN_8007E924`. No frame or gameplay is covered.
+`FUN_8007E8F0/FUN_8007E924`. The newer Lightrec run covers one frame, but no gameplay.
 
 ### S005 — title render-capability contract
 
@@ -102,8 +103,8 @@ Evidence: The historical shared capability implementation was recorded at `psxpo
 Clang gate passes CTest 17/17, clang-tidy 19/19, and the 13/13 capability seam. A bounded product run
 also rejected a persisted `native` selection as unsupported and resolved it to GTE.
 
-Gap: The product did not reach a first present or create an X11 window, so the absence of Native and
-60fps Interpolation rows is verified only at the source contract and not visually in the actual menu.
+Gap: The new headless product run completed a first present, but the absence of Native and 60fps
+Interpolation rows is verified only at the source contract and not visually in the actual menu.
 
 ### S006 — measured widescreen owners
 
@@ -118,8 +119,9 @@ clippers while retaining their original 4:3 guest bodies. The hermetic contract 
 384->512 projection and x=400/450 added-margin cases.
 
 Gap: These owners have not been driven in a completed gameplay frame or A/B-tested against a faithful
-4:3 image. The first presented frame is currently the title-loader card, not a completed gameplay
-frame. The separate 600/780 stage-tile visibility wedge remains measurement-dependent: a real wide
+4:3 image. A historical runner presented the title-loader card; the current Lightrec run completed
+one frame without image inspection. The separate 600/780 stage-tile visibility wedge remains
+measurement-dependent: a real wide
 frame must show whether it requires a derived frustum adjustment.
 
 ### S007 — true widescreen output
@@ -129,8 +131,10 @@ coverage, and final presentation while preserving vertical framing and the faith
 
 ### S008 — frames, input, audio, and gameplay
 
-Missing capability: the product has not completed and visually presented a frame, accepted verified
-gameplay input, produced verified title audio, or sustained gameplay.
+Evidence: the bounded headless product run completed seven host fields and one title frame, including
+per-field presentation/audio/pad service during the suspended guest call (issue 0011). Gap: the
+resulting image was not inspected, and verified gameplay input, title audio, and sustained gameplay
+remain absent.
 
 ### S009 — default playable widescreen product
 
