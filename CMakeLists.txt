@@ -30,6 +30,7 @@ add_subdirectory("${PSXPORT_DIR}" psxport_build)
 add_library(
   tekken3_runtime STATIC
   game/core/cd_sync.cpp
+  game/core/decompressor_probe.cpp
   game/core/frame_loop.cpp
   game/core/guest_execution.cpp
   game/core/gpu_sync.cpp
@@ -71,6 +72,16 @@ add_custom_target(
   tekken3_frame_loop_contract_check
   COMMAND "$<TARGET_FILE:tekken3_frame_loop_contract>"
   DEPENDS tekken3_frame_loop_contract
+  USES_TERMINAL
+  VERBATIM)
+
+add_executable(tekken3_decompressor_probe_contract tests/decompressor_probe_contract.cpp)
+target_link_libraries(tekken3_decompressor_probe_contract PRIVATE tekken3_runtime)
+add_test(NAME tekken3_decompressor_probe_contract COMMAND tekken3_decompressor_probe_contract)
+add_custom_target(
+  tekken3_decompressor_probe_contract_check
+  COMMAND "$<TARGET_FILE:tekken3_decompressor_probe_contract>"
+  DEPENDS tekken3_decompressor_probe_contract
   USES_TERMINAL
   VERBATIM)
 
@@ -164,6 +175,7 @@ add_custom_target(
   DEPENDS
     cpp_policy
     tekken3_cd_protocol_contract_check
+    tekken3_decompressor_probe_contract_check
     tekken3_frame_loop_contract_check
     tekken3_gpu_sync_contract_check
     tekken3_runtime_contract_check

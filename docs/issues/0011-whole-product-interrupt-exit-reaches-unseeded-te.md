@@ -11,8 +11,8 @@ updated: 2026-09-12
 
 ## Current boundary
 
-The current Lightrec product has no completed title frame. One bounded headless run of the already
-linked Clang-built `build/ci/bin/tekken3_port` (SHA-256
+The current Lightrec product has no completed title frame. An earlier bounded headless run of the
+already linked Clang-built `build/ci/bin/tekken3_port` (SHA-256
 `3e2259031b97f72208148a379450b4b4a952b6dae746f8ec55ed68b672ed0719`, build receipt
 `psxport=8b2103294b68e082eef8fe64bb3e972da21bec09`) opened the authentic CHD, completed the
 finite main prefix, initialized the 960x720 Vulkan sink, then aborted in the first
@@ -24,12 +24,44 @@ Ghidra places `0x80031C78` in `FUN_80031BFC`, the title's LZ-style decompressor.
 at `0x80031C78..0x80031C90` copies a bounded back-reference run (`lbu` source, `sb` destination,
 `slt` length, branch back). Five direct call sites use this decompressor: one static-resource
 initializer (`FUN_800484F4`) and four image-loading wrappers (`FUN_8004C6FC`, `FUN_8004C7E4`,
-`FUN_8004C91C`, `FUN_8004CA40`). The first-frame error record does not identify which call site,
+`FUN_8004C91C`, `FUN_8004CA40`). That earlier error record did not identify which call site,
 compressed input, or output position was active. The framework's `ExecutionBudget::currentTurn`
 allows 33,868,800/60 cycles for each guest call while the title's `guest::call` requires a completed
 return. Thus the current evidence cannot distinguish a legitimately long decompression from a
 wrong input/loop state; raising the budget or treating the exit as a completed call would assume
 the answer.
+
+One new bounded shipping-product run used Clang-built `build/ci/bin/tekken3_port` (SHA-256
+`66eecab8c9cff36c4c2c8cf96c5780489300dcd05038ce9a7aaa32822594ef02`, linked against
+psxport `13806e8156376e8e1dd86c43b70a89b44c61598d`) with the authenticated executable and
+CHD, one requested frame, headless Vulkan, no audio device, and no pacing. PID `85388` exited and
+was confirmed absent. At the actual `guest::call` failure boundary, the title-local shipping
+diagnostic reported the outer guest call `0x800B0708`, outer return `0x80028C9C`, and an exit inside
+the decompressor at `0x80031C78` after 564,482 cycles. Its live `ra=0x8004CA9C` identifies the
+`FUN_8004CA40` image-loading wrapper. Live `a0/source=0x800BC2D0`, `a1/destination=0x8012B223`,
+`a3/back-reference=0x8012B21D`, and `t1/output-start=0x8012867C` all mapped to main RAM. The
+output pointer was 11,175 bytes beyond its preserved start, with 883,076 mapped bytes remaining;
+the active back-reference copy had completed `1/11` bytes and read six bytes behind its destination
+within the format's 2,048-byte bound. The probe classified one of one sampled exits inside the
+decompressor; its synthetic controls separately produced one reached, one unreached, one valid,
+and one invalid-bound result through the same formatter. It cannot measure compressed-source
+consumption because Lightrec exposes no decompressor-entry sample at this title-local boundary.
+
+This proves mapped, bounded copy state at that instant, not the function's eventual return or a
+correct compressed payload. The direct binary run omitted `PSXPORT_ASSET_DIR`, so the overlay
+reported missing UI assets before this CPU stop; no presentation conclusion follows. The process
+returned status `139`; the log shows the budget error followed by a watchdog signal-06 backtrace,
+but no saved core for PID `85388` was found, so the cause of status `139` remains unproven. Zero
+title frames completed.
+
+The operator repeated the bounded retail run after pinning psxport `1d7701cc` and passing the
+combined Clang gate. This run supplied the framework UI assets and kept normal pacing; it loaded
+all four Rml assets, entered the first native-owned frame, and reported the same `0x80031C78`
+budget exit after 564,482 cycles. The live output was again 11,175 bytes from its start, with a
+`1/11` back-reference copy at distance six and mapped source/destination pointers. The process
+again returned status `139` after the watchdog's signal-06 backtrace. No title frame completed;
+the new run confirms the decompressor boundary under the current framework, not its eventual
+progress or output correctness.
 
 The authenticated `SLUS_004.02` text was re-imported at `0x80010000` from the provisioner-verified
 SHA-256 `fbda8b68e5799dbef4af39a161783bc670c15b0aa0e87dce65e210717da19b8c` and queried
@@ -97,13 +129,12 @@ the protected VSync trap. PID `3216829` exited and was confirmed absent.
 
 ## Next discriminator
 
-At the existing first-frame `guest::call` failure boundary, record the guest call's entry address
-and the decompressor's live source, destination, back-reference source, and copy-length registers
-(`a0`, `a1`, `a3`, `a2`), comparing the current output pointer `a1` with the preserved initial
-destination `t1`. This is the smallest next discriminator: it identifies the active resource and
-whether the LZ copy is making bounded progress or repeating invalid input before a second bounded
-Lightrec run. It must report an unreached decompressor as such. First resolve this guest-call exit;
-frame-end loader sampling cannot observe a run with zero completed frames.
+The first sampled image resource made 11,175 bytes of bounded output progress before the call's
+single-turn budget expired, but source consumption and expected resource size remain unknown.
+Establish the decompressor's entry source and expected output extent from the authenticated wrapper
+and compare the bounded Lightrec execution with an independent oracle before classifying the budget
+as too short or the data/execution as wrong. First resolve this guest-call exit; frame-end loader
+sampling cannot observe a run with zero completed frames.
 
 After the native/Lightrec product reaches the Namco-to-menu boundary, the next title-loader check is
 the measured loader state below. Its binary ownership is established, but its live reachability is

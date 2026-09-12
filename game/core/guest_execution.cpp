@@ -1,6 +1,7 @@
 #include "guest_execution.h"
 
 #include "core.h"
+#include "decompressor_probe.h"
 #include "execution_exit.h"
 #include "native_dispatch.h"
 
@@ -28,7 +29,12 @@ void requireReturn(const psx::cpu::ExecutionResult &result, const char *owner) {
 } // namespace
 
 void call(Core &core, std::uint32_t address, const char *owner) {
-  requireReturn(psx::cpu::dispatchGuest(core, address, psx::cpu::ExecutionBudget::currentTurn(core)), owner);
+  auto entry = DecompressorProbe::captureEntry(core, address);
+  auto result = psx::cpu::dispatchGuest(core, address, psx::cpu::ExecutionBudget::currentTurn(core));
+  if (!result.returned()) {
+    lucent::error("tekken3-lz", "{}", DecompressorProbe::describe(core, entry, result));
+  }
+  requireReturn(result, owner);
 }
 
 void callOriginal(Core &core, std::uint32_t address, const char *owner) {
