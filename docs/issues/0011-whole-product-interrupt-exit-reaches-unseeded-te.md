@@ -130,11 +130,35 @@ the protected VSync trap. PID `3216829` exited and was confirmed absent.
 ## Next discriminator
 
 The first sampled image resource made 11,175 bytes of bounded output progress before the call's
-single-turn budget expired, but source consumption and expected resource size remain unknown.
-Establish the decompressor's entry source and expected output extent from the authenticated wrapper
-and compare the bounded Lightrec execution with an independent oracle before classifying the budget
-as too short or the data/execution as wrong. First resolve this guest-call exit; frame-end loader
-sampling cannot observe a run with zero completed frames.
+single-turn budget expired. Ghidra decompiled both `FUN_8004CA40` and `FUN_80031BFC` (2/2 requested
+functions) and disassembled 16/16 instructions in `0x8004CA70..0x8004CAB0`: the wrapper's current
+eight-byte table entry is `s1`, its table base is `s3`, `lw a0,4(s1)` executes at `0x8004CA8C`,
+and the `jal FUN_80031BFC` delay slot adds `s3` to form the compressed-source entry. `s5` supplies
+the output start. At return address `0x8004CA9C`, the wrapper checks whether the returned output
+length exceeds `0x8240` (33,344 bytes). This is a maximum, not an exact resource length. The
+decompressor stops at a zero control byte, so exact encoded output length depends on the live
+source bytes. No saved log contains `s3`/`s1`, and no numerical source entry or encoded extent can
+be claimed from the previous runs.
+
+The title-local shipping exit probe now checks the live reached-wrapper register/table invariants,
+reconstructs the source entry, and scans only mapped RAM through the zero control byte, bounded by
+the wrapper's output limit read from its actual guest instruction. It reports a source-consumed
+denominator and encoded output extent only if the scan terminates, cursor/output progress fits, and
+source/output spans do not overlap. Missing reach, invalid table/instruction, truncated input, and
+unterminated input report their negative result and scanned count; focused synthetic controls pass.
+An authenticated headless, silent retail run after the 11/11 Clang gate reached the wrapper at
+`0x8004CA9C`: table base `0x800B8D58`, entry index 2/127, encoded source
+`0x800BAFCC`, and destination `0x8012867C`. The bounded scan found the zero terminator after
+7,772 source bytes and described 21,524 output bytes under the wrapper's 33,344-byte cap.
+At the typed `BudgetExhausted` exit at `0x80031C78` (564,482 cycles), the guest had consumed
+4,868/7,772 source bytes and produced 11,175/21,524 output bytes. The scan reported
+`complete consistent=1`; no frame had completed. The watchdog's signal backtrace follows the
+intentional failed-call abort, so the product still does not boot. This is evidence of remaining
+finite encoded input, not proof that Lightrec's output or guest state agrees with an independent
+oracle. Compare this exact stream and the continued guest state with that oracle before classifying
+the budget as too short or the data/execution as wrong.
+First resolve this guest-call exit; frame-end loader sampling cannot observe a run with zero
+completed frames.
 
 After the native/Lightrec product reaches the Namco-to-menu boundary, the next title-loader check is
 the measured loader state below. Its binary ownership is established, but its live reachability is
