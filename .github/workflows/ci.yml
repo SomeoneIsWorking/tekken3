@@ -19,33 +19,15 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 45
     env:
-      PSXPORT_LIGHTREC_DIR: ${{ github.workspace }}/shared/lightrec
-      PSXPORT_LIGHTNING_PREFIX: ${{ github.workspace }}/shared/lightning/build/install/linux-x86_64
+      CC: clang
+      CXX: clang++
+      CMAKE_BUILD_PARALLEL_LEVEL: "2"
     steps:
       - name: Check out Tekken 3 with full history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
-
-      - name: Check out the exact maintained Lightrec revision
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: SomeoneIsWorking/lightrec
-          ref: b1457137c31cedff5f440d59da29401d021ba2da
-          path: shared/lightrec
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Check out the exact maintained GNU Lightning revision
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: SomeoneIsWorking/lightning
-          ref: f305e50483e9794e8fb0b99fb77d82954a4924e5
-          path: shared/lightning
-          fetch-depth: 0
-          persist-credentials: false
-          submodules: recursive
 
       - name: Select Python 3.13
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
@@ -58,20 +40,17 @@ jobs:
           version: "0.10.12"
           enable-cache: false
 
-      - name: Install native build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes \
-            autoconf automake clang clang-format clang-tidy cmake glslc libfreetype-dev \
-            libtool make \
-            libsdl3-dev libsdl3-image-dev ninja-build pkg-config zlib1g-dev
-
-      - name: Build the exact maintained GNU Lightning prefix
-        working-directory: shared/lightning
-        run: uv run --frozen python tools/build_lightning.py --clean --cc clang --skip-upstream-tests
-
       - name: Install the locked Python environment
         run: uv sync --locked
+
+      - name: Resolve the exact pinned framework
+        run: uv run --frozen python tools/psxport_sync.py --auto
+
+      - name: Provision the shared pinned Linux build inputs
+        uses: ./external/psxport/.github/actions/setup-linux
+        with:
+          framework-directory: external/psxport
+          dependency-directory: build/deps
 
       - name: Run the canonical asset-free verifier
         run: uv run --frozen python tools/verify.py
