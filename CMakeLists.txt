@@ -200,6 +200,16 @@ add_custom_target(
     --selftest --exe "${TEKKEN3_EXE}"
   USES_TERMINAL
   VERBATIM)
+# The 4:3-vs-16:9 receipt logic, a real `add_test` and NOT another COMMAND inside the aggregate target
+# above. Two of its checks are scope checks rather than receipt checks: this title is already 60 fps, so
+# an fps60 row reported as ACTIVE is a defect, and a tracked settings file containing `fps60=1` is a
+# defect. The selftest half needs no disc, no GPU and no product; the pair itself is a maintainer run
+# because it needs the user's CHD and the machine's single product slot. See docs/issues/0015.
+add_test(
+  NAME tekken3_widescreen_pair_selftest
+  COMMAND
+    "${Python3_EXECUTABLE}" -B
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/probe_tekken3_widescreen_pair.py" --selftest)
 add_test(
   NAME tekken3_projection_selftest
   COMMAND
