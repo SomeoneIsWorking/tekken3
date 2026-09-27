@@ -8,8 +8,7 @@ dependencies in `docs/re-frontier.md`.
 |---|---|---|---|---|
 | S001 | The selected USA disc executable is reproducibly identified and provisioned | verified | — | G001, G003 |
 | S002 | Retail entry and direct-main startup execute deterministically to an independent boundary | verified | S001 | G001, G003 |
-| S003 | The authenticated executable runs through the native/Lightrec gameplay product | partial | S001, S002 | G001, G003 |
-| S004 | Boot and CD initialization are compared across independent or distinct execution engines | partial | S002 | G001, G003 |
+| S003 | The authenticated executable runs through the native/Lightrec gameplay product | partial | S001, S002 | G001, G003 || S004 | Boot and CD initialization are compared across independent or distinct execution engines | partial | S002 | G001, G003 |
 | S005 | The title declares a non-temporal, guest-rendered widescreen capability contract | partial | S003 | G002 |
 | S006 | Tekken-owned projection, display, visibility, and clipping state is identified for widescreen | partial | S001 | G002 |
 | S007 | True widescreen renders additional correctly projected content | missing | S004, S005, S006 | G002 |
@@ -19,12 +18,21 @@ dependencies in `docs/re-frontier.md`.
 
 ## Current focus
 
-S003 is the current focus. The first discriminator is the native/Lightrec product reaching `NAMCO
-PRESENTS` within 1,200 frames while executing nonzero Lightrec blocks and routing all 14
-address-based original calls through the shipping dispatcher. Product inspection must prove that
-Lightrec remains the default and no interpreter gameplay selector exists; runtime evidence must
-report every bounded JIT-refusal fallback and satisfy its release threshold. That checkpoint is
-followed by a representative interactive gameplay run.
+S003 is the current focus, and its loader blocker is now **diagnosed rather than hypothesised**. The
+title's CD command path is owned and working: `FUN_8008F08C` submits (loader state `0x800A05D8 == 8`
+is written only after its submit loop returns nonzero), four records queue, and `FUN_8008FCC0` really
+issues `CdSetloc` and retries it forever. The stall is one level away from the CD: the guest's
+per-VBlank controller-port read `FUN_80093478` writes to SIO0 DATA and spins unconditionally on
+SIO0 STAT bit 1, which the runtime's `Sio0::status()` never sets, so `Hle::in_irq` stays 1 and the CD
+completion is never delivered. The next title-owned work is a native override of `FUN_80093478`, which
+is a resident-text function entry here and therefore an image-scoped override target. See issue 0011.
+
+After that, the first discriminator is the native/Lightrec product reaching `NAMCO PRESENTS` within
+1,200 frames while executing nonzero Lightrec blocks and routing all 14 address-based original calls
+through the shipping dispatcher. Product inspection must prove that Lightrec remains the default and
+no interpreter gameplay selector exists; runtime evidence must report every bounded JIT-refusal
+fallback and satisfy its release threshold. That checkpoint is followed by a representative
+interactive gameplay run.
 
 ## Hosted verification and host gaps
 
@@ -81,6 +89,13 @@ yet product-verified. A later 1,200-frame windowless run against the real CHD pr
 sink image and the `NAMCO PRESENTS` title card, but no menu or gameplay scene is covered. The next
 product evidence must pass the 1,200-field Namco discriminator and subsequent gameplay gate.
 
+The title now also has a working live control channel. `runPort` composes its own finite loop and never
+entered `psxport_boot()` — the only caller of `DbgServer::start`/`service` — so `PSXPORT_DEBUG_SERVER`
+bound nothing and no guest word could be read from a running product. `game/core/tekken3_port.cpp` now
+calls `DbgServer::attach` before choosing the cap and services the endpoint once per frame, in the
+framework's own order. Measured: `[dbgsrv] listening on 127.0.0.1:5959`, and `r`/`rw`/`guest` all answer
+against a live run (`scratch/probe_logs/cdcomp4.probe.txt`).
+
 ### S004 — differential boot and CD initialization
 
 Historical psxport-interpreter and independent-Mednafen runs agreed on 35/35 CPU fields at the
@@ -120,14 +135,25 @@ clippers while retaining their original 4:3 guest bodies. The hermetic contract 
 
 Gap: These owners have not been driven in a completed gameplay frame or A/B-tested against a faithful
 4:3 image. A historical runner presented the title-loader card; the current Lightrec run completed
-one frame without image inspection. The separate 600/780 stage-tile visibility wedge remains
-measurement-dependent: a real wide
-frame must show whether it requires a derived frustum adjustment.
+one frame without image inspection. The stage-tile visibility wedge is no longer
+measurement-dependent: the derived `theta' = atan(k tan theta)` domain is verified 6912/6912
+bit-identical against the real guest selector, 600 -> 762 at 16:9, with the horizontal culling set
+closed at a denominator (295,936 instructions scanned, culling owners asserted as exactly 12 right-edge
+comparisons plus the 2 authored wedge angles). What is missing is a **product** observation, not the
+derivation: no real wide frame has yet exercised the seven widened cull owners or the wedge.
 
 ### S007 — true widescreen output
 
 Missing capability: no completed Tekken frame has demonstrated wider guest geometry, stage/effect
 coverage, and final presentation while preserving vertical framing and the faithful 4:3 control.
+
+Blocked behind S003, and the blocker is now named (issue 0011): the guest cannot leave the title card
+because a SIO0 status poll inside the VBlank ISR never exits, so no CD completion is delivered. Until
+that is fixed there is no gameplay frame to widen, and the widened owners and the stage wedge still
+have no product observation of any kind. `widescreen_pair.py` was therefore **not run**: it would only
+have been handed two views of the same `NAMCO PRESENTS` card, whose glyphs sit on a flat black field,
+and the tool correctly refuses that pair (its own `seams()` docstring records that refusal on this
+title's card). Re-shooting until it passes would be manufacturing evidence.
 
 ### S008 — frames, input, audio, and gameplay
 

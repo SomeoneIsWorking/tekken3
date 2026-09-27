@@ -20,6 +20,22 @@ lines 70-83 and 203-205:
   0x800AE204  mode
   0x800AE224  phase
 
+It also watches the CD COMMAND-CHAIN state machine, because "the loader submitted a command" and
+"the command reached the controller" are different events. FUN_8008F08C only ENQUEUES four records
+into the eight-slot ring at 0x800A3D78; a record is executed one per pump by
+FUN_8008E8B8 -> FUN_8008FB08 -> FUN_8008FCC0 -> FUN_80083E4C, and FUN_80083E4C is this title's own
+installed cdControl override. So:
+
+  0x8009B750  CD chain state. FUN_8008FB08 refuses to issue anything unless this is 1, and advances
+              it to 2 on a successful issue.
+  0x8009B774  FUN_8008FCC0's outstanding-completion counter. Zero until a command is really issued,
+              then 0x1E or 0x3C0. FUN_8008FB08 also refuses while it is >= 1. THIS IS THE SHARPEST
+              SINGLE WORD: nonzero proves a command reached the controller.
+  0x8009B730  CD-initialised gate. FUN_8008FB08 refuses while it is 0.
+  0x8009B734  the live CD command byte FUN_8008FCC0 last handed to FUN_80083E4C.
+  0x8009B778  FUN_8008FCC0's completion flag.
+  0x8009B8E8  sector-callback registration flag owned by FUN_80091F38.
+
 Usage: probe_loader_state.py [port] [first-frame-to-sample]
 It starts nothing: the product must already be running with PSXPORT_DEBUG_SERVER
 set. It samples every 10 frames from the requested frame and prints a table, so a
@@ -42,6 +58,12 @@ WATCH = [
     ("loader state 0x800A05D8", "rw", 0x800A05D8),
     ("mode 0x800AE204", "rw", 0x800AE204),
     ("phase 0x800AE224", "rw", 0x800AE224),
+    ("chain state 0x8009B750", "rw", 0x8009B750),
+    ("outstanding cmd 0x8009B774", "rw", 0x8009B774),
+    ("cd initialised 0x8009B730", "rw", 0x8009B730),
+    ("live cmd byte 0x8009B734", "rw", 0x8009B734),
+    ("cmd done flag 0x8009B778", "rw", 0x8009B778),
+    ("cb registered 0x8009B8E8", "rw", 0x8009B8E8),
 ]
 
 

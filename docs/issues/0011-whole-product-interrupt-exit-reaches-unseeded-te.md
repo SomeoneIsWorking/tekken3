@@ -4,10 +4,143 @@ title: Native/Lightrec first-frame budget and loader frontier
 status: investigating
 symptom: the first-frame mode call spans bounded guest turns; later loader and gameplay remain unverified
 state_items: S003,S004,S008
-tags: runtime,cd,title-loader,t3-04
+tags: runtime,cd,title-loader,t3-04,sio
 created: 2026-08-25
-updated: 2026-09-12
+updated: 2026-09-27
 ---
+
+## Measured correction: the CD command path is not the missing owner
+
+The earlier text of this issue said "the current title CD overrides do not own that `FUN_8008F08C`
+command path", and the working hypothesis was therefore a missing CD-command override. **Both are now
+measured false**, and the real cause is on the SIO controller port, not the CD.
+
+Measured on the shipping product (headless, silent, unpaced, live control endpoint, `tools/probe_loader_state.py`
+and `tools/probe_cd_completion.py`, log `scratch/probe_logs/cdcomp4.log` and `loader_b.probe.txt`):
+
+| guest word | value across fields 98..6865 | what it establishes |
+|---|---|---|
+| `0x800A05D8` loader state | `8` | `FUN_8006C084` writes 8 **after** its `do { FUN_8008F08C(...) } while (iVar1 == 0)` loop, so the submit **returned nonzero**. The loader is not spinning and not stalled in submission. |
+| `0x800A3E40` raw queue count | `4` | exactly the four records `FUN_8008F08C` enqueues, and they are **never drained**. |
+| `0x8009B730` CD initialised | `1` | the CD gate `FUN_8008FB08` requires is open. |
+| `0x8009B774` outstanding command | `0x13`,`0x19`,`0x0E`,`0x10`,... cycling | `FUN_8008FCC0` armed its completion deadline, so a command **was really issued**. |
+| `0x8009B778` completion count | `0x13` -> `0xEF`, climbing | the CD state machine is **retrying forever**. |
+| `0x8009B734` live command | `1` = `CdSetloc` | the retrying command. |
+| `0x800A05D8` | never `9` | the class-5 loader-failure branch **never ran**. This is not a loader error. |
+| `0x8009B8D0` / `0x8009B8E8` | `0` / `0` | `FUN_8006C26C` never saw class 2, so `FUN_80091F38` never registered the sector callback. |
+
+The command path is therefore **owned**: `FUN_8008F08C` only enqueues into the eight-slot ring at
+`0x800A3D78`, and the record is executed by `FUN_8008E8B8` -> `FUN_8008FB08` -> `FUN_8008FCC0`, whose
+only hardware call is `FUN_80083E4C(DAT_8009b734, DAT_8009b73c, 0, 1)` — and `FUN_80083E4C` is
+`kCdControl`, one of the six title overrides `installCdOverrides` already installs through
+`tekken3::guest::install`. `param_3` (the "request-mode argument 6" of the old text) is a **selector
+into a 25-entry command-chain template jump table at `0x800387B0`** indexed by `param_3 - 3`, not a
+libcd async mode. Command `0xA0` is not a PlayStation CD command: it is the first payload byte of the
+chain's `CdGetID` record.
+
+## The real cause: a SIO0 status poll with no timeout, inside the VBlank ISR
+
+`scratch/probe_logs/cdcomp4.log` is 684,212 lines with `PSXPORT_DEBUG=irq,cd,cdc`:
+
+- `3,815` interrupt deliveries, **every one** `elem 0x800A62E8 handler 0x80092D34 (I_STAT&I_MASK=0x001)`
+  — VBlank (bit 0) only. Bit 2 (CD) is never delivered.
+- `I_MASK = 0x6D` = bits 0,2,3,5,6, so **the guest enables the CD interrupt**. The absence of a
+  delivery is not a guest masking decision.
+- `CD raised IRQ2` occurs **0 times**. `Core::irqStatLatch()` is the only place the CD edge becomes
+  `I_STAT` bit 2, and it is called *after* `irqPoll`'s `if (in_irq || !irq_enabled) return;`.
+- `delivery declined 1,200,000 times: critical-section=0 nested=1,200,000 transient=0` — `in_irq`
+  is stuck at 1, so every poll returns early and the CD edge is never even latched.
+
+The last interrupt delivered is the VBlank element handler `FUN_80092D34`
+(`[0x80092D34,0x80092E9F]`, returns 0), which calls `FUN_800931D8` and reaches `FUN_80093478`. That
+function's **first** act is an unconditional poll:
+
+```asm
+0x800934CC  lui   v1,0x800A
+0x800934D0  lw    v1,-0x469C(v1)     ; v1 = *(0x8009B964)   -- read live: 0x1F801040
+0x800934D8  lhu   v0,0x4(v1)         ; SIO0 STAT (0x1F801044) -- read live: 0x0101
+0x800934E0  andi  v0,v0,0x0002       ; "receive data available"
+0x800934E4  beq   v0,zero,0x800934D8  ; loop until it is set
+```
+
+`0x1F801040`/`0x1F801044` are **SIO0 DATA/STAT** (`runtime/psx/io_peripherals.cpp:12`,
+`kSio0Lo = 0x1F801040`), so `FUN_80093478` is the title's per-VBlank controller-port read. The
+framework's `Sio0::status()` answers `0x0101` — bit 1 is never set, so the loop never exits.
+`runtime/psx/pad_input.cpp` already documents this exact poll and states that the runtime "never
+satisfies" it; the difference for this title is that its guest body has **no timeout escape** (the
+loop is unconditional), so it does not bail.
+
+Because the spin is inside the interrupt, it pins `Hle::in_irq` for the rest of the run. That is the
+single mechanism behind every symptom above: no further interrupt is delivered, and the CD edge is
+never latched, so a CD command that *is* issued can never complete.
+
+## Ownership: a title pad-port override, not a CD command
+
+`FUN_80093478` is a function **entry** in the authenticated resident text (`0x80010000..0x80131000`),
+reached by `jal` from four sites (`0x800941C8`, `0x800941E0`, `0x800942A0`, `0x8009432C`), so it is a
+legitimate image-scoped override target for this title — unlike the port `pad_input.cpp` documents,
+where `FUN_80003A4C` lives in a low-text image that is never loaded and so cannot be overridden.
+`Pad::overridesInit()` here only calls `init()`; it installs no override.
+
+The proper fix is a title-owned native override of `FUN_80093478` that performs the exchange natively
+— write the standard digital pad packet into the slot buffer the caller passes instead of bit-banging
+SIO0 — installed through the same `tekken3::guest::install` path as the six CD overrides, with a
+contract test that installs it with no HLE plan in existence. It is NOT implemented in this session:
+a pad override that produces a wrong packet would silently feed wrong input, which is worse than the
+visible stall, and there was no room left to build and verify it against the product.
+
+## DMA: this title does not chain its CDROM transfer
+
+Measured from the executable, not inferred. `FUN_80084838` is the sector fetch and programs DMA3
+directly: `*(0x1F8010F0) |= 0x8000` (DPCR3 enable), `*(0x1F8010B0) = dest` (MADR3),
+`*(0x1F8010B4) = count | 0x10000` (BCR3), `*(0x1F801014) = 0x11000000` (CHCR3 start). BCR bits 0-1
+are the sync mode, and `0x10000` sets bit 16, **not** bits 0-1. The caller is `FUN_8006C2A0` ->
+`FUN_80090AA8(dest, 0x800 >> 2)`, so the count is `0x200` and `BCR3 = 0x10200`, giving
+`0x10200 & 3 == 0` — **manual/block mode**. Tekken 3 chains no DMA transfer, so the psxport
+`492adace` fix changed nothing for this title. `tools/probe_dma_sync_mode.py` reports the 12 DMA
+register literals it found and says plainly that they are descriptor-table addresses, not BCR values;
+the value itself had to be read from the instruction that writes it.
+
+## Instrument note: two wrong answers, and what caught them
+
+`tools/probe_global_writers.py` is a constant-propagation sweep over the authenticated text. It was
+wrong twice before it was right, and both times it answered confidently, so both are recorded:
+
+1. It omitted the PS-X EXE's 0x800-byte header from the file offset. Every decoded instruction and
+   every reported address was shifted, and it reported 0x8009B750 as having **18 stores** when the
+   truth is 3. It now refuses to report anything unless it first reproduces two known instructions
+   (`GROUND_TRUTH`), and the selftest asserts it does.
+2. It could not see the `lui`/`addiu`/`sw` form, so it reported 0 for 0x8009B750 — and that zero was
+   *believable*, because Ghidra's reference model independently reported zero references to the same
+   address. Two instruments agreeing was not two facts: both missed the same form. `FUN_8008FBB4`
+   reaches that address as `sll a0,a0,2` / `lui v0,0x800A` / `addu` / `lw v0,-18608(v0)`, so the
+   byte-scaled-index form is now modelled.
+3. Its first draft used 0x8009B750 as a **negative** control ("must find no store"). The
+   disassembly disproved that — the three writers are real — so the control was false and the selftest
+   correctly failed. A control that is simply false is worse than no control.
+
+The confirmed writer census for the CD chain state word, each hand-checked in the disassembly:
+
+| site | instruction | effect |
+|---|---|---|
+| `0x80090338` | `sw v1,0(v0)`, `v0 = 0x800A0000-0xB750`, `v1 = 1` | `0x8009B750 = 1` (ready) |
+| `0x800908D8` | `sw v1,0(v0)`, `v0 = 0x800A0000-0xB750`, `v1 = 1` | `0x8009B750 = 1` (ready) |
+| `0x8008FA54` | `sw v0,8(s0)`, `s0 = 0x800A0000-0x46B8`, `v0 = 2` | `0x8009B750 = 2` (in flight) |
+
+which is exactly the 1 -> 2 transition `FUN_8008FB08` performs when it issues. No sweep-level
+"wrong offset must disagree" control is claimed: one was tried and it produced identical counts,
+because wrong bytes are mostly rejected by the decoder rather than producing different answers. The
+guard that works is the pre-flight `GROUND_TRUTH` refusal, and that is what caught the real bug.
+
+## The live control endpoint did not exist for this title
+
+`PSXPORT_DEBUG_SERVER` was inert: `runPort` composes its own finite loop and never entered
+`psxport_boot()`, which is the only caller of `dbg_server.start()` and `service()`. No listener, no
+`guest` denominator, no way to read a guest word from a running product. `DbgServer::attach` is
+documented as "the one call a title-owned spine needs before its loop" and is now called from
+`game/core/tekken3_port.cpp`, with the per-frame `honourPause`/`service` pair in the same order the
+framework's own spine uses. This is a title composition defect, not a framework one; it is also what
+made every measurement in this section possible.
 
 ## Current boundary
 
@@ -72,6 +205,12 @@ Lightrec product reached it. `FUN_80052A70` returns byte `0x800A069F`; its calle
 `FUN_8006BF20` queues its asset extent, and `FUN_8006C084` sets the wait byte to `1` before
 submitting command `0xA0` through `FUN_8008F08C` with request-mode argument `6` and callback
 `FUN_8006C26C`. The current title CD overrides do not own that `FUN_8008F08C` command path.
+
+> **SUPERSEDED — see "Measured correction" above.** "request-mode argument 6" is a jump-table index
+> into the 25-entry chain template at `0x800387B0`, and the command path **is** owned: `FUN_8008F08C`
+> only enqueues, and the record is executed by `FUN_8008E8B8` -> `FUN_8008FB08` -> `FUN_8008FCC0` ->
+> `FUN_80083E4C`, which is the installed `kCdControl` override. The submission succeeds and the command
+> is issued; it cannot complete because an SIO0 status poll inside the VBlank ISR never exits.
 
 The callback chain distinguishes completion from error. `FUN_8006C26C` registers
 `FUN_8006C2A0` with `FUN_80091F38` only on class `2`. `FUN_8006C2A0` consumes one 0x800-byte

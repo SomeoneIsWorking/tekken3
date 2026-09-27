@@ -72,11 +72,24 @@ int runPort(Tekken3Runtime &runtime, int argc, char **argv) {
   if (frameLimit == 0 && !gpu_windowed()) {
     frameLimit = 120;
   }
-  lucent::info("frame", "entering Tekken 3 native-owned frame loop ({})", frameLimit ? "capped" : "interactive");
-  for (std::uint32_t frame = 0; frameLimit == 0 || frame < frameLimit; ++frame) {
+  // Attach the live control endpoint BEFORE choosing the cap. This title composes its OWN finite
+  // frame loop rather than entering the framework's psxport_boot(), so the two calls that spine owns
+  // — attach() and the per-frame service pair — were simply absent, and PSXPORT_DEBUG_SERVER did
+  // nothing at all: no listener, no `guest` denominator, no way to read a guest word from a running
+  // product. dbg_server.h names attach() as "the one call a title-owned spine needs before its
+  // loop", and it returns 0 (uncapped) exactly when a client is going to drive the run, which is what
+  // stops the headless 120-field smoke cap above from ending the process before a client connects.
+  const int drivenFrames = game->dbg_server.attach(core, static_cast<int>(frameLimit));
+  std::uint32_t cap = drivenFrames > 0 ? static_cast<std::uint32_t>(drivenFrames) : 0u;
+  lucent::info("frame", "entering Tekken 3 native-owned frame loop ({})", cap ? "capped" : "interactive");
+  for (std::uint32_t frame = 0; cap == 0 || frame < cap; ++frame) {
+    // Same order as the framework's own spine: honour a client pause before the frame, then service
+    // one queued command after it, so a read never observes a half-completed command.
+    game->dbg_server.honourPause(core);
     shell.step(*core, frame);
+    game->dbg_server.service(core);
   }
-  lucent::info("frame", "Tekken 3 frame loop completed after {} frame(s)", frameLimit);
+  lucent::info("frame", "Tekken 3 frame loop completed after {} frame(s)", cap);
   return 0;
 }
 

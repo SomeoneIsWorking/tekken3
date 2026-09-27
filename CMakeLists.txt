@@ -178,6 +178,12 @@ add_custom_target(
   COMMAND
     "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/probe_wedge_extent_census.py"
     --selftest --exe "${TEKKEN3_EXE}"
+  COMMAND
+    "${Python3_EXECUTABLE}" -B
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/probe_global_writers.py" --selftest "${TEKKEN3_EXE}"
+  COMMAND
+    "${Python3_EXECUTABLE}" -B
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/probe_dma_sync_mode.py" "${TEKKEN3_EXE}"
   USES_TERMINAL
   VERBATIM)
 add_test(
