@@ -7,8 +7,10 @@ class Core;
 namespace tekken3 {
 
 // Narrow boundary for Tekken's linked GPU queue timeout owner. The retail implementation reads
-// libetc VSync(-1) only as a timeout clock; the host frame loop is the sole cadence owner, so this
-// protocol receives that owner's field counter directly while preserving the queue reset contract.
+// libetc VSync(-1) only as a timeout clock, and that call returns the guest's own VBlank field count
+// (tekken3::vsync::kFieldCounter) — not a host counter, which nothing in this product advances. So
+// this protocol receives exactly the word the retail VSync returned, which is what keeps the
+// deadline it arms comparable with the twenty other timeout arms the guest reads the same way.
 class GpuSyncMachine {
 public:
   virtual ~GpuSyncMachine() = default;

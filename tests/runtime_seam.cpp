@@ -2,6 +2,7 @@
 #include "game.h"
 #include "platform_hle.h"
 #include "tekken3_runtime.h"
+#include "vsync_field_clock.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -53,11 +54,18 @@ int main() {
   }
 
   const PlatformHlePlan *const hle = runtime.platformHlePlan();
-  if (!hle || hle->vsyncAddress != 0x800859A8u || hle->bindingCount != 0 || hle->windowLo[0] != 0x800859A8u ||
-      hle->windowHi[0] != 0x80085B20u) {
+  if (!hle || hle->vsyncAddress != tekken3::vsync::kEntry || hle->bindingCount != 0 ||
+      hle->windowLo[0] != tekken3::vsync::kEntry || hle->windowHi[0] != tekken3::vsync::kBodyEnd) {
     std::fprintf(stderr,
                  "runtime_seam: FAIL — Tekken did not declare protected VSync ownership at the "
                  "measured address\n");
+    return 1;
+  }
+  // Without this the framework refuses every one of the 21 negative VSync queries the guest makes.
+  if (hle->vsyncQueryCounterAddress != tekken3::vsync::kFieldCounter) {
+    std::fprintf(stderr,
+                 "runtime_seam: FAIL — Tekken did not declare the measured field count its own VSync "
+                 "leaf returns for a negative mode\n");
     return 1;
   }
 
@@ -100,7 +108,8 @@ int main() {
   std::printf("runtime_seam: PASS — Core owns the direct runtime, 2/2 resident-range facts reach "
               "GuestProgramImage, 3/3 legacy views are null, 1/1 invalid range is refused, "
               "13/13 render-capability facts enforce guest rendering without temporal interpolation, "
-              "5/5 platform-HLE facts declare protected VSync ownership, 4/4 pad-layout facts reach "
+              "6/6 platform-HLE facts declare protected VSync ownership including the measured "
+              "negative-mode field count, 4/4 pad-layout facts reach "
               "the shared host service, the guest projection owner is present, and guest VRAM picture "
               "ownership is false\n");
   std::printf("runtime_seam: NOT covered — gameplay dynarec, devices, frames, or gameplay\n");

@@ -1,10 +1,9 @@
 #include "gpu_sync.h"
 
 #include "core.h"
-#include "game.h"
 #include "guest_execution.h"
+#include "vsync_field_clock.h"
 
-#include <cstdlib>
 #include <lucent/log.h>
 
 namespace tekken3 {
@@ -35,11 +34,7 @@ public:
   explicit CoreGpuSyncMachine(Core &core) : core_(core) {}
 
   std::uint32_t fieldCounter() const override {
-    if (!core_.game) {
-      lucent::error("gpu-sync", "Tekken 3 GPU timeout owner has no Game");
-      std::abort();
-    }
-    return core_.game->timing.vblank;
+    return vsync::readFieldCounter(core_);
   }
 
   std::uint32_t read32(std::uint32_t address) const override {

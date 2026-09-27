@@ -7,33 +7,23 @@
 
 #include "game_runtime.h"
 #include "platform_hle.h"
+#include "vsync_field_clock.h"
 
 namespace tekken3 {
-
-namespace {
-
-// libetc VSync(mode): measured at 0x800859A8 in SLUS_004.02.
-//
-// Provenance (RE FIRST): retained Ghidra headless analysis of the retail image at load 0x80010000.
-// FUN_800859a8 answers
-// mode<0 by returning a vblank counter without waiting and mode>=1 by waiting. The earlier
-// Timing::vsyncHle binding let guest code become a second cadence owner; once the native frame loop
-// owns finite host turns, every mode is instead a framework-owned fatal ownership violation.
-//
-// Body extent [0x800859A8, 0x80085B20): adjacent function starts measured from the executable
-// (authenticated executable analysis: previous entry 0x800858B8, next 0x80085B20). The
-// window admits exactly the one bound leaf; engine text stays refused by construction.
-constexpr uint32_t kVSyncAddr = 0x800859A8u;
-constexpr uint32_t kVSyncBodyEnd = 0x80085B20u;
-
-} // namespace
 
 const PlatformHlePlan &platformHlePlan() {
   static const PlatformHlePlan plan = [] {
     PlatformHlePlan p{};
-    p.vsyncAddress = kVSyncAddr;
-    p.windowLo[0] = kVSyncAddr;
-    p.windowHi[0] = kVSyncBodyEnd;
+    p.vsyncAddress = vsync::kEntry;
+    // Tekken calls VSync 22 times and 21 of those pass a negative mode, so they are QUERIES for the
+    // field count rather than waits. PlatformHle answers a negative query only from this declared
+    // word and refuses explicitly without one; it is the same word the guest's own leaf returns, so
+    // the framework's answer and the guest's answer cannot disagree. The single waiting call site,
+    // FUN_800B0954's leading VSync(0), is inside a function the title already owns natively. The
+    // window admits exactly the one bound leaf, so engine text stays refused by construction.
+    p.vsyncQueryCounterAddress = vsync::kFieldCounter;
+    p.windowLo[0] = vsync::kEntry;
+    p.windowHi[0] = vsync::kBodyEnd;
     return p;
   }();
   return plan;

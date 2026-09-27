@@ -119,10 +119,20 @@ declared host-architecture performance.
   `8007E8F0 <- 8007E154 <- 8007C528 <- 800B07C8 <- 800B07A8 <- 800B07A0 <- 800B0794 <- 800B0788
   <- 800B0548`. Retained instruction evidence and Ghidra show the call only stores a 240-field deadline and
   clears a poll counter; paired `FUN_8007E924` checks that deadline, retains an independent `0xF0000`
-  poll failsafe, and performs the linked queue/GPU/DMA reset only on timeout. The new cohesive owner
-  sources the deadline from the native frame ledger, preserves that failsafe/reset sequence, retains
-  both authenticated original guest bodies, and is combined-gate green against current pinned psxport `fb08d30f` but not
-  yet product-verified on that framework. PID `3216829`
+  poll failsafe, and performs the linked queue/GPU/DMA reset only on timeout. **Corrected 2026-09-27
+  (issue 0014): the owner did NOT source the deadline from a usable frame ledger.** It read
+  `Game::timing.vblank`, whose only incrementer is `Timing::frameTick()`, and this title's own finite
+  frame loop never calls it — so the substituted clock was frozen at 0 for the whole run, the armed
+  deadline was always `0xF0`, and `FUN_8007E924`'s signed `deadline < field` test could never be true.
+  The owner now reads the word the retail leaf itself returned: `VSync(-1)` returns the guest's VBlank
+  field count at `0x8009AC68`, measured three independent ways from the image (the negative-mode `lw`,
+  the library init's zeroing `sw`, and the per-vblank callback's `sw`), all decoding to that same
+  address. The title also declares it as `PlatformHlePlan::vsyncQueryCounterAddress`, so the
+  framework's protected VSync handler answers the guest instead of refusing it. Both `FUN_8007E8F0` and
+  `FUN_8007E924` remain registered native overrides with their original guest bodies retained, the
+  failsafe and the exact reset sequence are unchanged, and `tools/verify_vsync_field_clock.py`
+  re-derives the address, both writers, and the whole 22-site call census from the authenticated image
+  on every gate. Not yet product-verified. PID `3216829`
   exited itself; no frame, present, or audio sample was produced.
   A complete Ghidra xref pass closes this measured sync domain: the five live callers of the armer and
   all ten calls to the poller are the resident driver-table DMA/image/queue/DrawSync owners; the three
@@ -130,6 +140,15 @@ declared host-architecture performance.
   initializer contain no VSync, and direct display initializer `FUN_800B0954` is already natively
   owned. Those measurements bound the native owners required on the dynamic path; they do not
   authorize bypassing the native/Lightrec discriminator above.
+
+  **The VSync call domain is now censused at a denominator (issue 0014): 22 direct `jal
+  FUN_800859A8` sites over 295,936 scanned words, 21 passing `a0 = -1` and exactly one waiting
+  (`FUN_800B0954`, already natively owned).** That is why declaring the query counter is the whole
+  answer on this image, and `tools/verify_vsync_field_clock.py` fails if the ratio or the unresolved
+  set changes. One link is still unclosed: the field word is advanced by `FUN_800863B0`, installed by
+  `FUN_80086358` from `FUN_80085D5C` through `FUN_80085BF8`, which dispatches via `+8` of a function-
+  pointer table that `FUN_80085D5C` populates at `+0x14` and `+4` but not at `+8`. Whether the guest's
+  own callback runs in a product run is unmeasured, because no authorized product run was available.
 - notes: Ghidra identifies the observed path as `FUN_800b0548 -> FUN_80055884 -> FUN_80079964/FUN_800799a8`,
   then indirect `FUN_80085bc8 -> FUN_80085d5c`. The retained run preserved that indirect dispatch
   instead of replacing it with a direct call. That result remains execution evidence rather than a shipping

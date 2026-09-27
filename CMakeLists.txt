@@ -36,6 +36,7 @@ add_library(
   game/core/gpu_sync.cpp
   game/core/tekken3_runtime.cpp
   game/core/sync_native.cpp
+  game/core/vsync_field_clock.cpp
   game/core/widescreen.cpp)
 target_include_directories(tekken3_runtime PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/game/core")
 target_compile_features(tekken3_runtime PUBLIC cxx_std_20)
@@ -120,6 +121,16 @@ add_custom_target(
   USES_TERMINAL
   VERBATIM)
 
+add_executable(tekken3_vsync_field_clock_contract tests/vsync_field_clock_contract.cpp)
+target_link_libraries(tekken3_vsync_field_clock_contract PRIVATE tekken3_runtime)
+add_test(NAME tekken3_vsync_field_clock_contract COMMAND tekken3_vsync_field_clock_contract)
+add_custom_target(
+  tekken3_vsync_field_clock_contract_check
+  COMMAND "$<TARGET_FILE:tekken3_vsync_field_clock_contract>"
+  DEPENDS tekken3_vsync_field_clock_contract
+  USES_TERMINAL
+  VERBATIM)
+
 add_executable(tekken3_widescreen_contract tests/widescreen_contract.cpp)
 target_link_libraries(tekken3_widescreen_contract PRIVATE tekken3_runtime)
 add_test(NAME tekken3_widescreen_contract COMMAND tekken3_widescreen_contract)
@@ -184,6 +195,9 @@ add_custom_target(
   COMMAND
     "${Python3_EXECUTABLE}" -B
     "${CMAKE_CURRENT_SOURCE_DIR}/tools/probe_dma_sync_mode.py" "${TEKKEN3_EXE}"
+  COMMAND
+    "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tools/verify_vsync_field_clock.py"
+    --selftest --exe "${TEKKEN3_EXE}"
   USES_TERMINAL
   VERBATIM)
 add_test(
@@ -205,6 +219,14 @@ add_test(
   NAME tekken3_extent_census
   COMMAND
     "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/probe_wedge_extent_census.py"
+    --exe "${TEKKEN3_EXE}")
+# The real check, not a selftest of a helper: it parses game/core/vsync_field_clock.h and diffs the
+# constants the product SHIPS against what it measures out of the authenticated executable. Unguarded
+# on purpose, as this repository never defines BUILD_TESTING.
+add_test(
+  NAME tekken3_vsync_field_clock
+  COMMAND
+    "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tools/verify_vsync_field_clock.py"
     --exe "${TEKKEN3_EXE}")
 add_test(
   NAME tekken3_launcher_selftest
@@ -234,6 +256,7 @@ add_custom_target(
     tekken3_frame_loop_contract_check
     tekken3_bounded_guest_call_check
     tekken3_gpu_sync_contract_check
+    tekken3_vsync_field_clock_contract_check
     tekken3_runtime_contract_check
     tekken3_runtime_seam_check
     tekken3_tool_selftests

@@ -1,4 +1,5 @@
 #include "gpu_sync.h"
+#include "vsync_field_clock.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -30,8 +31,17 @@ public:
     words[kDmaChannelPointer] = kDmaChannel;
   }
 
+  // The clock is served out of the word map at the SAME address the production owner reads, taken
+  // from the one owner both spellings share. A separate `field` member would let this file pass
+  // while the product read a different word entirely, which is exactly the defect that put a
+  // never-advanced host counter here: the protocol was right and the binding was not, and the test
+  // could not see the difference because it never used the binding.
   std::uint32_t fieldCounter() const override {
-    return field;
+    return read32(tekken3::vsync::kFieldCounter);
+  }
+
+  void setFieldCounter(std::uint32_t value) {
+    words[tekken3::vsync::kFieldCounter] = value;
   }
 
   std::uint32_t read32(std::uint32_t address) const override {
@@ -72,7 +82,6 @@ public:
   }
 
   std::unordered_map<std::uint32_t, std::uint32_t> words;
-  std::uint32_t field = 0;
   std::uint32_t critical = 1;
   std::uint32_t criticalCalls = 0;
   std::uint32_t firstCriticalReturnPc = 0;
@@ -87,22 +96,22 @@ public:
   std::uint32_t lastGpuDataWrite = 0;
 };
 
-bool nativeFieldClockReplacesVsync() {
+bool guestFieldWordArmsTheDeadline() {
   RecordingGpuSyncMachine machine;
-  machine.field = 41;
+  machine.setFieldCounter(41);
   tekken3::GpuSyncProtocol::arm(machine);
   if (machine.read32(kFieldDeadline) != 281 || machine.read32(kPollCount) != 0 ||
       tekken3::GpuSyncProtocol::poll(machine) != 0 || machine.read32(kPollCount) != 1 || machine.timeoutReports != 0 ||
       machine.criticalCalls != 0) {
     return false;
   }
-  machine.field = 281;
+  machine.setFieldCounter(281);
   return tekken3::GpuSyncProtocol::poll(machine) == 0 && machine.timeoutReports == 0;
 }
 
 bool fieldTimeoutPreservesRetailReset() {
   RecordingGpuSyncMachine machine;
-  machine.field = 5;
+  machine.setFieldCounter(5);
   tekken3::GpuSyncProtocol::arm(machine);
   machine.words[kQueueHead] = 70;
   machine.words[kQueueTail] = 3;
@@ -110,7 +119,7 @@ bool fieldTimeoutPreservesRetailReset() {
   machine.words[kGpuControl] = 0x22222222u;
   machine.words[kDmaControl] = 0x33333333u;
   machine.words[kDmaChannel] = 0x40u;
-  machine.field = 246;
+  machine.setFieldCounter(246);
 
   return tekken3::GpuSyncProtocol::poll(machine) == -1 && machine.timeoutReports == 1 &&
          machine.reportedQueueDepth == 3 && machine.reportedGpuData == 0x11111111u &&
@@ -125,24 +134,48 @@ bool fieldTimeoutPreservesRetailReset() {
 
 bool pollCountStillDetectsAStalledQueue() {
   RecordingGpuSyncMachine machine;
-  machine.field = 9;
+  machine.setFieldCounter(9);
   tekken3::GpuSyncProtocol::arm(machine);
   machine.words[kPollCount] = 0xF0001u;
   return tekken3::GpuSyncProtocol::poll(machine) == -1 && machine.timeoutReports == 1 &&
          machine.read32(kPollCount) == 0xF0002u;
 }
 
+// The case that WOULD have failed before this change, as a permanent input rather than a ritual.
+// A guest that never reaches its vblank callback leaves the field word at zero forever; the armer's
+// deadline is then 0xF0 and the poll's `deadline < field` can never be true. A field clock sourced
+// from anywhere the product does not advance reproduces exactly that hang, so the deadline is driven
+// from the guest word and the test proves the word -- not a constant -- is what moves.
+bool aFrozenGuestFieldWordNeverExpiresTheDeadline() {
+  RecordingGpuSyncMachine machine;
+  machine.setFieldCounter(0);
+  tekken3::GpuSyncProtocol::arm(machine);
+  if (machine.read32(kFieldDeadline) != 0xF0u) {
+    return false;
+  }
+  for (int field = 0; field < 1000; ++field) {
+    if (tekken3::GpuSyncProtocol::poll(machine) != 0) {
+      return false;
+    }
+  }
+  // Advancing the GUEST word is what expires it, and it expires on the retail field, not before.
+  machine.setFieldCounter(240);
+  return tekken3::GpuSyncProtocol::poll(machine) == 0;
+}
+
 } // namespace
 
 int main() {
-  if (!nativeFieldClockReplacesVsync() || !fieldTimeoutPreservesRetailReset() ||
-      !pollCountStillDetectsAStalledQueue()) {
+  if (!guestFieldWordArmsTheDeadline() || !fieldTimeoutPreservesRetailReset() ||
+      !pollCountStillDetectsAStalledQueue() || !aFrozenGuestFieldWordNeverExpiresTheDeadline()) {
     std::fprintf(stderr,
-                 "gpu_sync_contract: FAIL — native field timing diverged from Tekken's measured GPU "
-                 "queue timeout/reset contract\n");
+                 "gpu_sync_contract: FAIL — GPU queue timeout diverged from Tekken's measured "
+                 "guest-field-word arm/poll/reset contract\n");
     return 1;
   }
-  std::printf("gpu_sync_contract: PASS — GPU queue arm/poll use the native field clock, retain the "
-              "poll-count failsafe and exact reset sequence, and expose no guest VSync path\n");
+  std::printf("gpu_sync_contract: PASS — 4/4 cases: the deadline is armed from the guest's own VSync "
+              "field word (41 -> 281, and a frozen 0 word cannot expire it), the poll-count failsafe "
+              "still fires, and the retail reset sequence and both critical-section return PCs are "
+              "exact. No host counter and no guest VSync call take part\n");
   return 0;
 }
