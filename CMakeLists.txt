@@ -130,6 +130,16 @@ add_custom_target(
   USES_TERMINAL
   VERBATIM)
 
+add_executable(tekken3_widescreen_stage_wedge_contract tests/widescreen_stage_wedge_contract.cpp)
+target_link_libraries(tekken3_widescreen_stage_wedge_contract PRIVATE tekken3_runtime)
+add_test(NAME tekken3_widescreen_stage_wedge_contract COMMAND tekken3_widescreen_stage_wedge_contract)
+add_custom_target(
+  tekken3_widescreen_stage_wedge_contract_check
+  COMMAND "$<TARGET_FILE:tekken3_widescreen_stage_wedge_contract>"
+  DEPENDS tekken3_widescreen_stage_wedge_contract
+  USES_TERMINAL
+  VERBATIM)
+
 # Device-side oracle for T3-04's first hardware sequence. This compiles the vendored Mednafen IRQ
 # controller itself in a separate process; it neither shares state nor an implementation with
 # psxport's Core::io_read/io_write path.
@@ -159,6 +169,15 @@ add_custom_target(
   COMMAND
     "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/verify_projection.py"
     --selftest --exe "${TEKKEN3_EXE}"
+  COMMAND
+    "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/verify_stage_wedge.py"
+    --selftest --exe "${TEKKEN3_EXE}"
+  COMMAND
+    "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/verify_focal_length.py"
+    --selftest --exe "${TEKKEN3_EXE}"
+  COMMAND
+    "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/probe_wedge_extent_census.py"
+    --selftest --exe "${TEKKEN3_EXE}"
   USES_TERMINAL
   VERBATIM)
 add_test(
@@ -166,6 +185,21 @@ add_test(
   COMMAND
     "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/verify_projection.py"
     --selftest --exe "${TEKKEN3_EXE}")
+add_test(
+  NAME tekken3_stage_wedge_selftest
+  COMMAND
+    "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/verify_stage_wedge.py"
+    --selftest --exe "${TEKKEN3_EXE}")
+add_test(
+  NAME tekken3_focal_length_selftest
+  COMMAND
+    "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/verify_focal_length.py"
+    --selftest --exe "${TEKKEN3_EXE}")
+add_test(
+  NAME tekken3_extent_census
+  COMMAND
+    "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/probe_wedge_extent_census.py"
+    --exe "${TEKKEN3_EXE}")
 add_test(
   NAME tekken3_launcher_selftest
   COMMAND
@@ -198,6 +232,7 @@ add_custom_target(
     tekken3_runtime_seam_check
     tekken3_tool_selftests
     tekken3_widescreen_contract_check
+    tekken3_widescreen_stage_wedge_contract_check
   USES_TERMINAL
   VERBATIM)
 if(TARGET tekken3_product_help_contract_check)

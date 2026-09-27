@@ -12,3 +12,12 @@ __pycache__/
 # The framework. Not tracked: either a symlink to the workspace shared clone (local) or a
 # private clone at psxport.pin (fresh machine). Managed by tools/psxport_sync.py.
 /external/psxport
+
+# Ad-hoc attached-debugger scripts. A gdb script needs a live process with a debugger attached and its
+# breakpoints change what it measures — this one says so itself, noting that an unconditional
+# breakpoint on another title altered the run's outcome because the host field clock is wall-clock
+# driven. That makes it a scratch instrument, not repository surface: nothing can gate on it, and
+# tracking it would imply a reproducibility it does not have. The durable answer to the same question
+# is a scripted measurement over the product's own control channel, which is what
+# tools/probe_loader_state.py is.
+tools/probe_*.gdb

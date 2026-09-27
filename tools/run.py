@@ -311,7 +311,11 @@ def run_launcher(
         return 0
 
     policy = runpy.run_path(str(framework / "tools/port/launch_environment.py"))
-    launch_environment = policy["player_environment"](environment)
+    # `product` names this title's run-log directory under the OS user-data location, and psxport
+    # requires it: the log is the only copy of what the product said, and it must not land in another
+    # title's file. Omitting it raised `TypeError` in `tekken3_launcher_selftest` — a fresh clone
+    # could not launch at all, which is the one thing `run.sh` is the contract for.
+    launch_environment = policy["player_environment"](environment, product="tekken3")
     if options.disc:
         launch_environment["PSXPORT_TEKKEN3_DISC"] = str(
             Path(options.disc).expanduser().resolve()
