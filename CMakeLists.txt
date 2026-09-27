@@ -244,3 +244,28 @@ add_custom_target(
 if(TARGET tekken3_product_help_contract_check)
   add_dependencies(verify tekken3_product_help_contract_check)
 endif()
+
+# THE LIVE PIN CHECK. Not a selftest: this runs the real function against this repository's real
+# psxport.pin and the real build receipt, so it can fail when the pin is actually wrong.
+#
+# MEASURED 2026-09-27: every port in the workspace registered only a SELFTEST of the check function, run
+# against a temporary fixture. A selftest asserts the function behaves; it cannot fail when this repo's
+# pin is stale, which is why ten ports reported green while four pins were demonstrably stale. --build
+# points at THIS build directory, configured moments ago, so the receipt is current by construction and
+# the staleness guard cannot fire spuriously. Verified: perturbing psxport.pin turns it red.
+# NOT guarded by if(BUILD_TESTING): this repository calls enable_testing() directly and never defines
+# that variable, so a guarded registration here is silently INERT. That is the same failure as the
+# workspace-wide one this test exists to fix -- a registration that reads as present and runs nothing --
+# caught in the act on the port that was missing the gate. Verified: ctest -N went 17 -> 18.
+add_test(
+  NAME tekken3_psxport_pin_live
+  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/psxport_sync.py"
+          --check --build "${CMAKE_BINARY_DIR}")
+
+# The pin tool's own behaviour: the staleness guard, and a bump that records the commit the build
+# RESOLVED rather than the framework's current HEAD. Added because 7 of 10 ports shipped the tool with no
+# test gating it at all. Unguarded on purpose where this repository does not define BUILD_TESTING -- a
+# guarded add_test there is silently inert, which is the failure this gate exists to prevent.
+add_test(
+  NAME tekken3_psxport_pin_selftest
+  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_psxport_sync.py")
