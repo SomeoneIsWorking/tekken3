@@ -46,10 +46,10 @@ SIO0_NAMES = {SIO0_DATA: "data", SIO0_STATUS: "status", SIO0_CTRL: "control"}
 # cannot quietly answer the question this census exists to answer.
 CONTROL = [
     (0x800934CC, 0x3C03800A, "lui   $v1,0x800A"),
-    (0x800934D0, 0x8C63B960, "lw    $v1,-18080($v1)"),
+    (0x800934D0, 0x8C63B960, "lw   $v1,-18080($v1)"),
     (0x800934D4, 0x27BDFFE8, "addiu $sp,$sp,-24"),
-    (0x800934D8, 0xAFBF0010, "sw    $ra,16($sp)"),
-    (0x800934DC, 0x8C620004, "lw    $v0,4($v1)"),
+    (0x800934D8, 0xAFBF0010, "sw   $ra,16($sp)"),
+    (0x800934DC, 0x8C620004, "lw   $v0,4($v1)"),
     (0x800934E0, 0x00000000, "nop"),
     (0x800934E4, 0x30420001, "andi  $v0,$v0,0x0001"),
     # The expected offset was first written as +0x3C and the control caught it: 0x1040000E carries
@@ -63,6 +63,24 @@ REG = ["zero", "at", "v0", "v1", "a0", "a1", "a2", "a3", "t0", "t1", "t2", "t3",
        "s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "t8", "t9", "k0", "k1", "gp", "sp", "fp", "ra"]
 
 
+SPECIAL_FUNCTIONS = {
+    0x00: "sll", 0x02: "srl", 0x03: "sra", 0x04: "sllv", 0x06: "srlv", 0x07: "srav",
+    0x08: "jr", 0x09: "jalr", 0x0C: "syscall", 0x0D: "break",
+    0x10: "mfhi", 0x11: "mthi", 0x12: "mflo", 0x13: "mtlo",
+    0x18: "mult", 0x19: "multu", 0x1A: "div", 0x1B: "divu",
+    0x20: "add", 0x21: "addu", 0x22: "sub", 0x23: "subu",
+    0x24: "and", 0x25: "or", 0x26: "xor", 0x27: "nor",
+    0x2A: "slt", 0x2B: "sltu",
+}
+
+# The register-offset loads and stores. 0x2A is SWL and 0x2B is SW, which is why SLTI cannot be
+# 0x2A: an earlier version of this decoder said `op == 0x2A` meant `slti`, and it silently ate every
+# unaligned word load in the text. Getting an opcode table wrong does not look like a bug — it looks
+# like a region that is not code.
+LOADS = {0x20: "lb", 0x21: "lh", 0x22: "lwl", 0x23: "lw", 0x24: "lbu", 0x25: "lhu", 0x26: "lwr"}
+STORES = {0x28: "sb", 0x29: "sh", 0x2A: "swl", 0x2B: "sw", 0x2E: "swr"}
+
+
 def decode(word: int) -> str:
     """Decode the subset of MIPS-I this census needs, and return "" for anything else.
 
@@ -73,36 +91,53 @@ def decode(word: int) -> str:
     rs = (word >> 21) & 0x1F
     rt = (word >> 16) & 0x1F
     rd = (word >> 11) & 0x1F
+    sa = (word >> 6) & 0x1F
     imm = word & 0xFFFF
     simm = imm - 0x10000 if imm & 0x8000 else imm
     target = (word & 0x03FFFFFF) << 2
 
     if word == 0:
         return "nop"
+    if op == 0x00:
+        name = SPECIAL_FUNCTIONS.get(word & 0x3F)
+        if name is None:
+            return ""
+        if name in ("sll", "srl", "sra"):
+            return f"{name:<5} ${REG[rd]},${REG[rt]},{sa}"
+        if name in ("sllv", "srlv", "srav"):
+            return f"{name:<5} ${REG[rd]},${REG[rt]},${REG[rs]}"
+        if name == "jr":
+            return f"jr    ${REG[rs]}"
+        if name == "jalr":
+            return f"jalr  ${REG[rd]},${REG[rs]}"
+        if name in ("syscall", "break"):
+            return f"{name}  0x{imm:04X}"
+        if name in ("mfhi", "mflo"):
+            return f"{name}  ${REG[rd]}"
+        if name in ("mthi", "mtlo"):
+            return f"{name}  ${REG[rs]}"
+        if name in ("mult", "multu", "div", "divu"):
+            return f"{name}  ${REG[rs]},${REG[rt]}"
+        if name in ("add", "addu", "sub", "subu", "and", "or", "xor", "nor", "slt", "sltu"):
+            return f"{name:<5} ${REG[rd]},${REG[rs]},${REG[rt]}"
+        return ""
     if op == 0x0F:
         return f"lui   ${REG[rt]},0x{imm:04X}"
     if op == 0x09:
         return f"addiu ${REG[rt]},${REG[rs]},{simm}"
+    if op == 0x0A:
+        return f"slti  ${REG[rt]},${REG[rs]},{simm}"
+    if op == 0x0B:
+        return f"sltiu ${REG[rt]},${REG[rs]},{simm}"
     if op == 0x0D:
         return f"ori   ${REG[rt]},${REG[rs]},0x{imm:04X}"
     if op == 0x0C:
         return f"andi  ${REG[rt]},${REG[rs]},0x{imm:04X}"
-    if op == 0x23:
-        return f"lw    ${REG[rt]},{simm}(${REG[rs]})"
-    if op == 0x2B:
-        return f"sw    ${REG[rt]},{simm}(${REG[rs]})"
-    if op == 0x25:
-        return f"lhu   ${REG[rt]},{simm}(${REG[rs]})"
-    if op == 0x29:
-        return f"sh    ${REG[rt]},{simm}(${REG[rs]})"
-    if op == 0x21:
-        return f"addu  ${REG[rd]},${REG[rs]},${REG[rt]}"
-    if op == 0x20:
-        return f"add   ${REG[rd]},${REG[rs]},${REG[rt]}"
-    if op == 0x2A:
-        return f"slt   ${REG[rd]},${REG[rs]},${REG[rt]}"
-    if op == 0x2B - 0x01:  # slti
-        return f"slti  ${REG[rt]},${REG[rs]},{simm}"
+    if op == 0x0E:
+        return f"xori  ${REG[rt]},${REG[rs]},0x{imm:04X}"
+    if op in LOADS or op in STORES:
+        name = LOADS.get(op) or STORES[op]
+        return f"{name:<4} ${REG[rt]},{simm}(${REG[rs]})"
     if op == 0x04:
         return f"beq   ${REG[rs]},${REG[rt]},+0x{simm * 4:X}"
     if op == 0x05:
@@ -119,12 +154,8 @@ def decode(word: int) -> str:
         return f"j     0x{target:08X}"
     if op == 0x03:
         return f"jal   0x{target:08X}"
-    if op == 0x00:
-        if word >> 26 == 0 and (word & 0x3F) == 0x08:
-            return f"jr    ${REG[rs]}"
-        return ""
-    if op in (0x28, 0x29):
-        return f"sb    ${REG[rt]},{simm}(${REG[rs]})" if op == 0x28 else f"sh    ${REG[rt]},{simm}(${REG[rs]})"
+    if op in (0x32, 0x3A):
+        return f"{'lwc2' if op == 0x32 else 'swc2'} ${REG[rt]},0x{imm:04X}(${REG[rs]})"
     return ""
 
 
@@ -146,6 +177,36 @@ def selftest(image: bytes) -> bool:
     if decode(0x30420002) != "andi  $v0,$v0,0x0002":
         print("  CONTROL FAIL: andi lost its immediate, so the polled bit could not be reported")
         ok = False
+    # The mnemonic must be the name Lightrec's own `enum special_opcodes` gives that funct. Checking
+    # against an enum in the tree is a control that can be wrong; checking against text an agent
+    # re-derived by hand from hex is not one, and the first version of this selftest was that.
+    for word in (0x00031880, 0x00711821, 0x00022100, 0x00822023, 0x00042100, 0x0060F809, 0x00442021):
+        funct = word & 0x3F
+        expected = SPECIAL_FUNCTIONS.get(funct)
+        got = decode(word)
+        if expected is None:
+            if got != "":
+                print(f"  CONTROL FAIL: SPECIAL funct 0x{funct:02X} is not in the enum table but "
+                      f"decoded as {got!r}")
+                ok = False
+        elif not got.startswith(expected):
+            print(f"  CONTROL FAIL: SPECIAL 0x{word:08X} (funct 0x{funct:02X} = {expected}) decoded "
+                  f"as {got!r}")
+            ok = False
+    # The load/store opcode table must classify by the TOP SIX BITS alone, which is the one part of
+    # an encoding that cannot be misread. 0x2A is SWL and 0x0A is SLTI; an earlier version had them
+    # the other way round and the symptom was a region that looked like data.
+    for word, expected in ((0x8C820000, "lw"), (0xA8000000, "swl"), (0xA4820000, "sh"),
+                           (0x94820004, "lhu"), (0xA4820004, "sh"), (0x28820001, "slti")):
+        if not decode(word).startswith(expected):
+            print(f"  CONTROL FAIL: 0x{word:08X} (top six bits 0x{word >> 26:02X}) decoded as "
+                  f"{decode(word)!r}, expected {expected!r}")
+            ok = False
+    # An opcode outside every modelled set must decode to nothing, never to a plausible instruction.
+    for word in (0xFC000000, 0x40000000, 0x42000018, 0x46000000):
+        if decode(word) != "":
+            print(f"  CONTROL FAIL: unmodelled word 0x{word:08X} decoded as {decode(word)!r}")
+            ok = False
     print(f"  control: {len(CONTROL)} of {len(CONTROL)} decodings reproduced"
           f"{'' if ok else ' — FAILED'}, unmodelled opcodes refused")
     return ok
@@ -180,13 +241,13 @@ def walk(image: bytes) -> tuple[list[dict], list[dict], dict[str, int]]:
         if op == 0x0F:
             high[rt] = imm << 16
             continue
-        if op in (0x23, 0x2B, 0x25, 0x29, 0x28):
+        if op in LOADS or op in STORES:
             base = high[rs]
             if base is None or rs == 0:
                 continue
             absolute = base + simm
             if absolute in SIO0_NAMES:
-                kind = {0x23: "lw", 0x2B: "sw", 0x25: "lhu", 0x29: "sh", 0x28: "sb"}[op]
+                kind = LOADS.get(op) or STORES[op]
                 accesses.append({
                     "address": address, "text": text, "register": SIO0_NAMES[absolute],
                     "full": absolute, "kind": kind, "route": "A direct",
@@ -278,7 +339,9 @@ def report_word(image: bytes, target: int) -> int:
         if op == 0x0F:
             high[rt] = imm << 16
             continue
-        if op in (0x23, 0x2B, 0x25, 0x29, 0x28) and rs != 0 and high[rs] is not None:
+        if op in LOADS or op in STORES:
+            if rs == 0 or high[rs] is None:
+                continue
             absolute = high[rs] + simm
             # A halfword access to an even address also covers the ODD word beside it, because the
             # card byte is read as a `lh` of the halfword it shares. Missing that is how a reader
@@ -286,7 +349,7 @@ def report_word(image: bytes, target: int) -> int:
             covered = absolute == target or (target % 2 == 1 and absolute == target - 1)
             if covered:
                 hits.append({"address": address, "text": text, "absolute": absolute,
-                             "kind": {0x23: "lw", 0x2B: "sw", 0x25: "lhu", 0x29: "sh", 0x28: "sb"}[op]})
+                             "kind": LOADS.get(op) or STORES[op]})
     print(f"scan: {len(words)} word(s) walked, {len(decoded)} instruction(s) modelled, "
           f"{len(hits)} materialised access(es) to 0x{target:08X} (or the halfword holding it)")
     if not hits:

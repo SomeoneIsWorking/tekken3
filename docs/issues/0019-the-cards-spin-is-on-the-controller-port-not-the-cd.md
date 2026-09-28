@@ -99,16 +99,45 @@ and does not move across 275 fields.
 ## NOT ESTABLISHED: which loop is actually stuck
 
 The obvious candidate was the back edge at `0x800938C4` (`bgtz $v0,+0x-68`, i.e. branching back to
-`0x80093860`) over the counter at `0x8009B940`. **That is not claimed here.** In the 29-word window
-`0x80093860..0x800938CC`, **6 words decode to nothing and the rest decode to `SPECIAL` forms that
-are nonsense in context** — `0x00031880` is `sll $v0,$v1,22`, `0x00022100` is not a coherent
-instruction at all. Words like that mean the window is not code-aligned for this decoder, or is data
-rather than code, and a loop head read out of it would be a guess dressed as a disassembly.
+`0x80093860`) over the counter at `0x8009B940`. **That is now decoded, and it is not the stuck
+loop** — see the next section. The loop is real code, and the counter is not moving, which is what
+rules it out.
 
-So the census names the **registers** the wait depends on — the port pointer, the status register,
-and the counter that does not move — and does **not** name the instruction that waits on them. The
-next step for that is to extend the decoder to cover the `SPECIAL` opcodes in this region and to
-establish the window's alignment from a known-good anchor, rather than to widen the claim.
+## The candidate window, re-read with the extended decoder
+
+The decoder was then extended to cover the `SPECIAL` opcodes and the full load/store table, and the
+selftest was rebuilt to be **construction-based rather than arithmetic-based**: the mnemonic must
+equal the name Lightrec's own `enum special_opcodes` gives that `funct`, and the load/store
+classification must follow from the top six bits alone. That rewrite was forced by a failure worth
+recording — the first version of this selftest asserted text an agent had re-derived by hand from
+hex, and it was wrong three times in a row on words it had not actually checked. **A control built
+from the same unreliable step it is meant to check is not a control.** Checking against an enum
+already in the tree is a control that can be wrong.
+
+The extension also fixed a real opcode-table bug: `0x2A` was mapped to `slti` when it is `SWL` and
+`slti` is `0x0A`. That silently ate every unaligned load, and the symptom was a region that looked
+like data instead of an opcode table with a hole in it. Modelled coverage went from **120,783 to
+154,260** of 163,840 words, and **both census conclusions are unchanged under the better decoder** —
+route A is still 0 sites and route B still 4 — so the SIO0 findings do not rest on the gap.
+
+With the window decoded, `0x80093860..0x800938C8` reads as a **bounded retry countdown around a call
+through a function pointer**:
+
+    0x80093864  lw   $v1,-18112($v1)   ; v1 = *(0x8009B940), an array base
+    0x8009386C  sll  $v1,$v1,2         ; index by a slot, stride 4
+    0x80093870  addu $v1,$v1,$s1
+    0x8009387C  addiu $v0,$v0,-1       ; n--
+    0x80093880  sll  $a0,$v0,4 / subu / sll   ; a0 = 240 * n
+    0x8009388C  sw   $v0,0($v1)        ; store the decremented value
+    0x80093898  lw   $v1,-18144($v1)   ; v1 = *(0x8009B920) = 0x80094E40
+    0x800938A0  jalr $ra,$v1           ; call it
+    0x800938A4  addu $a0,$v0,$a0       ; delay slot: a0 = 241 * n
+    0x800938C4  bgtz $v0,0x80093860    ; loop while n > 0
+
+**And this loop is not where the guest is stuck.** Its counter `0x8009B940` reads **2** and does not
+move across 275 fields; a countdown starting at 2 would reach 0 in two passes and leave. A counter
+that is pinned while a countdown sits in the code means the countdown is not executing. So this
+window is real code and a dead end for the card, and the stuck site is still elsewhere.
 
 ## What survives, and what is now open
 
