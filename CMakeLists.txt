@@ -101,6 +101,15 @@ add_custom_target(
   USES_TERMINAL
   VERBATIM)
 
+# The SIO0 census carries its own control — eight decodings re-derived from a separate hand reading
+# of the same image, which is how it caught a wrong branch offset in its own expectations. It is
+# registered so that control runs in the gate, and so a decoder that starts disagreeing with the
+# image is red rather than quietly answering the port question with a plausible wrong address.
+add_test(
+  NAME tekken3_sio_poll_census_selftest
+  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/tekken3_sio_poll_census.py"
+          --selftest)
+
 # Test-only. Runs the authenticated image's own pad-wait loop through the shipping Lightrec
 # executor; tools/verify_pad_wait_exit.py owns the decision and its selftest.
 add_executable(tekken3_pad_wait_exit tests/pad_wait_exit.cpp)
