@@ -58,6 +58,17 @@ WATCH = [
     ("loader state 0x800A05D8", "rw", 0x800A05D8),
     ("mode 0x800AE204", "rw", 0x800AE204),
     ("phase 0x800AE224", "rw", 0x800AE224),
+    # 0x800AE228 is the RCnt2 countdown FUN_800951B8 was last armed with. 0x190 is the ONLY value
+    # the image passes from 0x800934EC, inside the guest's per-VBlank controller-port read, so this
+    # word is a live FINGERPRINT of where in the pad path the guest is -- which is the question
+    # issue 0016 needs answered, and which "the product is stuck" cannot distinguish from "the
+    # product is in the CD wait". See docs/issues/0016.
+    ("rcnt2 countdown 0x800AE228", "rw", 0x800AE228),
+    # The first mode AFTER the card. Its handler address is fixed by the mode table, but the
+    # handler BODY is not in the disc executable -- the mode-0 loader writes it at run time -- so
+    # reading these words is the only way to see what mode 3 actually is. 32 words is one cache
+    # line's worth of entry: enough for a prologue and a first branch.
+    ("mode 3 handler 0x800DB1B8", "r", 0x800DB1B8),
     ("chain state 0x8009B750", "rw", 0x8009B750),
     ("outstanding cmd 0x8009B774", "rw", 0x8009B774),
     ("cd initialised 0x8009B730", "rw", 0x8009B730),

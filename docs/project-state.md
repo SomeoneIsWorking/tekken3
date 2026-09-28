@@ -18,14 +18,34 @@ dependencies in `docs/re-frontier.md`.
 
 ## Current focus
 
-S003 is the current focus, and its loader blocker is now **diagnosed rather than hypothesised**. The
-title's CD command path is owned and working: `FUN_8008F08C` submits (loader state `0x800A05D8 == 8`
+S003 is the current focus, and its loader blocker is now **diagnosed rather than hypothesised**.
+The title's CD command path is owned and working: `FUN_8008F08C` submits (loader state `0x800A05D8 == 8`
 is written only after its submit loop returns nonzero), four records queue, and `FUN_8008FCC0` really
 issues `CdSetloc` and retries it forever. The stall is one level away from the CD: the guest's
 per-VBlank controller-port read `FUN_80093478` writes to SIO0 DATA and spins unconditionally on
 SIO0 STAT bit 1, which the runtime's `Sio0::status()` never sets, so `Hle::in_irq` stays 1 and the CD
 completion is never delivered. The next title-owned work is a native override of `FUN_80093478`, which
 is a resident-text function entry here and therefore an image-scoped override target. See issue 0011.
+
+**Where the product actually is, and what it is not missing (issue 0016).** The `NAMCO PRESENTS` card
+is not a screen waiting for a press. It is **mode 2, phase 8**, and phase 8 is a wait on the byte at
+`0x800A069F` that redraws the card on every frame it holds; the product's own live probe reads mode 2,
+phase 8 and that byte nonzero in twelve samples from field 98 to field 6865. The guest leaves the card
+by copying the return-mode byte `0x80097F38` into the mode halfword `0x800AE204`, over 294
+instructions that read no controller port, so **no pad edge takes this card anywhere** and a route
+that pressed buttons would be compensating for nothing. The missing thing is a CD completion: the
+class-2 event that registers the sector callback never arrives. `tools/verify_title_flow.py` re-derives
+the whole chain from the image and gates it.
+
+**One correction to the mechanism above, which does not change the fix.** `FUN_80093478` has **two**
+unbounded loops, not one, and the product is in the second. The first (`0x800934D8`, SIO0 STAT bit 1) is
+already behind us: the live word `0x800AE228` reads `0x190`, which has exactly one writer in the whole
+image among the seven `jal` sites of `FUN_800951B8` — `0x800934EC`, past that spin — and the retained
+`cdcomp4.log` carries `ra=800934F4` on 322,576 of 324,845 `I_STAT` reads, which is the straight-line
+region after that call. The second loop's countdown arm can never be taken, because a sweep finds zero
+stores to RCnt2's mode register `0x1F801124` in the text. The `FUN_80093478` override must therefore
+replace the whole function, and the arm that decides whether the second loop exits is a runtime
+measurement.
 
 After that, the first discriminator is the native/Lightrec product reaching `NAMCO PRESENTS` within
 1,200 frames while executing nonzero Lightrec blocks and routing all 14 address-based original calls
@@ -79,14 +99,14 @@ return after six suspensions, completed the first frame, and reported 360,083 ex
 2,235,207 executed instructions, and zero fallback. A synthetic nested-call control verifies the
 original outer return address survives a changed live `r31`.
 
-Gap: the product has not reached `NAMCO PRESENTS`, the menu, or representative gameplay. Historical
-product evidence remains useful only as the measured native/device frontier because it predates this executor:
-the isolated `3c342ec3` product PID `3216829` dispatched the retail entry, opened the real CHD, and
-passed the synchronous directory-read and GetTN/GetTD owners. It then reached ResetGraph and trapped
-the next protected guest VSync query in linked GPU timeout armer `FUN_8007E8F0`. Its exact PID exited
-and is confirmed gone. The resulting native-ledger GPU arm/poll owner is combined-gate green but not
-yet product-verified. A later 1,200-frame windowless run against the real CHD produced a presented
-sink image and the `NAMCO PRESENTS` title card, but no menu or gameplay scene is covered. The next
+Gap: the product has not reached the menu, or representative gameplay. Issue 0016 locates it exactly:
+it is inside mode 2 phase 8, the CD-read wait, and leaves it only when the sector callback clears
+`0x800A069F` — with no input on the path. Historical product evidence remains useful only as the
+measured native/device frontier because it predates this executor: the isolated `3c342ec3` product PID
+`3216829` dispatched the retail entry, opened the real CHD, and passed the synchronous directory-read
+and GetTN/GetTD owners. It then reached ResetGraph and trapped the next protected guest VSync query in
+linked GPU timeout armer `FUN_8007E8F0`. Its exact PID exited and is confirmed gone. The resulting
+native-ledger GPU arm/poll owner is combined-gate green but not yet product-verified. The next
 product evidence must pass the 1,200-field Namco discriminator and subsequent gameplay gate.
 
 The title now also has a working live control channel. `runPort` composes its own finite loop and never
@@ -147,13 +167,14 @@ derivation: no real wide frame has yet exercised the seven widened cull owners o
 Missing capability: no completed Tekken frame has demonstrated wider guest geometry, stage/effect
 coverage, and final presentation while preserving vertical framing and the faithful 4:3 control.
 
-Blocked behind S003, and the blocker is now named (issue 0011): the guest cannot leave the title card
-because a SIO0 status poll inside the VBlank ISR never exits, so no CD completion is delivered. Until
-that is fixed there is no gameplay frame to widen, and the widened owners and the stage wedge still
-have no product observation of any kind. `widescreen_pair.py` was therefore **not run**: it would only
-have been handed two views of the same `NAMCO PRESENTS` card, whose glyphs sit on a flat black field,
-and the tool correctly refuses that pair (its own `seams()` docstring records that refusal on this
-title's card). Re-shooting until it passes would be manufacturing evidence.
+Blocked behind S003, and the blocker is now named down to the instruction (issue 0016): the guest
+cannot leave the card because the card **is** mode 2 phase 8, a wait on the byte at `0x800A069F` that
+the sector callback would clear, and the callback never arrives. Until that is fixed there is no
+gameplay frame to widen, and the widened owners and the stage wedge still have no product observation
+of any kind. `widescreen_pair.py` was therefore **not run** on anything new: it would only have been
+handed two views of the same `NAMCO PRESENTS` card, whose glyphs sit on a flat black field, and the
+tool correctly refuses that pair (its own `seams()` docstring records that refusal on this title's
+card). Re-shooting until it passes would be manufacturing evidence.
 
 ### S008 — frames, input, audio, and gameplay
 

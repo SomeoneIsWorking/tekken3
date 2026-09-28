@@ -33,6 +33,7 @@ separate test target -> independent oracle (never linked or selectable by the ga
 | VSync field clock | Own the measured linked-libetc VSync entry, its body end, and the guest VBlank field word its negative modes return; declare that word to the framework so its protected handler can answer the guest's queries, and bind it to guest RAM for the title's own timeout owners | `game/core/vsync_field_clock.h`, `game/core/vsync_field_clock.cpp`, `game/core/sync_native.cpp`; verified by `tools/verify_vsync_field_clock.py` | `tekken3::vsync::readFieldCounter`, `tekken3::platformHlePlan` | `docs/issues/0014-gpu-queue-timeout-owner-was-armed-from-a-field.md` |
 | Target executable | Record identity, load map, startup facts, projection facts, and controlled-boundary facts | `titles/tekken3/executable.json`, `titles/tekken3/README.md` | `tools/provision_executable.py` | `titles/tekken3/README.md` |
 | Startup verification | Verify the authenticated executable's direct-main structure | `tools/verify_startup.py`, `titles/tekken3/executable.json` | `tools/verify_startup.py` | `docs/re-frontier.md` |
+| Title-card flow | Verify the mode and phase dispatches, the CD read mode 2 phase 8 waits on, the card it draws while waiting, and the single byte copy that leaves it — so "the card waits for input" is a claim the image can be asked about | `tools/verify_title_flow.py`, `titles/tekken3/executable.json` (`title_flow`) | `tools/verify_title_flow.py` | `docs/issues/0016-the-namco-presents-card-is-mode-2-phase-8s-cd-read.md` |
 | Dynamic execution verification | Report bounded Lightrec guest-call exits from the shipping frame boundary; compare execution, overrides, original calls, invalidation, and machine/device state against an independent emulator or separately built test oracle | `game/core/decompressor_probe.*`, `tests/decompressor_probe_contract.cpp`; further target: focused game-owned drivers under `tools/` and test-only runners under `tests/` | `tekken3::DecompressorProbe::describe`; later native/Lightrec discriminator gate | `docs/issues/0011-whole-product-interrupt-exit-reaches-unseeded-te.md` |
 | Projection and culling RE | Verify title-owned view, focal-length, display, stage-visibility, and clipping owners | `tools/verify_projection.py`, `titles/tekken3/executable.json` | `tools/verify_projection.py` | `titles/tekken3/README.md` |
 | Widescreen projection and clipping | Apply the shared non-temporal guest-widescreen plan to Tekken's measured view-dimension owner and stage/effect right-edge clippers, with the faithful original bodies reached through dynarec original calls | target: `game/core/widescreen.*`, `game/core/tekken3_runtime.*`, native override/original-call bindings | `tekken3::Tekken3Widescreen` | `docs/issues/0008-tekken-wide-margins-lose-stage-and-effect-primit.md` |
@@ -54,7 +55,9 @@ separate test target -> independent oracle (never linked or selectable by the ga
   `game/core/vsync_field_clock.*`
 - New title projection or clipping behavior: `game/core/widescreen.*`; other rendering
   responsibilities get their own cohesive owner rather than growing product composition
-- New executable-derived fact: `titles/tekken3/executable.json` plus its verifier
+- New executable-derived fact: `titles/tekken3/executable.json` plus its verifier. A fact about the
+  mode/phase flow or the card belongs in that file's `title_flow` section and is re-derived by
+  `tools/verify_title_flow.py` on every gate.
 - New independent execution comparison: the focused owner under `tools/` plus a separately built
   test-only runner under `tests/`; any interpreter oracle stays test-only and out of the gameplay product
 - Epic product scope: `docs/project-goals.md`

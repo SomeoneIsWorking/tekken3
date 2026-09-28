@@ -200,5 +200,115 @@
       "main_function": "FUN_80028ba0",
       "finding": "entry calls FUN_80028ba0 and then traps; FUN_80028ba0 performs initialization followed by a non-returning game loop"
     }
+  },
+  "title_flow": {
+    "mode_dispatch": {
+      "read_site": "0x80028C64",
+      "read_address": "0x800AE204",
+      "bound": 20,
+      "table_base": "0x80010000",
+      "card_mode": 2,
+      "targets": [
+        "0x800B0708",
+        "0x80052CC4",
+        "0x8004FA60",
+        "0x800DB1B8",
+        "0x800DB5B4",
+        "0x800DDE64",
+        "0x800D3228",
+        "0x80050318",
+        "0x80050428",
+        "0x8010FF4C",
+        "0x80055590",
+        "0x80052520",
+        "0x800EEE8C",
+        "0x800EF92C",
+        "0x800F0458",
+        "0x800F18E8",
+        "0x800501C0",
+        "0x800C2434",
+        "0x8004FF74",
+        "0x800FF0C4"
+      ]
+    },
+    "mode0": {
+      "entry": "0x800B0708",
+      "loader_call": "0x800B0744",
+      "loader_target": "0x8004CA40",
+      "output_base": "0x8012867C",
+      "resource_table": "0x800B8D58",
+      "resource_entries": 127,
+      "switch_call": "0x800B076C",
+      "switch_target": "0x8004F8F8",
+      "switch_argument": 3
+    },
+    "mode_switch": {
+      "switcher": "0x8004F8F8",
+      "return_mode_store": "0x8004FA28",
+      "previous_mode_store": "0x8004FA44",
+      "mode_word_store": "0x8004FA38",
+      "phase_word_store": "0x8004FA40",
+      "installed_mode": 2
+    },
+    "mode2_phase_dispatch": {
+      "read_site": "0x8004FAE0",
+      "read_address": "0x800AE224",
+      "bound": 13,
+      "table_base": "0x8002242C",
+      "wait_phase": 8,
+      "wait_phase_block": "0x8004FD9C",
+      "wait_holds_at": "0x8004FDF0",
+      "exit_phase": 12,
+      "exit_phase_block": "0x8004FED0"
+    },
+    "wait_predicate": {
+      "call_site": "0x8004FDAC",
+      "predicate": "0x80052A70",
+      "leaf": "0x8006C23C",
+      "leaf_call": "0x80052A78",
+      "load_site": "0x8006C244",
+      "load_op": "lbu",
+      "base": "0x800A0698",
+      "displacement": 7,
+      "wait_byte": "0x800A069F",
+      "busy_branch": "0x80052A80"
+    },
+    "card": {
+      "tail_call_site": "0x8004FEF8",
+      "renderer": "0x8004F750",
+      "text_engine_call": "0x8004F824",
+      "string": "0x8002240C",
+      "format_string": "%c%f%H%VNAMCO %cPRESENTS.",
+      "x": 117,
+      "y": 240,
+      "scale": 6,
+      "drawn_for_param_1": [0, 1, 2]
+    },
+    "exit": {
+      "block": "0x8004FED0",
+      "function_start": "0x8004FA60",
+      "phase_zero_store": "0x8004FEE4",
+      "mode_store": "0x8004FEF0",
+      "mode_word": "0x800AE204",
+      "phase_word": "0x800AE224",
+      "return_mode_byte": "0x80097F38",
+      "return_mode_load_site": "0x8004FEE8",
+      "controller_reads_on_path": [],
+      "instructions_scanned": 294
+    },
+    "resident_code": {
+      "code_window": "0x80010000-0x800B0000",
+      "non_code_window": "0x800C0000-0x80131000",
+      "code_window_jr_ra": 1499,
+      "non_code_window_jr_ra": 0,
+      "targets_total": 20,
+      "targets_above_0x800C0000": 11
+    },
+    "timer_arm": {
+      "arm": "0x800951B8",
+      "call_sites": 7,
+      "fingerprint": "0x190",
+      "fingerprint_sites": ["0x800934EC"]
+    }
   }
 }

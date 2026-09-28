@@ -220,6 +220,20 @@ add_test(
   COMMAND
     "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/verify_stage_wedge.py"
     --selftest --exe "${TEKKEN3_EXE}")
+# The title-card flow: the mode and phase dispatches, the CD read mode 2 phase 8 waits on, the card
+# it draws while it waits, and the single byte copy that leaves. The selftest half needs only the
+# provisioned executable; the real half is the same run, since every fact is read out of the image
+# rather than from a product. See docs/issues/0016.
+add_test(
+  NAME tekken3_title_flow_selftest
+  COMMAND
+    "${Python3_EXECUTABLE}" -B
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/verify_title_flow.py" --selftest --exe "${TEKKEN3_EXE}")
+add_test(
+  NAME tekken3_title_flow
+  COMMAND
+    "${Python3_EXECUTABLE}" -B
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/verify_title_flow.py" --exe "${TEKKEN3_EXE}")
 add_test(
   NAME tekken3_focal_length_selftest
   COMMAND
