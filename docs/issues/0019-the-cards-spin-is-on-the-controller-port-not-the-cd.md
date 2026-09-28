@@ -82,6 +82,34 @@ own pad notes (`psxport/runtime/psx/pad_input.cpp:16`) record `0x00` for "presen
 for Tomba! 2, which has a timeout that marks "no pad" and carries on. **This one has no exit observed
 in 10,448 fields.**
 
+## Measured at run time, in the same run
+
+Read again over the control channel on a second disc-backed run, fields 2,117 to 2,392:
+
+    0x8009B964  port pointer  = 0x1F801040   <- the chain IS real; this refutes the first falsifier
+    0x1F801044  SIO0 status   = 0x0001       constant
+    0x1F801040  SIO0 data     = 0x000000FF   constant
+    0x8009B940  a guest word  = 0x00000002   constant
+    0x8009B920  a code pointer= 0x80094E40   constant
+
+**`0x8009B964` really does hold `0x1F801040`**, so the port chain in this issue is not an artifact of
+sampling, and the first falsifier above is refuted by measurement. `0x8009B940` sits at exactly 2
+and does not move across 275 fields.
+
+## NOT ESTABLISHED: which loop is actually stuck
+
+The obvious candidate was the back edge at `0x800938C4` (`bgtz $v0,+0x-68`, i.e. branching back to
+`0x80093860`) over the counter at `0x8009B940`. **That is not claimed here.** In the 29-word window
+`0x80093860..0x800938CC`, **6 words decode to nothing and the rest decode to `SPECIAL` forms that
+are nonsense in context** — `0x00031880` is `sll $v0,$v1,22`, `0x00022100` is not a coherent
+instruction at all. Words like that mean the window is not code-aligned for this decoder, or is data
+rather than code, and a loop head read out of it would be a guess dressed as a disassembly.
+
+So the census names the **registers** the wait depends on — the port pointer, the status register,
+and the counter that does not move — and does **not** name the instruction that waits on them. The
+next step for that is to extend the decoder to cover the `SPECIAL` opcodes in this region and to
+establish the window's alignment from a known-good anchor, rather than to widen the claim.
+
 ## What survives, and what is now open
 
 **Survives:** the blocker is not the disc. The CD completion is delivered and measured delivered — the
