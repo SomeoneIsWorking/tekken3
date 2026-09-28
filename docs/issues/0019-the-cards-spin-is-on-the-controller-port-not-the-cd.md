@@ -49,24 +49,57 @@ comment, and is built to be wrong loudly:
 
 ## Measured
 
-    route A (direct `lui 0x1F80` + displacement) — 0 site(s) in 163,840 word(s)
-    route B (a word in the image that IS an SIO0 address) — 4 site(s) in 296,448 word(s)
-      pointer 0x8009935C, 0x8009C164, 0x8009C17C, 0x8009C198   all hold 0x1F801040 (SIO0 data)
+**CORRECTED 2026-09-29. The figures below were produced by a scan that read the wrong bytes, and the
+correction is kept because the error's shape is the useful part.**
 
-**Route A is zero for reads and writes alike, so the guest never materialises an SIO0 address in an
-instruction.** It reaches the port through a pointer. All four static pointers name the **data**
-register; the status and control registers are reached as `+4` and `+0xA` off that pointer, which is
-why the older comment's "`0x1F801044` = `*0x8009B964` + 4" was right about the address and wrong
-about everything else.
+    text walked            295,936 word(s), loaded from FILE OFFSET 0x800 to t_addr
+                           (was wrongly reported as 163,840, from file offset 0 with a guessed size)
+    route A candidate(s)   1, and it is NOT CODE (was wrongly reported as 0)
+    route B                4 image words that ARE an SIO0 address
+                           0x8009935C, 0x8009C164, 0x8009C17C, 0x8009C198 — all SIO0 DATA
+
+**Two mistakes, and the first hid the second.**
+
+1. **A PS-X EXE is 2048-byte sector padded.** Its text is loaded from **file offset `0x800`** to
+   `t_addr`; mapping the file from its start lands every address `0xF800` bytes high. The first scan
+   did exactly that, and read 163,840 words instead of 295,936.
+2. **That truncated scan then reported "route A: 0 sites", and the conclusion "the guest never
+   materialises an SIO0 address" was written on top of it.** With the correct text the same scan
+   finds **one** candidate: `0x800C2B18`, `ori` with immediate `+0x1040` off a `lui`'d register, which
+   builds `0x1F801040` — SIO0 data.
+
+**The one candidate is not a real access, and saying so required asking something that decodes
+properly.** The framework's own disassembler **refuses** the window around `0x800C2B18` — 4 of 8
+words undecodable, and the rest sitting inside an ASCII string (`3a35203c` reads `"<5 :"`,
+`013d4d42` reads `"=M"`). A linear pass that tracks `lui` values cannot know a register was
+reassigned, so it manufactures hits inside data regions. The census now **verifies every candidate
+against the framework's disassembler and demotes any window it refuses**, rather than asserting a
+number.
+
+So the verdict survives, and is now better founded: **the guest reaches SIO0 by pointer, not by
+building the address in an instruction it can be shown to execute.** All four static pointers name
+the **data** register; the status and control registers are reached as `+4` and `+0xA` off that
+pointer, which is why the older comment's "`0x1F801044` = `*0x8009B964` + 4" was right about the
+address and wrong about everything else.
 
 The pointer global this driver uses is **`0x8009B964`**, with **18 materialised readers** in the text
 (against **0** for `0x800A069F`, which is the control that proves the sweep works). Through it the
 driver polls SIO0 status twice, and the two masks are:
 
-    0x800934DC  lw    $v0,0x4($v1)      ; v1 = *(0x8009B964) = 0x1F801040
-    0x800934E4  andi  $v0,$v0,0x0001    ; status bit 0  — data available
+    0x80093924  lw    $v1,-0x469C($v1)   ; v1 = *(0x8009B964) = 0x1F801040
     0x8009392C  lhu   $v0,0x4($v1)
-    0x80093934  andi  $v0,$v0,0x0200    ; status bit 9  — the ACK bit
+    0x80093934  andi  $v0,$v0,0x0200      ; status bit 9 — the ACK bit
+
+and, at a **neighbouring global**, the first poll:
+
+    0x800934D0  lw    $v1,-0x46A0($v1)   ; v1 = *(0x8009B960) — NOT 0x8009B964
+    0x800934DC  lw    $v0,0x4($v1)
+    0x800934E4  andi  $v0,$v0,0x0001      ; status bit 0 — data available
+
+**The two globals are four bytes apart and were once written as one.** `0xB960` is a displacement of
+`-0x46A0` and `0xB964` is `-0x469C`; a four slipped between them and merged `0x8009B960` with
+`0x8009B964`. The census's control now checks both landings explicitly, because that four reached a
+written record during this session.
 
 Live values, from one disc-backed run at fields 10,242 / 10,345 / 10,448:
 

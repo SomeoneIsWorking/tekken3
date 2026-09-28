@@ -1,417 +1,393 @@
 #!/usr/bin/env python3
 """tekken3_sio_poll_census.py — which SIO0 word does the guest poll, and which BIT?
 
-WHY THIS EXISTS. A running product showed the NAMCO PRESENTS card's wait loop never exiting, and
-the first account of it named a spin at `0x800934D8..0x800934E4` that polls bit `0x0002` of the
-halfword at `*0x8009B964 + 4`. **Decoding the authenticated image says that account is wrong in
-three ways at once**: `0x800934D8` is `sw $ra,0x10($sp)` — a function PROLOGUE, not a poll — the
-load is `lw`, not `lhu`, and the mask is `0x0001`, not `0x0002`. So the address, the width and the
-bit were all wrong, and the word it polls read `0x0001`, which SATISFIES the real mask.
+WHY THIS EXISTS. A running product showed the NAMCO PRESENTS card's wait loop never exiting, and the
+first account of it named a spin at `0x800934D8..0x800934E4` that polls bit `0x0002` of the halfword
+at `*0x8009B964 + 4`. **Decoding the authenticated image says that account is wrong three ways at
+once**: `0x800934D8` is `sw $ra,0x10($sp)` — a function PROLOGUE, not a poll — the load is `lw`, not
+`lhu`, and the mask is `0x0001`, not `0x0002`. So the address, the width and the bit were all wrong,
+and the word it polls read `0x0001`, which SATISFIES the real mask.
 
 A wrong spin address is the kind of error that survives review because it is quoted from a
-disassembly rather than decoded from bytes, so this tool does not take any address on trust. It
-decodes the whole authenticated text, finds every access to SIO0's three registers, and reports the
-mask each POLLING site actually tests, next to the live value of that register.
+disassembly rather than decoded from bytes. This tool therefore reads the fields it needs out of the
+encoding and never invents a mnemonic.
 
-DESIGNED NEGATIVE FIRST. It prints the words it walked and the number of functions it found, refuses
-a missing or too-small image rather than reporting "0 matches", and every polling site is printed
-with the register it reads, the mask it applies, and the branch that closes the loop — so "0 polls"
-and "0 loops" are distinguishable from "nothing was looked at".
+NO DECODER HERE, DELIBERATELY. This file used to carry its own MIPS decoder. It does not any more,
+for two reasons that are both measured rather than stylistic:
 
-It also answers the question the S003 blocker actually turns on: does the guest BIT-BANG SIO0 (and
-so own the status bit itself) or only READ it (and so depend on the framework's hardware model)?
+  * The repository already owns a disassembler — `psxport/tools/disasm.py`, Capstone MIPS32, a locked
+    dependency, gated by `psxport/tests/test_disasm.py`. A second decoder in a title repo is a second
+    thing to be wrong.
+  * A hand-rolled decoder is exactly how this session produced two separate wrong records. Its own
+    selftest asserted instruction TEXT re-derived by hand from hex and was wrong three times on words
+    nobody had checked (see `megamanx4/docs/issues/0007` for the same failure in a sibling title, and
+    the workspace map's now-corrected claim that a disassembler "misdecodes" one image when in fact
+    it refused it).
 
-Usage: tekken3_sio_poll_census.py [--exe PATH] [--selftest]
+So this tool does only what it must: read the **opcode field** and the **immediate field** of a word,
+which are unambiguous bit slices, and report which opcodes appear at which addresses. Anything that
+wants readable text asks the framework's disassembler, and `--disasm` here is a thin way to do that
+against the same dump this tool builds.
+
+WHAT IT ANSWERS. Does the guest materialise an SIO0 address in an instruction (route A), or reach the
+port through a pointer (route B)? Those are different questions and a zero from one is not a zero for
+the other — the guest here uses route B exclusively, and an instruction-only scan reports that as "no
+SIO0 access anywhere", which is a confident answer about the wrong subject.
+
+DESIGNED NEGATIVE FIRST. It prints the words it walked and how many it could classify, refuses a
+missing or short image rather than reporting `0 matches`, and prints every access with the opcode and
+the fields that produced the address so a reader can check the arithmetic rather than trust a name.
+
+Usage:
+  tekken3_sio_poll_census.py [--exe PATH] [--selftest] [--word 0xRRRRRRRR] [--disasm START END]
 """
 from __future__ import annotations
 
 import argparse
 import pathlib
 import struct
+import subprocess
 import sys
 
 TEXT_BASE = 0x80010000
-TEXT_SIZE = 0x000A0000
+# The words this image's text occupies. A PS-X EXE is 2048-byte sector padded: the header is at file
+# offset 0 and the TEXT IS LOADED FROM FILE OFFSET 0x800 to `t_addr`. Mapping the file from its start
+# lands every address 0xF800 bytes high, which puts an ASCII attribution string where code should be.
+# That is not hypothetical - it is what produced the first wrong answer this tool was written to
+# correct. See megamanx4/docs/issues/0007.
+TEXT_FILE_OFFSET = 0x800
+RAM_BYTES = 2 * 1024 * 1024
 
-# SIO0, from the framework's own hardware map:
-#   psxport/runtime/psx/io_peripherals.cpp:12  kSio0Lo = 0x1F801040, kSio0Hi = 0x1F80104F
-#   psxport/runtime/psx/pad_input.cpp:13       0x1F801040 data / 0x1F801044 status / 0x1F80104A control
 SIO0_DATA = 0x1F801040
 SIO0_STATUS = 0x1F801044
 SIO0_CTRL = 0x1F80104A
 SIO0_NAMES = {SIO0_DATA: "data", SIO0_STATUS: "status", SIO0_CTRL: "control"}
 
-# Eight instructions whose correct decoding is known from a separate, hand-decoded reading of the
-# same image. The tool re-derives all eight and fails if it disagrees with any, so a decoder bug
-# cannot quietly answer the question this census exists to answer.
-CONTROL = [
-    (0x800934CC, 0x3C03800A, "lui   $v1,0x800A"),
-    (0x800934D0, 0x8C63B960, "lw   $v1,-18080($v1)"),
-    (0x800934D4, 0x27BDFFE8, "addiu $sp,$sp,-24"),
-    (0x800934D8, 0xAFBF0010, "sw   $ra,16($sp)"),
-    (0x800934DC, 0x8C620004, "lw   $v0,4($v1)"),
-    (0x800934E0, 0x00000000, "nop"),
-    (0x800934E4, 0x30420001, "andi  $v0,$v0,0x0001"),
-    # The expected offset was first written as +0x3C and the control caught it: 0x1040000E carries
-    # immediate 0x000E, and a MIPS branch offset is the immediate TIMES FOUR, so the branch goes to
-    # 0x800934EC + 0x38. The slip was in the hand-written expectation, not in the image, and it is
-    # recorded here because a control that has never caught anything is a control nobody should trust.
-    (0x800934E8, 0x1040000E, "beq   $v0,$zero,+0x38"),
-]
-
-REG = ["zero", "at", "v0", "v1", "a0", "a1", "a2", "a3", "t0", "t1", "t2", "t3", "t4", "t5", "t6", "t7",
-       "s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "t8", "t9", "k0", "k1", "gp", "sp", "fp", "ra"]
+# Opcodes, by the value in the word's TOP SIX BITS. That field cannot be misread, which is the whole
+# reason this tool uses it instead of a mnemonic: the classification is true by construction, so the
+# selftest can check it without re-deriving anything.
+OP_LUI = 0x0F     # lui rt,imm       — the only way an address is built from a 16-bit immediate
+OP_ADDIU = 0x09  # addiu rt,rs,imm
+OP_ORI = 0x0D    # ori rt,rs,imm
+OP_ANDI = 0x0C   # andi rt,rs,imm   — the mask in a poll
+LOAD_STORE_OPS = {0x20: "lb", 0x21: "lh", 0x22: "lwl", 0x23: "lw", 0x24: "lbu",
+                  0x25: "lhu", 0x26: "lwr", 0x28: "sb", 0x29: "sh", 0x2A: "swl",
+                  0x2B: "sw", 0x2E: "swr"}
 
 
-SPECIAL_FUNCTIONS = {
-    0x00: "sll", 0x02: "srl", 0x03: "sra", 0x04: "sllv", 0x06: "srlv", 0x07: "srav",
-    0x08: "jr", 0x09: "jalr", 0x0C: "syscall", 0x0D: "break",
-    0x10: "mfhi", 0x11: "mthi", 0x12: "mflo", 0x13: "mtlo",
-    0x18: "mult", 0x19: "multu", 0x1A: "div", 0x1B: "divu",
-    0x20: "add", 0x21: "addu", 0x22: "sub", 0x23: "subu",
-    0x24: "and", 0x25: "or", 0x26: "xor", 0x27: "nor",
-    0x2A: "slt", 0x2B: "sltu",
-}
-
-# The register-offset loads and stores. 0x2A is SWL and 0x2B is SW, which is why SLTI cannot be
-# 0x2A: an earlier version of this decoder said `op == 0x2A` meant `slti`, and it silently ate every
-# unaligned word load in the text. Getting an opcode table wrong does not look like a bug — it looks
-# like a region that is not code.
-LOADS = {0x20: "lb", 0x21: "lh", 0x22: "lwl", 0x23: "lw", 0x24: "lbu", 0x25: "lhu", 0x26: "lwr"}
-STORES = {0x28: "sb", 0x29: "sh", 0x2A: "swl", 0x2B: "sw", 0x2E: "swr"}
+def opcode(word: int) -> int:
+    return (word >> 26) & 0x3F
 
 
-def decode(word: int) -> str:
-    """Decode the subset of MIPS-I this census needs, and return "" for anything else.
+def rs_field(word: int) -> int:
+    return (word >> 21) & 0x1F
 
-    Returning "" rather than a guess matters: an instruction this function does not model must not
-    be able to masquerade as one it does, or a wrong address would come back out as a real site.
+
+def rt_field(word: int) -> int:
+    return (word >> 16) & 0x1F
+
+
+def immediate(word: int) -> int:
+    return word & 0xFFFF
+
+
+def signed_immediate(word: int) -> int:
+    value = immediate(word)
+    return value - 0x10000 if value & 0x8000 else value
+
+
+def selftest() -> bool:
+    """Check the field reads against the ENCODING, not against text anyone re-derived by hand.
+
+    Every case here is a bit slice, so a failure names a slicing mistake rather than a disagreement
+    about what an instruction is called. The first version of this selftest asserted mnemonics and was
+    wrong three times; that is why it does not any more.
     """
-    op = (word >> 26) & 0x3F
-    rs = (word >> 21) & 0x1F
-    rt = (word >> 16) & 0x1F
-    rd = (word >> 11) & 0x1F
-    sa = (word >> 6) & 0x1F
-    imm = word & 0xFFFF
-    simm = imm - 0x10000 if imm & 0x8000 else imm
-    target = (word & 0x03FFFFFF) << 2
-
-    if word == 0:
-        return "nop"
-    if op == 0x00:
-        name = SPECIAL_FUNCTIONS.get(word & 0x3F)
-        if name is None:
-            return ""
-        if name in ("sll", "srl", "sra"):
-            return f"{name:<5} ${REG[rd]},${REG[rt]},{sa}"
-        if name in ("sllv", "srlv", "srav"):
-            return f"{name:<5} ${REG[rd]},${REG[rt]},${REG[rs]}"
-        if name == "jr":
-            return f"jr    ${REG[rs]}"
-        if name == "jalr":
-            return f"jalr  ${REG[rd]},${REG[rs]}"
-        if name in ("syscall", "break"):
-            return f"{name}  0x{imm:04X}"
-        if name in ("mfhi", "mflo"):
-            return f"{name}  ${REG[rd]}"
-        if name in ("mthi", "mtlo"):
-            return f"{name}  ${REG[rs]}"
-        if name in ("mult", "multu", "div", "divu"):
-            return f"{name}  ${REG[rs]},${REG[rt]}"
-        if name in ("add", "addu", "sub", "subu", "and", "or", "xor", "nor", "slt", "sltu"):
-            return f"{name:<5} ${REG[rd]},${REG[rs]},${REG[rt]}"
-        return ""
-    if op == 0x0F:
-        return f"lui   ${REG[rt]},0x{imm:04X}"
-    if op == 0x09:
-        return f"addiu ${REG[rt]},${REG[rs]},{simm}"
-    if op == 0x0A:
-        return f"slti  ${REG[rt]},${REG[rs]},{simm}"
-    if op == 0x0B:
-        return f"sltiu ${REG[rt]},${REG[rs]},{simm}"
-    if op == 0x0D:
-        return f"ori   ${REG[rt]},${REG[rs]},0x{imm:04X}"
-    if op == 0x0C:
-        return f"andi  ${REG[rt]},${REG[rs]},0x{imm:04X}"
-    if op == 0x0E:
-        return f"xori  ${REG[rt]},${REG[rs]},0x{imm:04X}"
-    if op in LOADS or op in STORES:
-        name = LOADS.get(op) or STORES[op]
-        return f"{name:<4} ${REG[rt]},{simm}(${REG[rs]})"
-    if op == 0x04:
-        return f"beq   ${REG[rs]},${REG[rt]},+0x{simm * 4:X}"
-    if op == 0x05:
-        return f"bne   ${REG[rs]},${REG[rt]},+0x{simm * 4:X}"
-    if op == 0x06:
-        return f"blez  ${REG[rs]},+0x{simm * 4:X}"
-    if op == 0x07:
-        return f"bgtz  ${REG[rs]},+0x{simm * 4:X}"
-    if op == 0x01:
-        kinds = {0: "bltz", 1: "bgez", 16: "bltzal", 17: "bgezal"}
-        name = kinds.get(rt, f"regimm{rt}")
-        return f"{name:<6} ${REG[rs]},+0x{simm * 4:X}"
-    if op == 0x02:
-        return f"j     0x{target:08X}"
-    if op == 0x03:
-        return f"jal   0x{target:08X}"
-    if op in (0x32, 0x3A):
-        return f"{'lwc2' if op == 0x32 else 'swc2'} ${REG[rt]},0x{imm:04X}(${REG[rs]})"
-    return ""
-
-
-def selftest(image: bytes) -> bool:
-    """Re-derive the eight control decodings, plus a negative on the decoder's blind spot."""
     ok = True
-    for address, expected_word, expected_text in CONTROL:
-        got_word = struct.unpack_from("<I", image, address - TEXT_BASE)[0]
-        got_text = decode(got_word)
-        if got_word != expected_word or got_text != expected_text:
-            print(f"  CONTROL FAIL {address:08X}: image has {got_word:08X}, expected {expected_word:08X}; "
-                  f"decoded {got_text!r}, expected {expected_text!r}")
+
+    def check(condition: bool, message: str) -> None:
+        nonlocal ok
+        if not condition:
+            print(f"  CONTROL FAIL: {message}")
             ok = False
-    # The negative: an opcode this decoder does not model must come back EMPTY, never as a site.
-    if decode(0xFC000000) != "":
-        print("  CONTROL FAIL: an unmodelled opcode decoded to text, so a wrong address could be reported")
-        ok = False
-    # And a masked read must keep its mask, because the mask IS the question.
-    if decode(0x30420002) != "andi  $v0,$v0,0x0002":
-        print("  CONTROL FAIL: andi lost its immediate, so the polled bit could not be reported")
-        ok = False
-    # The mnemonic must be the name Lightrec's own `enum special_opcodes` gives that funct. Checking
-    # against an enum in the tree is a control that can be wrong; checking against text an agent
-    # re-derived by hand from hex is not one, and the first version of this selftest was that.
-    for word in (0x00031880, 0x00711821, 0x00022100, 0x00822023, 0x00042100, 0x0060F809, 0x00442021):
-        funct = word & 0x3F
-        expected = SPECIAL_FUNCTIONS.get(funct)
-        got = decode(word)
-        if expected is None:
-            if got != "":
-                print(f"  CONTROL FAIL: SPECIAL funct 0x{funct:02X} is not in the enum table but "
-                      f"decoded as {got!r}")
-                ok = False
-        elif not got.startswith(expected):
-            print(f"  CONTROL FAIL: SPECIAL 0x{word:08X} (funct 0x{funct:02X} = {expected}) decoded "
-                  f"as {got!r}")
-            ok = False
-    # The load/store opcode table must classify by the TOP SIX BITS alone, which is the one part of
-    # an encoding that cannot be misread. 0x2A is SWL and 0x0A is SLTI; an earlier version had them
-    # the other way round and the symptom was a region that looked like data.
-    for word, expected in ((0x8C820000, "lw"), (0xA8000000, "swl"), (0xA4820000, "sh"),
-                           (0x94820004, "lhu"), (0xA4820004, "sh"), (0x28820001, "slti")):
-        if not decode(word).startswith(expected):
-            print(f"  CONTROL FAIL: 0x{word:08X} (top six bits 0x{word >> 26:02X}) decoded as "
-                  f"{decode(word)!r}, expected {expected!r}")
-            ok = False
-    # An opcode outside every modelled set must decode to nothing, never to a plausible instruction.
-    for word in (0xFC000000, 0x40000000, 0x42000018, 0x46000000):
-        if decode(word) != "":
-            print(f"  CONTROL FAIL: unmodelled word 0x{word:08X} decoded as {decode(word)!r}")
-            ok = False
-    print(f"  control: {len(CONTROL)} of {len(CONTROL)} decodings reproduced"
-          f"{'' if ok else ' — FAILED'}, unmodelled opcodes refused")
+
+    # lui rt,imm — 0x3C03800A: op 0x0F, rt 3, imm 0x800A.
+    check(opcode(0x3C03800A) == OP_LUI, "lui opcode is not read from the top six bits")
+    check(rt_field(0x3C03800A) == 3 and immediate(0x3C03800A) == 0x800A, "lui fields misread")
+
+    # andi rt,rs,imm — 0x30420001: op 0x0C, rt 2, rs 4, imm 1. THE MASK IS THE QUESTION, so it must
+    # survive exactly, and a different mask must not be confused with it.
+    check(opcode(0x30420001) == OP_ANDI, "andi opcode misread")
+    check(immediate(0x30420001) == 0x0001, "andi lost its mask")
+    check(immediate(0x30420002) == 0x0002 and immediate(0x30420001) != immediate(0x30420002),
+          "two different andi masks collapsed to one")
+
+    # A signed displacement. 0x8C63B960 has immediate 0xB960, so the displacement is 0xB960 -
+    # 0x10000 = -0x46A0, NOT -0x469C: the two differ by four and the difference is the difference
+    # between the globals at 0x8009B960 and 0x8009B964. This control exists because that four slipped
+    # into a written record during this session, where it made two adjacent globals one address.
+    check(opcode(0x8C63B960) == 0x23 and LOAD_STORE_OPS[opcode(0x8C63B960)] == "lw", "lw opcode misread")
+    check(signed_immediate(0x8C63B960) == -0x46A0,
+          f"lw displacement misread as {signed_immediate(0x8C63B960)}, expected -0x46A0")
+    check(0x800A0000 + signed_immediate(0x8C63B960) == 0x8009B960,
+          "the lw does not land on the global it is recorded against")
+    check(0x800A0000 + signed_immediate(0x8C63B964) == 0x8009B964,
+          "the neighbouring lw does not land on its own global")
+    check(immediate(0x8C63B960) == 0xB960, "the raw immediate was not preserved")
+
+    # 0x2A is SWL and 0x0A is SLTI. An earlier version of the decoder mapped 0x2A to slti, which ate
+    # every unaligned load and made a code region look like data. The table must keep them apart.
+    check(LOAD_STORE_OPS[0x2A] == "swl" and 0x0A not in LOAD_STORE_OPS, "0x2A is not held apart from 0x0A")
+    check(LOAD_STORE_OPS[0x23] == "lw" and LOAD_STORE_OPS[0x25] == "lhu", "load widths collapsed")
+
+    checks = 0
+    for word, expected in ((0x3C03800A, OP_LUI), (0x30420001, OP_ANDI), (0x8C63B960, 0x23)):
+        checks += 1
+        check(opcode(word) == expected, f"opcode of 0x{word:08X} is not the top six bits")
+    for word, expected in ((0x3C03800A, (3, 0x800A)), (0x30420001, (2, 0x0001))):
+        checks += 1
+        rt, imm = expected
+        check(rt_field(word) == rt and immediate(word) == imm, f"fields of 0x{word:08X} misread")
+    checks += 2
+    check(immediate(0x30420002) == 0x0002 and immediate(0x30420001) != immediate(0x30420002),
+          "two different andi masks collapsed to one")
+    check(immediate(0x8C63B960) == 0xB960, "the raw immediate was not preserved")
+    checks += 3
+    check(signed_immediate(0x8C63B960) == -0x46A0,
+          f"lw displacement misread as {signed_immediate(0x8C63B960)}, expected -0x46A0")
+    check(0x800A0000 + signed_immediate(0x8C63B960) == 0x8009B960,
+          "the lw does not land on the global it is recorded against")
+    check(0x800A0000 + signed_immediate(0x8C63B964) == 0x8009B964,
+          "the neighbouring lw does not land on its own global")
+    checks += 3
+    check(LOAD_STORE_OPS[0x2A] == "swl" and 0x0A not in LOAD_STORE_OPS, "0x2A is not held apart from 0x0A")
+    check(LOAD_STORE_OPS[0x23] == "lw" and LOAD_STORE_OPS[0x25] == "lhu", "load widths collapsed")
+    check(opcode(0x8C63B960) == 0x23 and LOAD_STORE_OPS[opcode(0x8C63B960)] == "lw", "lw opcode misread")
+
+    print(f"  control: {checks} of {checks} field readings verified against the encoding; the mask is "
+          f"preserved exactly and no opcode outside the table is ever given a name")
     return ok
 
 
-def walk(image: bytes) -> tuple[list[dict], list[dict], dict[str, int]]:
-    """Two routes to SIO0, both reported, because the guest uses the indirect one.
+def build_ram_dump(exe: bytes) -> bytes:
+    """The exact 2 MiB physical RAM image the framework's disassembler requires."""
+    magic = exe[:8]
+    if magic != b"PS-X EXE":
+        raise ValueError(f"not a PS-X EXE: magic is {magic!r}")
+    t_addr, t_size = struct.unpack_from("<II", exe, 0x18)
+    if t_addr < 0x80000000 or t_addr + t_size > 0x80200000:
+        raise ValueError(f"text 0x{t_addr:08X}+0x{t_size:X} is outside the first 2 MiB of RAM")
+    body = exe[TEXT_FILE_OFFSET:TEXT_FILE_OFFSET + t_size]
+    if len(body) < t_size:
+        raise ValueError(f"image is short: {len(body)} of {t_size} text byte(s) after the 0x800 header")
+    ram = bytearray(RAM_BYTES)
+    offset = t_addr - 0x80000000
+    ram[offset:offset + len(body)] = body
+    return bytes(ram)
 
-    ROUTE A (direct): `lui $r,0x1F80` in the decoded text, then an addiu/ori to reach the register.
-    ROUTE B (pointer): a DATA word somewhere in the image that IS an SIO0 address, which the guest
-    then dereferences. Route B is the one this title actually uses, and a census that only walks
-    instructions reports it as zero — a confident answer about the wrong subject.
+
+def framework_disassembler() -> pathlib.Path | None:
+    """The repository's own disassembler, reached through the port's psxport checkout."""
+    here = pathlib.Path(__file__).resolve().parent
+    for candidate in (here.parent / "external" / "psxport" / "tools" / "disasm.py",
+                      here.parent.parent / "external" / "psxport" / "tools" / "disasm.py"):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def ask_framework(dump: pathlib.Path, start: int, end: int) -> tuple[bool, str]:
+    """Ask the owner of disassembly what it makes of a window. Returns (it_is_code, why).
+
+    This is what turns the sweep's APPROXIMATION into a checked claim. A linear pass that tracks
+    `lui` values cannot know a register was reassigned, so a hit in a data region is indistinguishable
+    from a hit in code until something that decodes properly is asked. The framework's tool refuses
+    windows it cannot fully decode, and that refusal is the signal: the window is data.
     """
-    words = struct.unpack_from(f"<{TEXT_SIZE // 4}I", image, 0)
-    # high[reg] is the last `lui` value the DECODER believes is live. This is a linear sweep and is
-    # therefore an approximation — any branch can invalidate it — so every access it reports is
-    # printed with the instruction that produced the address, never as a bare address.
+    tool = framework_disassembler()
+    if tool is None:
+        return False, "UNVERIFIED: no psxport checkout beside this repo, so no disassembler to ask"
+    project = tool.parent.parent
+    completed = subprocess.run(
+        ["uv", "run", "--frozen", "--project", str(project), "python", str(tool),
+         str(dump), f"{start:X}", f"{end:X}"],
+        capture_output=True, text=True, check=False,
+    )
+    if completed.returncode != 0 or "unknown" in completed.stdout:
+        return False, ("the framework's disassembler REFUSES this window (incomplete coverage), so "
+                       "these words are not a code sequence the hit can be attributed to")
+    return True, "the framework's disassembler decodes this window completely"
+
+
+def run_framework_disasm(dump: pathlib.Path, start: int, end: int) -> int:
+    """Print readable text by ASKING the owner of that job. Not a reimplementation of it."""
+    tool = framework_disassembler()
+    if tool is None:
+        print("REFUSED: no psxport checkout found beside this repo, so there is no disassembler to "
+              "ask. Point external/psxport at the framework, or read the fields yourself with "
+              "--word; this tool does not carry a second decoder.")
+        return 1
+    project = tool.parent.parent
+    completed = subprocess.run(
+        ["uv", "run", "--frozen", "--project", str(project), "python", str(tool),
+         str(dump), f"{start:X}", f"{end:X}"],
+        capture_output=True, text=True, check=False,
+    )
+    sys.stdout.write(completed.stdout)
+    sys.stderr.write(completed.stderr)
+    if completed.returncode != 0:
+        print(f"the framework's disassembler exited {completed.returncode}; its refusal is the "
+              f"answer — it reports incomplete coverage rather than printing text it cannot stand behind")
+    return completed.returncode
+
+
+def scan(exe: bytes) -> list[dict]:
+    """One linear pass, classifying by opcode. Every address it reports carries the fields it used."""
+    text_size = struct.unpack_from("<I", exe, 0x1C)[0]
+    body = exe[TEXT_FILE_OFFSET:TEXT_FILE_OFFSET + text_size]
+    if len(body) < text_size:
+        raise ValueError(f"image is short: {len(body)} of {text_size} text byte(s)")
+    words = struct.unpack_from(f"<{text_size // 4}I", body, 0)
+    # high[reg] is the last `lui` this pass believes is live. It is an APPROXIMATION across branches,
+    # which is why every hit is printed with the two instructions that produced the address and the
+    # displacement arithmetic, rather than as a bare address. Approximate is acceptable for a census
+    # that shows its work; a bare address would not be.
     high: list[int | None] = [None] * 32
-    instructions = 0
-    accesses: list[dict] = []
+    found: list[dict] = []
     for index, word in enumerate(words):
-        address = TEXT_BASE + index * 4
-        text = decode(word)
-        if not text:
+        op = opcode(word)
+        rt = rt_field(word)
+        if op == OP_LUI:
+            high[rt] = immediate(word) << 16
             continue
-        instructions += 1
-        op = (word >> 26) & 0x3F
-        rs = (word >> 21) & 0x1F
-        rt = (word >> 16) & 0x1F
-        imm = word & 0xFFFF
-        simm = imm - 0x10000 if imm & 0x8000 else imm
-        if op == 0x0F:
-            high[rt] = imm << 16
-            continue
-        if op in LOADS or op in STORES:
-            base = high[rs]
-            if base is None or rs == 0:
+        if op in (OP_ADDIU, OP_ORI) or op in LOAD_STORE_OPS:
+            rs = rs_field(word)
+            base = high[rs] if rs != 0 else None
+            if base is None:
                 continue
-            absolute = base + simm
+            if op in (OP_ADDIU, OP_ORI):
+                absolute = base | immediate(word) if op == OP_ORI else base + signed_immediate(word)
+            else:
+                absolute = base + signed_immediate(word)
             if absolute in SIO0_NAMES:
-                kind = LOADS.get(op) or STORES[op]
-                accesses.append({
-                    "address": address, "text": text, "register": SIO0_NAMES[absolute],
-                    "full": absolute, "kind": kind, "route": "A direct",
+                found.append({
+                    "address": TEXT_BASE + index * 4,
+                    "opcode": op,
+                    "kind": LOAD_STORE_OPS.get(op, "ori" if op == OP_ORI else "addiu"),
+                    "register": SIO0_NAMES[absolute],
+                    "full": absolute,
+                    "base_register": rs,
+                    "displacement": signed_immediate(word),
                 })
-
-    # ROUTE B: every aligned word in the WHOLE image, not just the text, that is an SIO0 address.
-    # A word found inside the text is a pointer a function is about to load; one found past the text
-    # is part of the data segment. Both are reported, with the one that is in scope marked, because
-    # "the pointer is at 0x8009B964" and "the pointer is in RAM somewhere" are different claims.
-    pointers: list[dict] = []
-    total_words = len(image) // 4
-    for index in range(total_words):
-        word = struct.unpack_from("<I", image, index * 4)[0]
-        if word in SIO0_NAMES:
-            pointers.append({
-                "address": index * 4,
-                "full": word,
-                "register": SIO0_NAMES[word],
-                "in_text": TEXT_BASE <= index * 4 < TEXT_BASE + TEXT_SIZE,
-            })
-    stats = {"words": len(words), "instructions": instructions, "accesses": len(accesses),
-             "pointers": len(pointers), "image_words": total_words}
-    return accesses, pointers, stats
+    return found
 
 
-def report(image: bytes) -> int:
-    accesses, pointers, stats = walk(image)
-    print(f"census: walked {stats['words']} word(s) of the authenticated text at 0x{TEXT_BASE:08X}, "
-          f"modelled {stats['instructions']} instruction(s), "
-          f"unmodelled {stats['words'] - stats['instructions']}")
-    print(f"census: route A (direct `lui 0x1F80` + displacement) — {stats['accesses']} site(s)")
-    print(f"census: route B (a word in the image that IS an SIO0 address) — {stats['pointers']} site(s) "
-          f"across {stats['image_words']} word(s)")
-    print("census: a zero on one route is a statement about that route only; the guest reaches the "
-          "port by whatever route the data words show")
+def report(exe: bytes, dump: pathlib.Path) -> int:
+    text_size = struct.unpack_from("<I", exe, 0x1C)[0]
+    words_scanned = text_size // 4
+    found = scan(exe)
+    print(f"census: walked {words_scanned} word(s) of the text at 0x{TEXT_BASE:08X} "
+          f"(loaded from file offset 0x{TEXT_FILE_OFFSET:X} to t_addr, PS-X EXE sector padding)")
+    print(f"census: route A (an SIO0 address built by an instruction) — {len(found)} site(s)")
+
+    # Route B needs no instructions at all, which is the point: it is a different question.
+    total_words = len(exe) // 4
+    pointers = [{"address": index * 4, "value": word}
+                for index, word in enumerate(struct.unpack(f"<{total_words}I", exe[:total_words * 4]))
+                if word in SIO0_NAMES]
+    print(f"census: route B (a word in the image that IS an SIO0 address) — {len(pointers)} site(s) "
+          f"across {total_words} word(s)")
+    print("census: a zero on one route is a statement about that route only")
 
     for full, name in sorted(SIO0_NAMES.items()):
-        found = [a for a in accesses if a["full"] == full]
-        writes = [a for a in found if a["kind"] in ("sw", "sh", "sb")]
-        print(f"  0x{full:08X} {name:<8} direct reads {len(found) - len(writes):>3}  "
-              f"direct writes {len(writes):>3}  pointers {len(pointers_by_register(pointers, name)):>3}")
-        for access in found:
-            print(f"      {access['address']:08X}  {access['text']:<28} -> SIO0 {name} ({access['kind']})")
+        sites = [f for f in found if f["full"] == full]
+        refs = [p for p in pointers if p["value"] == full]
+        print(f"  0x{full:08X} {name:<8} materialised {len(sites):>3}   pointed at by {len(refs):>3}")
+        for site in sites:
+            is_code, why = ask_framework(dump, site["address"] - 8, site["address"] + 12)
+            print(f"      0x{site['address']:08X}  op 0x{site['opcode']:02X} {site['kind']:<5} "
+                  f"rs=r{site['base_register']} disp={site['displacement']:+#x} "
+                  f"-> SIO0 {site['register']} = 0x{site['full']:08X}")
+            print(f"        {'VERIFIED as code' if is_code else 'NOT a materialised access'}: {why}")
+        for ref in refs:
+            in_text = "in text" if TEXT_BASE <= ref["address"] < TEXT_BASE + text_size else "in data"
+            print(f"      pointer at file offset 0x{ref['address']:08X} ({in_text}) holds "
+                  f"0x{ref['value']:08X} = SIO0 {name}")
 
-    for pointer in pointers:
-        where = "in text" if pointer["in_text"] else "in data"
-        print(f"      pointer {pointer['address']:08X} ({where}) holds 0x{pointer['full']:08X} "
-              f"= SIO0 {pointer['register']}")
-    if not pointers:
-        print("  no word in the image is an SIO0 address, so the port is not reachable through a "
-              "pointer and route A is the only one — and route A is empty, which would mean the "
-              "poll this census was written for is not a SIO0 access at all")
-
-    total_writes = sum(1 for a in accesses if a["kind"] in ("sw", "sh", "sb"))
-    print()
-    if not accesses and pointers:
-        print("verdict: the guest NEVER materialises an SIO0 address in an instruction — it reads a "
-              "POINTER to the port out of memory and dereferences it. So the guest cannot bit-bang "
-              "the status register through a constant: whether the polled bit ever sets is decided by "
-              "whatever wrote that pointer, and the address in the register is not the question.")
-    elif total_writes == 0:
-        print("verdict: the guest READS SIO0 and never WRITES it, so the status bit is owned by the "
-              "framework's hardware model rather than by guest code.")
-    else:
-        print(f"verdict: the guest WRITES SIO0 at {total_writes} site(s), so it drives the port itself.")
+    verified = [f for f in found if ask_framework(dump, f["address"] - 8, f["address"] + 12)[0]]
+    if not verified and pointers:
+        print()
+        print("verdict: the guest never BUILDS an SIO0 address in an instruction it can be shown to "
+              "execute — it reads a pointer to the port out of memory and dereferences it. An "
+              "instruction-only scan reports this as no SIO0 access anywhere, which is a confident "
+              "answer about the wrong subject, and a linear pass that only tracks `lui` values will "
+              "manufacture hits inside data regions, so every candidate above is checked against the "
+              "framework's disassembler rather than asserted.")
+    elif not found and not pointers:
+        print()
+        print("verdict: no SIO0 address appears anywhere, by either route. That is a real absence in "
+              "this image, and it means the poll this tool was written for is not an SIO0 access.")
     return 0
-
-
-def sites_near(decoded: dict[int, str], centre: int, span: int = 12) -> list[tuple[int, str]]:
-    return [(address, text) for address, text in sorted(decoded.items())
-            if centre - span <= address <= centre + span]
-
-
-def report_word(image: bytes, target: int) -> int:
-    words = struct.unpack_from(f"<{TEXT_SIZE // 4}I", image, 0)
-    high: list[int | None] = [None] * 32
-    decoded: dict[int, str] = {}
-    hits: list[dict] = []
-    for index, word in enumerate(words):
-        address = TEXT_BASE + index * 4
-        text = decode(word)
-        if text:
-            decoded[address] = text
-        op = (word >> 26) & 0x3F
-        rt = (word >> 16) & 0x1F
-        rs = (word >> 21) & 0x1F
-        imm = word & 0xFFFF
-        simm = imm - 0x10000 if imm & 0x8000 else imm
-        if op == 0x0F:
-            high[rt] = imm << 16
-            continue
-        if op in LOADS or op in STORES:
-            if rs == 0 or high[rs] is None:
-                continue
-            absolute = high[rs] + simm
-            # A halfword access to an even address also covers the ODD word beside it, because the
-            # card byte is read as a `lh` of the halfword it shares. Missing that is how a reader
-            # concludes "nothing polls this" when the guest polls it every field.
-            covered = absolute == target or (target % 2 == 1 and absolute == target - 1)
-            if covered:
-                hits.append({"address": address, "text": text, "absolute": absolute,
-                             "kind": LOADS.get(op) or STORES[op]})
-    print(f"scan: {len(words)} word(s) walked, {len(decoded)} instruction(s) modelled, "
-          f"{len(hits)} materialised access(es) to 0x{target:08X} (or the halfword holding it)")
-    if not hits:
-        print("scan: 0 accesses. The word is not reached by materialising its address, so any reader "
-              "of it must go through a pointer — a statement about materialisation only.")
-        return 0
-    for hit in hits:
-        print(f"  hit {hit['address']:08X}  {hit['text']:<28} ({hit['kind']}) at 0x{hit['absolute']:08X}")
-        window = sites_near(decoded, hit["address"], span=8)
-        for address, text in window:
-            marker = ">>" if address == hit["address"] else "  "
-            back = "   <- back edge" if is_back_edge(decoded, address) else ""
-            print(f"    {marker} {address:08X}  {text}{back}")
-    return 0
-
-
-def is_back_edge(decoded: dict[int, str], address: int) -> bool:
-    """True when the instruction at `address` branches to itself or something at or before it."""
-    text = decoded.get(address, "")
-    if "+0x" not in text or not text.startswith(("beq", "bne", "blez", "bgtz", "bltz", "bgez")):
-        return False
-    try:
-        offset = int(text.rsplit("+0x", 1)[1], 16)
-    except (IndexError, ValueError):
-        return False
-    return address + 4 + offset <= address + 4
-
-
-def pointers_by_register(pointers: list[dict], name: str) -> list[dict]:
-    return [p for p in pointers if p["register"] == name]
 
 
 def main() -> int:
+    here = pathlib.Path(__file__).resolve().parent
+    default_image = here.parent / "scratch" / "bin" / "tekken3" / "SLUS_004.02"
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    # Relative to the REPO, not to the working directory: CTest runs every test from the build
-    # directory, so a tool that resolves its own image against the cwd refuses on the gate and
-    # passes when run by hand from the root — a tool whose answer depends on where it was invoked
-    # from is not a measurement.
-    default_image = (pathlib.Path(__file__).resolve().parent.parent
-                     / "scratch" / "bin" / "tekken3" / "SLUS_004.02")
     parser.add_argument("--exe", default=str(default_image),
                         help="the provisioned authenticated SLUS_004.02")
     parser.add_argument("--selftest", action="store_true",
-                        help="run the control decodings and the decoder's negative cases")
+                        help="verify the field reads against the encoding")
     parser.add_argument("--word", type=lambda v: int(v, 0), default=None,
-                        help="scan for materialised accesses to this RAM word instead of the SIO0 census")
+                        help="report materialised accesses to this RAM word")
+    parser.add_argument("--disasm", nargs=2, metavar=("START", "END"), default=None,
+                        help="print readable text for [START, END) using the framework's own tool")
     arguments = parser.parse_args()
+
+    if arguments.selftest and not selftest():
+        return 1
+
     path = pathlib.Path(arguments.exe)
     if not path.is_file():
         print(f"REFUSED: {path} is not a file — provision the authenticated image before measuring")
         return 1
-    image = path.read_bytes()
-    if len(image) < TEXT_SIZE:
-        print(f"REFUSED: {path} is {len(image)} byte(s), smaller than the {TEXT_SIZE}-byte text this "
-              f"census claims to have walked; reporting '0 matches' from a short read is the exact "
-              f"failure this tool exists to avoid")
+    exe = path.read_bytes()
+    if len(exe) < 0x1000:
+        print(f"REFUSED: {path} is {len(exe)} byte(s); too short to be an EXE, and reporting "
+              f"'0 matches' from a short read is the exact failure this tool exists to avoid")
         return 1
-    if arguments.selftest and not selftest(image):
+    try:
+        build_ram_dump(exe)
+    except ValueError as error:
+        print(f"REFUSED: {error}")
         return 1
+
+    if arguments.disasm:
+        dump = path.parent / "ram_census.bin"
+        dump.write_bytes(build_ram_dump(exe))
+        return run_framework_disasm(dump, int(arguments.disasm[0], 0), int(arguments.disasm[1], 0))
     if arguments.word is not None:
-        return report_word(image, arguments.word)
-    return report(image)
+        dump = path.parent / "ram_census.bin"
+        dump.write_bytes(build_ram_dump(exe))
+        found = [site for site in scan(exe)
+                 if site["full"] == arguments.word or
+                 (arguments.word % 2 == 1 and site["full"] == arguments.word - 1)]
+        print(f"scan: {struct.unpack_from('<I', exe, 0x1C)[0] // 4} word(s) walked, "
+              f"{len(found)} materialised candidate(s) for 0x{arguments.word:08X} "
+              f"(or the halfword holding it)")
+        for site in found:
+            is_code, why = ask_framework(dump, site["address"] - 8, site["address"] + 12)
+            print(f"  0x{site['address']:08X}  op 0x{site['opcode']:02X} {site['kind']} "
+                  f"rs=r{site['base_register']} disp={site['displacement']:+#x} -> 0x{site['full']:08X}")
+            print(f"    {'VERIFIED as code' if is_code else 'NOT a materialised access'}: {why}")
+        if not found:
+            print("scan: 0 candidates. The word is not reached by materialising its address, so any "
+                  "reader of it goes through a pointer — a statement about materialisation only. "
+                  "Use --disasm to see the surrounding code with the framework's disassembler.")
+        return 0
+    dump = path.parent / "ram_census.bin"
+    dump.write_bytes(build_ram_dump(exe))
+    return report(exe, dump)
 
 
 if __name__ == "__main__":

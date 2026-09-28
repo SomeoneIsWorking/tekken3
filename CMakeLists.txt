@@ -101,10 +101,16 @@ add_custom_target(
   USES_TERMINAL
   VERBATIM)
 
-# The SIO0 census carries its own control — eight decodings re-derived from a separate hand reading
-# of the same image, which is how it caught a wrong branch offset in its own expectations. It is
-# registered so that control runs in the gate, and so a decoder that starts disagreeing with the
-# image is red rather than quietly answering the port question with a plausible wrong address.
+# The SIO0 census carries its own control - thirteen field readings checked against the ENCODING,
+# which is how it caught a four-byte slip between the globals 0x8009B960 and 0x8009B964 during this
+# session's own write-up. It is registered so that control runs in the gate rather than sitting in a
+# file.
+#
+# What this test does NOT cover, stated so nobody reads more into it: it runs `--selftest`, which
+# returns before any disassembly, so the tool's CHECK of each route-A candidate against the framework's
+# disassembler is exercised by running `tools/tekken3_sio_poll_census.py` against a provisioned image,
+# not here. That path needs `uv` and the framework's locked environment, which is deliberately not a
+# gate dependency; the census therefore prints "UNVERIFIED" rather than a number when it cannot ask.
 add_test(
   NAME tekken3_sio_poll_census_selftest
   COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/tekken3_sio_poll_census.py"
