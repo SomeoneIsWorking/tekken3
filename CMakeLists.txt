@@ -101,6 +101,14 @@ add_custom_target(
   USES_TERMINAL
   VERBATIM)
 
+# Test-only. Runs the authenticated image's own pad-wait loop through the shipping Lightrec
+# executor; tools/verify_pad_wait_exit.py owns the decision and its selftest.
+add_executable(tekken3_pad_wait_exit tests/pad_wait_exit.cpp)
+target_link_libraries(tekken3_pad_wait_exit PRIVATE tekken3_runtime)
+add_test(
+  NAME tekken3_pad_wait_exit_selftest
+  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/verify_pad_wait_exit.py" --selftest)
+
 add_executable(tekken3_cd_protocol_contract tests/cd_protocol_contract.cpp)
 target_link_libraries(tekken3_cd_protocol_contract PRIVATE tekken3_runtime)
 add_test(NAME tekken3_cd_protocol_contract COMMAND tekken3_cd_protocol_contract)

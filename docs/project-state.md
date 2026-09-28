@@ -18,41 +18,50 @@ dependencies in `docs/re-frontier.md`.
 
 ## Current focus
 
-S003 is the current focus, and its loader blocker is now **diagnosed rather than hypothesised**.
-The title's CD command path is owned and working: `FUN_8008F08C` submits (loader state `0x800A05D8 == 8`
+S003 is the current focus, and its loader blocker is now **diagnosed to a framework owner, not a
+missing one**.
+
+**The card's wait is not a wait for a hardware response the port cannot deliver (issue 0017).** The
+title's CD command path is owned and working: `FUN_8008F08C` submits (loader state `0x800A05D8 == 8`
 is written only after its submit loop returns nonzero), four records queue, and `FUN_8008FCC0` really
-issues `CdSetloc` and retries it forever. The stall is one level away from the CD: the guest's
-per-VBlank controller-port read `FUN_80093478` writes to SIO0 DATA and spins unconditionally on
-SIO0 STAT bit 1, which the runtime's `Sio0::status()` never sets, so `Hle::in_irq` stays 1 and the CD
-completion is never delivered. The next title-owned work is a native override of `FUN_80093478`, which
-is a resident-text function entry here and therefore an image-scoped override target. See issue 0011.
+issues `CdSetloc` and retries it forever. One level away from the CD, the guest's per-VBlank
+controller-port read `FUN_80093478` sits in its **second** wait loop, and that loop is a **bounded
+RCnt2 timeout the guest armed itself**: it exits on either pad-status bit 7 or
+`(RCnt2 - snapshot) >> 3 >= 0x190`, i.e. 3,200 counter ticks, and returning from it is a designed
+outcome rather than a failure. It never expires because **RCnt2 cannot move inside one Lightrec
+segment** — the runtime accounts guest instructions once per segment, after `lightrec_execute`
+returns, and `Timing::rootCounter2()` is a pure function of that clock. Measured on the shipping
+executor against the authenticated image: the `retail` arm is still in the loop at `0x80093584` after
+564,492 cycles and 282,244 instructions with 0 fallback, over **1** segment; a `bit7` control that
+skips the loop returns in 186 cycles; and a `segmented` mutant — identical guest bytes, identical
+fixture, the same total allowance, only 9 segments of 65,536 cycles instead of 1 — **leaves the
+loop**. Owner: psxport's Lightrec integration (`runtime/cpu/lightrec_executor.cpp`, the accounting
+boundary) with `runtime/psx/timing.*`. **No `FUN_80093478` override is wanted**, which supersedes the
+shared conclusion of issues 0011 and 0016: the loop, the countdown and the counter are all correct.
 
-**Where the product actually is, and what it is not missing (issue 0016).** The `NAMCO PRESENTS` card
-is not a screen waiting for a press. It is **mode 2, phase 8**, and phase 8 is a wait on the byte at
-`0x800A069F` that redraws the card on every frame it holds; the product's own live probe reads mode 2,
-phase 8 and that byte nonzero in twelve samples from field 98 to field 6865. The guest leaves the card
-by copying the return-mode byte `0x80097F38` into the mode halfword `0x800AE204`, over 294
-instructions that read no controller port, so **no pad edge takes this card anywhere** and a route
-that pressed buttons would be compensating for nothing. The missing thing is a CD completion: the
-class-2 event that registers the sector callback never arrives. `tools/verify_title_flow.py` re-derives
-the whole chain from the image and gates it.
+**What is left is a design decision, not title work.** Charging the clock from the MMIO helpers is
+ruled out on cost — it drags `cdc_drive_service`, which can execute a command, into every hardware
+register read. Making the clock observable inside a segment is the correct fix and is blocked on a
+units question: the framework's clock is in *instructions* while the only live counter Lightrec
+exposes is in *cycles*, and this call measured 564,492 cycles for 282,244 instructions. Mixing them
+rescales every deadline in the framework across every port. Issue 0017 carries the three-way table.
 
-**One correction to the mechanism above, which does not change the fix.** `FUN_80093478` has **two**
-unbounded loops, not one, and the product is in the second. The first (`0x800934D8`, SIO0 STAT bit 1) is
-already behind us: the live word `0x800AE228` reads `0x190`, which has exactly one writer in the whole
-image among the seven `jal` sites of `FUN_800951B8` — `0x800934EC`, past that spin — and the retained
-`cdcomp4.log` carries `ra=800934F4` on 322,576 of 324,845 `I_STAT` reads, which is the straight-line
-region after that call. The second loop's countdown arm can never be taken, because a sweep finds zero
-stores to RCnt2's mode register `0x1F801124` in the text. The `FUN_80093478` override must therefore
-replace the whole function, and the arm that decides whether the second loop exits is a runtime
-measurement.
+**Where the product is inside the card, and what it is not missing (issue 0016).** The
+`NAMCO PRESENTS` card is not a screen waiting for a press. It is **mode 2, phase 8**, and phase 8 is
+a wait on the byte at `0x800A069F` that redraws the card on every frame it holds; the product's own
+live probe reads mode 2, phase 8 and that byte nonzero in twelve samples from field 98 to field 6865.
+The guest leaves the card by copying the return-mode byte `0x80097F38` into the mode halfword
+`0x800AE204`, over 294 instructions that read no controller port, so **no pad edge takes this card
+anywhere**. The missing thing is a CD completion: the class-2 event that registers the sector
+callback never arrives, behind the same `in_irq` wedge. `tools/verify_title_flow.py` re-derives the
+whole chain from the image and gates it.
 
-After that, the first discriminator is the native/Lightrec product reaching `NAMCO PRESENTS` within
-1,200 frames while executing nonzero Lightrec blocks and routing all 14 address-based original calls
-through the shipping dispatcher. Product inspection must prove that Lightrec remains the default and
-no interpreter gameplay selector exists; runtime evidence must report every bounded JIT-refusal
-fallback and satisfy its release threshold. That checkpoint is followed by a representative
-interactive gameplay run.
+After the clock question is settled, the first discriminator is the native/Lightrec product reaching
+`NAMCO PRESENTS` within 1,200 frames while executing nonzero Lightrec blocks and routing all 14
+address-based original calls through the shipping dispatcher. Product inspection must prove that
+Lightrec remains the default and no interpreter gameplay selector exists; runtime evidence must report
+every bounded JIT-refusal fallback and satisfy its release threshold. That checkpoint is followed by
+a representative interactive gameplay run.
 
 ## Hosted verification and host gaps
 
@@ -101,7 +110,11 @@ original outer return address survives a changed live `r31`.
 
 Gap: the product has not reached the menu, or representative gameplay. Issue 0016 locates it exactly:
 it is inside mode 2 phase 8, the CD-read wait, and leaves it only when the sector callback clears
-`0x800A069F` — with no input on the path. Historical product evidence remains useful only as the
+`0x800A069F` — with no input on the path. Issue 0017 then locates the mechanism one level further
+down and in a **different owner**: the guest's own per-VBlank controller-port read is parked in a
+self-armed RCnt2 timeout that cannot expire inside one Lightrec segment, because the runtime advances
+the guest clock once per segment. That is a framework fix, not a title one, and no
+`FUN_80093478` override is wanted. Historical product evidence remains useful only as the
 measured native/device frontier because it predates this executor: the isolated `3c342ec3` product PID
 `3216829` dispatched the retail entry, opened the real CHD, and passed the synchronous directory-read
 and GetTN/GetTD owners. It then reached ResetGraph and trapped the next protected guest VSync query in
@@ -167,9 +180,12 @@ derivation: no real wide frame has yet exercised the seven widened cull owners o
 Missing capability: no completed Tekken frame has demonstrated wider guest geometry, stage/effect
 coverage, and final presentation while preserving vertical framing and the faithful 4:3 control.
 
-Blocked behind S003, and the blocker is now named down to the instruction (issue 0016): the guest
-cannot leave the card because the card **is** mode 2 phase 8, a wait on the byte at `0x800A069F` that
-the sector callback would clear, and the callback never arrives. Until that is fixed there is no
+Blocked behind S003, and the blocker is now named down to the instruction and to its **owner**
+(issues 0016 and 0017): the guest cannot leave the card because the card **is** mode 2 phase 8, a
+wait on the byte at `0x800A069F` that the sector callback would clear, and the callback never arrives
+because the guest's own controller-port read is parked in a self-armed RCnt2 timeout that cannot
+expire inside one Lightrec segment. That is a **framework** fix — psxport's Lightrec integration and
+its guest clock — and it is not title work. Until it is fixed there is no
 gameplay frame to widen, and the widened owners and the stage wedge still have no product observation
 of any kind. `widescreen_pair.py` was therefore **not run** on anything new: it would only have been
 handed two views of the same `NAMCO PRESENTS` card, whose glyphs sit on a flat black field, and the
