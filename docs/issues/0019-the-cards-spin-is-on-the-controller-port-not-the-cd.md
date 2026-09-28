@@ -176,12 +176,14 @@ each cycle is a CTRL write that, under this model, tears down the very device it
 and the `0x01` that follows is answered by a floating bus.
 
 **What is still open, precisely:** whether SIO CTRL bit 13 should end the exchange. That is a
-hardware-semantics question, and this tree cannot answer it — `psxport/vendor/beetle-psx`'s `sio.c`
-is, in its own words, a "Dummy implementation" with no status semantics at all, so there is no
-vendored reference to check against. **No fix is attempted here**, because both available moves —
-raising bit 9 on ACK regardless of CTRL, or keeping the device across a bit-13 write — would be
-asserting hardware behaviour this repository has no evidence for, and one of them would be
-fabricating the guest's controller state.
+hardware-semantics question, and this tree cannot answer it — and the absence is **total**, not
+confined to the one file. `psxport/vendor/beetle-psx/mednafen/psx/sio.c` is, in its own words, a
+"Dummy implementation" with no status semantics, and the string `0x1F801044` appears **nowhere** in
+the whole vendored Beetle tree — so the emulator psxport is built alongside models the controller
+somewhere else entirely, and cannot be consulted. **No fix is attempted here**, because both
+available moves — raising bit 9 on ACK regardless of CTRL, or keeping the device across a bit-13
+write — would be asserting hardware behaviour this repository has no evidence for, and one of them
+would be fabricating the guest's controller state.
 
 ## What survives, and what is now open
 
