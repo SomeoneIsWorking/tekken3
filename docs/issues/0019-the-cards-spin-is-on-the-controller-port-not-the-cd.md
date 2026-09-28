@@ -139,20 +139,72 @@ move across 275 fields; a countdown starting at 2 would reach 0 in two passes an
 that is pinned while a countdown sits in the code means the countdown is not executing. So this
 window is real code and a dead end for the card, and the stuck site is still elsewhere.
 
+## The pad hypothesis is REFUTED by the framework's own channel
+
+The obvious reading of "the card polls SIO0 status bit 9 and it never sets" is that the guest is
+waiting for a pad **ACK** the model withholds. **That is wrong, and the framework's own `sio`
+diagnostic says so.** One run with `PSXPORT_DEBUG=sio`, 3,000 fields, 78,669 `[sio]` lines:
+
+    /ACK lines that raised the bit :  the log prints "/ACK -> JOY_STAT#9 + I_STAT#7" whenever
+                                     CTRL bit 12 is set, and it is set for the whole pad sequence
+    tx 01 -> rx 41 ACK              3,279   the digital pad's ID — the handshake WORKS
+    tx 00 -> rx 5A ACK              3,276   the pressure/analog payload
+    tx .. -> rx FF                  13,110  the floating bus: the RX FIFO was empty
+    no-ack                          6,558   of 19,665 byte exchanges, all with `pos -1`
+
+So the pad is initialised and read **3,276 times successfully**. The guest gets its `0x41` pad ID
+and its `0x5A` data. A guest waiting for an ACK it never receives is not what this is.
+
+**And the guest sets CTRL bit 12.** The trace's own `w CTRL 1003` lines mean the `/ACK` interrupt
+enable IS on for the whole pad sequence, so `Sio0::service` does raise `irq` and JOY_STAT bit 9 does
+get set — repeatedly, thousands of times. **The bit the poll waits for is therefore not the bit that
+is stuck**, and the run's steady state is not a pad that cannot answer.
+
+What the run *ends* on is this, repeated:
+
+    w CTRL 0000 (raw 0040)  ra=80094934      reset
+    w CTRL 0000 (raw 0000)  ra=80094934
+    w CTRL 3003 (raw 3003)  ra=80093018      bit 13 set
+    tx 01 -> rx FF no-ack (pos -1, ctrl 3003)  no device addressed
+    w CTRL 3003 (raw 3013)  ra=8009323C
+    w CTRL 0000 (raw 0000)  ra=800948E4
+
+`pos -1` means the framework has no device addressed, and `Sio0::ctrlWrite` cancels the exchange
+whenever CTRL bits `0x2002` change — bit 13 is inside that mask, and the mask is documented as
+"DTR or selecting the other physical port ends this device's exchange". So the guest's final move
+each cycle is a CTRL write that, under this model, tears down the very device it is about to talk to,
+and the `0x01` that follows is answered by a floating bus.
+
+**What is still open, precisely:** whether SIO CTRL bit 13 should end the exchange. That is a
+hardware-semantics question, and this tree cannot answer it — `psxport/vendor/beetle-psx`'s `sio.c`
+is, in its own words, a "Dummy implementation" with no status semantics at all, so there is no
+vendored reference to check against. **No fix is attempted here**, because both available moves —
+raising bit 9 on ACK regardless of CTRL, or keeping the device across a bit-13 write — would be
+asserting hardware behaviour this repository has no evidence for, and one of them would be
+fabricating the guest's controller state.
+
 ## What survives, and what is now open
 
 **Survives:** the blocker is not the disc. The CD completion is delivered and measured delivered — the
 guest consumed every record it queued, the ring drained to empty and stayed drained while the CD
-completion count kept climbing `0x62` → `0xF7`. The card's remaining wait is on the **controller**,
-and specifically on the port's **ACK bit**.
+completion count kept climbing `0x62` → `0xF7`. The card's remaining wait is on the **controller**.
+
+**Refuted along the way, and kept here because a refuted hypothesis that is not written down gets
+re-derived:** the pad is NOT failing to answer. The framework's own `sio` channel shows the digital
+pad ID `0x41` read 3,279 times and its `0x5A` payload 3,276 times, with `/ACK -> JOY_STAT#9` raised
+every time because the guest *does* set CTRL bit 12. So "the card waits for an ACK that never comes"
+is false. What the run ends on, repeatedly, is a `CTRL = 0x3003` write followed by a `0x01` byte that
+comes back `no-ack` with `pos -1` — no device addressed — and `Sio0::ctrlWrite` cancels the exchange
+whenever CTRL bits `0x2002` change, with bit 13 inside that mask. Whether bit 13 *should* end the
+exchange is a hardware-semantics question this tree cannot answer: Beetle's vendored `sio.c` is a
+self-described dummy with no status model. **No fix is attempted**, because either move available
+would be asserting hardware behaviour with no evidence behind it.
 
 **Now open, and a smaller question than this issue first claimed:** the framework's pad owner answers
 Tomba! 2's equivalent poll by writing the pad packet straight into the guest's registered slot buffer
 instead of emulating SIO (`psxport/runtime/psx/pad_input.cpp`, and its header's account of
-`FUN_80003a4c`). Tekken 3 drives the port itself through `0x8009B964` and therefore expects a real ACK
-cycle. The next step is to decide whether the framework's SIO0 model can raise bit 9 for a port the
-guest has itself commanded, or whether the title needs the same native-buffer bypass its sibling has.
-**That is not decided here.**
+`FUN_80003a4c`). Whether Tekken 3 needs the same bypass, or whether the port model needs a real ACK
+cycle, depends on the bit-13 question above. **That is not decided here.**
 
 ## Falsifier
 
