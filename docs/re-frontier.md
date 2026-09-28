@@ -141,6 +141,21 @@ declared host-architecture performance.
   owned. Those measurements bound the native owners required on the dynamic path; they do not
   authorize bypassing the native/Lightrec discriminator above.
 
+  **The CD completion's two hops are now named to the instruction, and hop 1 is the frontier
+  (issue 0018).** The guest's own loader sets the wait byte and hands `FUN_8008F08C` a completion
+  callback in one breath (`0x8006C1A4: sb v0,7(s1)` and `0x8006C1C0: addiu a3,s3,-15764`), and
+  `FUN_8006C26C`'s class-2 branch (`0x8006C288`) is what installs the sector callback `FUN_8007C2A0`
+  whose `0x8006C2EC` is the only writer of `0x800A069F` to zero on this path. Measured from a
+  field-25,030 capture: the callback value `0x8006C26C` is present at **exactly one** address in the
+  whole 2 MB, `0x800A3DD0`, and `0x8007C2A0` at **0 of 524,288** words; a 1,200-field traced run
+  delivered **4,458 of 4,458** interrupts on `I_STAT&I_MASK=0x001` and **0** on the CD bit, with
+  `I_MASK` bit 2 set. Owner: `game/core/cd_sync.cpp`, whose `kCdControl` and `kCdQueueStart` overrides
+  complete each CD operation inline and never invoke the registered callback, so
+  `cd_ready_callback_pointer()` is 0 here (direct runtime, `core.cfg` null, layout not overridden) and
+  the framework's own `cd_drive_stock_read` loop returns at its first line. **This supersedes T3-04's
+  "the first measured widescreen owner after the current `FUN_8006AB64` CD wedge" as the nearest
+  frontier: the wedge is not where the product waits now, and the CD completion is.**
+
   **The VSync call domain is now censused at a denominator (issue 0014): 22 direct `jal
   FUN_800859A8` sites over 295,936 scanned words, 21 passing `a0 = -1` and exactly one waiting
   (`FUN_800B0954`, already natively owned).** That is why declaring the query counter is the whole
@@ -173,4 +188,4 @@ declared host-architecture performance.
 - deps: T3-05
 - evidence: `Tekken3Widescreen` publishes the shared plan at `FUN_80080A40`, preserves vertical extent/H ownership, widens the view 384->512 at 16:9, and feeds the corresponding 492-pixel draw width to readable wide-only ports of the two measured stage/effect clippers. The 4:3 route calls each authenticated original guest body through Lightrec. `tekken3_widescreen_contract` proves both measured display/view pairs plus stage/effect primitives in the added margin.
 - where: `game/core/widescreen.*`; `tests/widescreen_contract.cpp`; shared `guest_widescreen_projection.*`
-- gap: The product still has no completed frame, so final sampling, 4:3 pixel identity, and actual added scene coverage are unverified. A real A/B must also determine whether the authored 600/780 stage-tile visibility wedge culls needed wide-margin tiles; any adjustment must derive from the resolved projection. Tekken 3 already runs at 60 fps: there remains no native renderer, fps60 mode, interpolation/lerp, or interpolation-supporting temporal pipeline in this title's target scope.
+- gap: The product still has no completed frame, so final sampling, 4:3 pixel identity, and actual added scene coverage are unverified. A real A/B must also determine whether the authored 600/780 stage-tile visibility wedge culls needed wide-margin tiles; any adjustment must derive from the resolved projection. **Issue 0018 adds a second, independent reason there is no frame to widen: the 11 mode handlers at or above `0x800C0000` hold no code at this frontier. `tools/recover_runtime_handlers.py` measures 0 of 11 with a code marker and 0 of 256 words differing from the authenticated image at each, against 9 of 9 in-disc handlers byte-identical, and 0 of 127 mode-0 payloads containing code — so the geometry a wider projection would reveal is not resident yet, independently of the CD completion.** Tekken 3 already runs at 60 fps: there remains no native renderer, fps60 mode, interpolation/lerp, or interpolation-supporting temporal pipeline in this title's target scope.

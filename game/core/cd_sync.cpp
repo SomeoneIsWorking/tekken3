@@ -43,6 +43,31 @@ constexpr std::uint32_t kCompleteResponse = 0x800A3BE8u;
 constexpr std::uint32_t kCommandTraceFormat = 0x80028568u;
 constexpr std::uint32_t kMissingParameterFormat = 0x80028570u;
 
+// ---- The CD completion lifecycle, recovered from the authenticated SLUS_004.02 text ----
+//
+// `FUN_8008E928` (0x8008E928) is the guest's own CD-event entry. Its class-2 branch is the only
+// site in the whole text that invokes the callback a queued command registered:
+//   0x8008EA00  lw    v0,16(s0)        ; v0 = the record's registered callback
+//   0x8008EA08  beq   v0,zero,0x8008EA88
+//   0x8008EA0C  addiu a0,zero,2       ; a0 = the event class
+//   0x8008EA80  jalr  ra,v0            ; and a1 = the status pointer (0x8008EA84)
+constexpr std::uint32_t kGuestEventEntry = 0x8008E928u;
+constexpr std::uint32_t kEventDataReady = 2u;
+
+// The ring cursor, read at 0x8008E954 and written by the class-2 branch at 0x8008EA1C/0x8008EA24.
+// The record pool those callbacks live in, and the depth its own initialiser gives it:
+//   0x8008EC64  addiu s0,s0,15736      ; s0 = 0x800A0000 + 15736 = 0x800A3D78
+//   0x8008EC74  slti  v0,s1,8          ; eight records
+//   0x8008EC7C  addiu s0,s0,24          ; stride 24, confirmed by the indexing itself
+//     0x8008E8E4  sll  v0,v1,1
+//     0x8008E8E8  addu v0,v0,v1        ; v0 = 3 * n
+//     0x8008E8EC  sll  v0,v0,3         ; v0 = 24 * n
+constexpr std::uint32_t kChainDepth = 8u;
+// The ring cursor, read at 0x8008E954 and written by the class-2 branch at 0x8008EA1C/0x8008EA24.
+constexpr std::uint32_t kChainCursor = 0x800A3E3Cu;
+// The live-record count, read at 0x8008EEA0 and bounded against the depth at 0x8008EEA8.
+constexpr std::uint32_t kChainLive = 0x800A3E40u;
+
 constexpr std::uint32_t kA0 = 4;
 constexpr std::uint32_t kA1 = 5;
 constexpr std::uint32_t kA2 = 6;
@@ -297,18 +322,24 @@ void cdReadyOverride(Core *core) {
 }
 
 void cdControlOverride(Core *core) {
+  // The guest's own return address, captured before this override clobbers r[31]. It is the
+  // boundary an exception entry would restore, and it is what the completion callbacks return to.
+  const std::uint32_t interruptedReturnPc = core->r[31];
   CoreCdMachine machine(*core);
   core->r[kV0] =
       CdProtocol::control(machine, static_cast<std::uint8_t>(core->r[kA0]), core->r[kA1], core->r[kA2], core->r[kA3]);
+  CdProtocol::deliverCompletions(machine, interruptedReturnPc);
 }
 
 void cdCommandOverride(Core *core) {
+  const std::uint32_t interruptedReturnPc = core->r[31];
   const R3000 caller = static_cast<const R3000 &>(*core);
   CoreCdMachine machine(*core);
   const std::uint32_t result =
       CdProtocol::control(machine, static_cast<std::uint8_t>(caller.r[kA0]), caller.r[kA1], caller.r[kA2], 0);
   static_cast<R3000 &>(*core) = caller;
   core->r[kV0] = result == 0 ? 1u : 0u;
+  CdProtocol::deliverCompletions(machine, interruptedReturnPc);
 }
 
 void dispatch(Core &core, std::uint32_t address, std::uint32_t returnPc) {
@@ -330,7 +361,11 @@ void cdQueueStartOverride(Core *core) {
     location = core->r[kV0];
   }
   CoreCdMachine machine(*core);
-  finish(CdProtocol::queueRead(machine, location, caller.r[kA1], caller.r[kA2]));
+  const std::uint32_t queued = CdProtocol::queueRead(machine, location, caller.r[kA1], caller.r[kA2]);
+  static_cast<R3000 &>(*core) = caller;
+  core->r[kV0] = queued;
+  CoreCdMachine completed(*core);
+  CdProtocol::deliverCompletions(completed, core->r[31]);
 }
 
 void cdQueueResultOverride(Core *core) {
@@ -343,8 +378,41 @@ void cdQueueResultOverride(Core *core) {
 
 } // namespace
 
+std::uint32_t deliverCompletions(CdMachine &machine, std::uint32_t interruptedReturnPc) {
+  // The loop is bounded twice, and both bounds are the guest's own words rather than a host
+  // constant: by the pool depth the guest initialises (0x8008EC74) and by the live-record count it
+  // publishes (0x800A3E40, bounded the same way at 0x8008EEA8). It stops early the moment a
+  // delivery leaves the ring cursor unchanged, because 0x8008E974 returns before consuming a
+  // record whose state word is 0 -- so an empty tail ends the drain without a magic iteration
+  // count, and a delivery that consumed nothing cannot spin.
+  std::uint32_t delivered = 0;
+  for (std::uint32_t step = 0; step < kChainDepth; ++step) {
+    const std::uint32_t live = machine.read32(kChainLive);
+    if (live == 0 || live > kChainDepth) {
+      break;
+    }
+    const std::uint32_t cursorBefore = machine.read32(kChainCursor);
+    if (cursorBefore >= kChainDepth) {
+      break;
+    }
+    // a1 is the CDC status buffer retail's kernel passes. A null one is the guest's own case:
+    // 0x8009095C tests `beq a1,zero` and writes the terminating zero itself, and the guest calls
+    // its own 0x8008FCC0 that way at 0x8008FEE4 and 0x800900A0.
+    machine.call2(kGuestEventEntry, interruptedReturnPc, kEventDataReady, 0);
+    if (machine.read32(kChainCursor) == cursorBefore) {
+      break;
+    }
+    ++delivered;
+  }
+  return delivered;
+}
+
 std::uint32_t CdProtocol::synchronize(CdMachine &machine, std::uint32_t mode, std::uint32_t result) {
   return tekken3::synchronize(machine, mode, result);
+}
+
+std::uint32_t CdProtocol::deliverCompletions(CdMachine &machine, std::uint32_t interruptedReturnPc) {
+  return tekken3::deliverCompletions(machine, interruptedReturnPc);
 }
 
 std::uint32_t CdProtocol::ready(CdMachine &machine, std::uint32_t mode, std::uint32_t result) {

@@ -26,6 +26,15 @@ public:
 
 class CdProtocol {
 public:
+  // Deliver the CD completions a just-finished native operation owes, in the order retail's
+  // controller interrupt invoked them. Native ownership completes each CD operation inline, and
+  // this title's guest CD driver is a callback loop whose only termination signal is its own
+  // registered callback being invoked, so completing without delivering deletes that loop.
+  //
+  // `interruptedReturnPc` is the guest return address the override interrupted. Passing the live
+  // `r31` is what an exception entry would restore, so the guest sees its own caller on return.
+  static std::uint32_t deliverCompletions(CdMachine &machine, std::uint32_t interruptedReturnPc);
+
   static std::uint32_t synchronize(CdMachine &machine, std::uint32_t mode, std::uint32_t result);
   static std::uint32_t ready(CdMachine &machine, std::uint32_t mode, std::uint32_t result);
   static std::uint32_t

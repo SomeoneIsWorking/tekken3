@@ -38,6 +38,7 @@ def main() -> int:
                 r"^tekken3_(product_help_contract|runtime_seam|runtime_contract|"
                 r"frame_loop_contract|bounded_guest_call|decompressor_probe_contract|decompressor_lightrec_selftest|"
                 r"cd_protocol_contract|gpu_sync_contract|pad_wait_exit_selftest|"
+                r"recover_runtime_handlers_selftest|"
                 r"widescreen_contract|widescreen_stage_wedge_contract|irq_oracle_selftest|"
                 r"launcher_selftest|launcher_help_contract|"
                 r"projection_selftest|stage_wedge_selftest|focal_length_selftest|extent_census)$"

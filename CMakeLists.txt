@@ -247,6 +247,17 @@ add_test(
   COMMAND
     "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/verify_focal_length.py"
     --selftest --exe "${TEKKEN3_EXE}")
+# Where the 20 mode handlers come from: three independent routes to the same bytes (the disc, a live
+# `dumpram` capture, and mode 0's LZ payloads decoded offline) with a control that can fail. The
+# selftest is the registered half; it needs only the provisioned executable, and it is what keeps the
+# route-B "0 of 11" reading interpretable by proving the instrument finds what IS there first. The
+# capture-fed half is a maintainer run against a real run's scratch capture, not a gate, because a
+# RAM dump is not an asset-free input. See docs/issues/0018.
+add_test(
+  NAME tekken3_recover_runtime_handlers_selftest
+  COMMAND
+    "${Python3_EXECUTABLE}" -B
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/recover_runtime_handlers.py" --selftest)
 add_test(
   NAME tekken3_extent_census
   COMMAND
