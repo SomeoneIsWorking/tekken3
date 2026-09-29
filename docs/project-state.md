@@ -8,7 +8,8 @@ dependencies in `docs/re-frontier.md`.
 |---|---|---|---|---|
 | S001 | The selected USA disc executable is reproducibly identified and provisioned | verified | — | G001, G003 |
 | S002 | Retail entry and direct-main startup execute deterministically to an independent boundary | verified | S001 | G001, G003 |
-| S003 | The authenticated executable runs through the native/Lightrec gameplay product | partial | S001, S002 | G001, G003 || S004 | Boot and CD initialization are compared across independent or distinct execution engines | partial | S002 | G001, G003 |
+| S003 | The authenticated executable runs through the native/Lightrec gameplay product | partial | S001, S002 | G001, G003 |
+| S004 | Boot and CD initialization are compared across independent or distinct execution engines | partial | S002 | G001, G003 |
 | S005 | The title declares a non-temporal, guest-rendered widescreen capability contract | partial | S003 | G002 |
 | S006 | Tekken-owned projection, display, visibility, and clipping state is identified for widescreen | partial | S001 | G002 |
 | S007 | True widescreen renders additional correctly projected content | missing | S004, S005, S006 | G002 |
@@ -18,7 +19,47 @@ dependencies in `docs/re-frontier.md`.
 
 ## Current focus
 
-S003 is the current focus, and its loader blocker is now narrowed to the **controller port** (issue 0019). The CD completion is delivered and measured delivered — the guest consumed all four of its records and its ring drained to empty and stayed there over 7,500 fields. The card does not leave, and the pad is **not** the reason: the framework's own `sio` channel shows the digital pad ID `0x41` read 3,279 times and its `0x5A` payload 3,276 times, with `/ACK -> JOY_STAT#9` raised on every exchange because the guest does set CTRL bit 12. What each cycle ends on is a `CTRL = 0x3003` write followed by a `0x01` byte answered `no-ack` with `pos -1` — no device addressed — and `Sio0::ctrlWrite` cancels the exchange whenever CTRL bits `0x2002` change, with bit 13 inside that mask. **Whether SIO CTRL bit 13 should end the exchange is undecided and no fix is attempted**, because Beetle's vendored `sio.c` is a self-described dummy with no status model, so this tree holds no evidence either way. Issue 0019 records the measurement, the tool that re-derived the instruction facts from the image, the correction of an earlier disassembly that named the wrong address, width and bit, and the pad hypothesis this measurement refuted.
+S003 is the current focus, and **its blocker is the CD completion lifecycle, not the controller
+port** — issue 0019's refutation was wrong on both counts and is superseded by issue 0020.
+
+**MEASURED 2026-09-29, live, over the loopback control channel, in one disc-backed process.**
+Issue 0019 held that `0x800A069F` has 0 materialised readers and that nothing reads the
+sector-callback slot `0x8009B8D0`. Decoded from the authenticated executable with
+`tools/census_word.py`, over **295,936 walked words**: `0x800A069F` has **4 readers and 5 writers**,
+and `0x8009B8D0` has **6 readers and 1 writer**. The dispatch is real: `0x80092110 lw $a3,8($s1)`
+loads the slot into `$a3` and `0x8009213C jalr $a3` calls it. The sweep that produced the zeros
+propagated `lui`/`addiu` only within a single register, and this image builds every global the way a
+MIPS compiler does — `lui $v0` then `addiu $s0,$v0,imm`, built in one register and consumed in
+another — so it reported 0 for essentially every global in the image. This is the **tenth dead tap**
+in this workspace, and the first produced by a census rather than a counter.
+
+**The full causal chain is recovered into readable C++** (`game/core/loader_lifecycle.h`, pinned by
+`tests/loader_lifecycle_contract.cpp` at **15 of 15** recovered instructions matching the image
+words, with a mutant-proven control in both directions): the guest sets `0x800A069F` and registers
+`0x8006C26C` in the same breath at `0x8006C1A4`, the class-2 chain completion installs the sector
+callback into the record at `0x8009B8D0` via `0x80091F38`, the per-sector handler dispatches it at
+`0x8009213C`, and **the only writer that clears `0x800A069F` is `0x8006C2EC`, inside that callback.**
+
+**What a live run now shows, and this is the new information.** In one disc-backed process over the
+control channel, read at **1,054,867 presented frames** — 42x deeper than the 25,030 of any prior
+run — mode **2**, phase **8**, `0x800A069F` = **1** (never cleared), `0x800A069E` =
+**0**, `0x8009B8D0` = **`0x8006C2A0`** (the sector callback IS installed), `0x8009B8E8` = **1**
+(registered), `0x8009B8C8` = `0xFFFFFFFF`, across 3 consecutive samples unchanged. Guest execution
+at the same point: **4,167,259,337** executed instructions in 697,286,435 blocks from 1,956
+translated, `faults=0`, `fallback: calls=0`, `budget_exit: exits=6`.
+
+**So both hops are armed and the byte is still up — which is a genuinely new position.** Issue 0018
+recorded hop 2 as "never armed"; it is armed. And because `0x800A069E` is **0** while `0x800A069F`
+is **1**, the guest is **not** sitting in `FUN_8006BEA8`'s inner spin, because that loop exits on
+`0x800A069E` and clears the byte on its way out (`0x8006BEFC`). **The blocker is therefore no longer
+the CD chain and is not yet named**; identifying where the guest actually is, is the next step and is
+recorded as the frontier in issue 0020. The sector callback being installed but never dispatched
+remains one candidate, and the specific question is what invokes `0x80092034` at all.
+
+**What has NOT changed:** no fight is reached, S003 stays `partial`, and S007 (widescreen showing
+real scene content) is untouched — the only picture is still the authored 4:3 NAMCO PRESENTS card.
+
+**Every product depth figure in this file was last taken on a framework that is logging a guest fault it should not, and that bounds how far it can be trusted.** A post-hop-1 run logs ~25,000 `[executor:error] guest transferred control to 0x000000A0/0xB0/0xC0` lines where an earlier run on an older framework logged **0**. A one-variable discriminator settles the attribution: pre-fix `game/core/cd_sync.{h,cpp}` from `c93d0b1^` rebuilt against the **current** framework still logs 23,543 of the same errors, so it is a **framework** regression and not a consequence of the CD completion work; psxport's own newest commit `77c13f0c` ("Name the block behind a wild control transfer, and never go silent on the fatal one") is already on it. Recorded in issue 0018 so the number is not re-read as a `c93d0b1` regression.
 
 **The framework clock fix landed, and it was not the blocker (issue 0018).** psxport `5d4b3327`
 charges the guest clock inside a translated segment. Measured by `tools/verify_pad_wait_exit.py`

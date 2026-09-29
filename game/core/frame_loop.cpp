@@ -317,14 +317,22 @@ void FrameLoop::step(FrameMachine &machine, FrameStepState &state) {
     machine.tick(2);
     const auto address = kModeFunctions[static_cast<std::size_t>(mode)];
     const auto returnPc = 0x80028C9Cu + static_cast<std::uint32_t>(mode) * 0x10u;
-    if (mode == 0) {
-      state.buffer = buffer;
-      if (!machine.startModeCall(address, returnPc)) {
-        state.modeCallPending = true;
-        return;
-      }
-    } else {
-      machine.call(address, returnPc);
+    // EVERY mode body is one guest call that may legitimately outlive a display field, and only
+    // some of them were being given the entry that admits it. Mode 0 decompresses the resident
+    // resource table and needs several fields; mode 2 (0x8004FA60) runs the loader and sits in
+    // `FUN_8006BEA8`'s untimed spin on the loader busy byte 0x800A069E, which is cleared only by a
+    // sector completion that arrives on a later field. `ExecutionBudget::currentTurn` is one field
+    // by construction, and psxport states that exceeding it is an ORDINARY bounded exit the host
+    // commits, reports and then resumes deliberately — so a body that needs more than one field
+    // must be entered through `BoundedCall`. The non-suspending `call` above is for the small,
+    // per-field guest calls only; dispatching a spanning call through it turned the mode-2 loader
+    // wait into `[tekken3-lz:error] guest_call=0x8004FA60 exit=budget-exhausted` and
+    // `std::abort()` at game/core/guest_execution.cpp:93. The mode-0-only condition is what made
+    // the same defect invisible until the loader card.
+    state.buffer = buffer;
+    if (!machine.startModeCall(address, returnPc)) {
+      state.modeCallPending = true;
+      return;
     }
     machine.tick(mode == 19 ? 1u : 2u);
   } else {

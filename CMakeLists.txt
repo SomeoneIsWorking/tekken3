@@ -86,6 +86,29 @@ add_custom_target(
   USES_TERMINAL
   VERBATIM)
 
+add_executable(tekken3_mode_call_budget_resume tests/mode_call_budget_resume.cpp)
+target_link_libraries(tekken3_mode_call_budget_resume PRIVATE tekken3_runtime)
+add_test(NAME tekken3_mode_call_budget_resume COMMAND tekken3_mode_call_budget_resume)
+add_custom_target(
+  tekken3_mode_call_budget_resume_check
+  COMMAND "$<TARGET_FILE:tekken3_mode_call_budget_resume>"
+  DEPENDS tekken3_mode_call_budget_resume
+  USES_TERMINAL
+  VERBATIM)
+
+add_executable(tekken3_loader_lifecycle_contract tests/loader_lifecycle_contract.cpp)
+target_link_libraries(tekken3_loader_lifecycle_contract PRIVATE tekken3_runtime)
+add_test(NAME tekken3_loader_lifecycle_contract
+         COMMAND tekken3_loader_lifecycle_contract "${CMAKE_CURRENT_SOURCE_DIR}/scratch/bin/tekken3/SLUS_004.02")
+set_tests_properties(tekken3_loader_lifecycle_contract PROPERTIES SKIP_RETURN_CODE 77)
+add_custom_target(
+  tekken3_loader_lifecycle_contract_check
+  COMMAND "$<TARGET_FILE:tekken3_loader_lifecycle_contract>"
+          "${CMAKE_CURRENT_SOURCE_DIR}/scratch/bin/tekken3/SLUS_004.02"
+  DEPENDS tekken3_loader_lifecycle_contract
+  USES_TERMINAL
+  VERBATIM)
+
 add_executable(tekken3_decompressor_probe_contract tests/decompressor_probe_contract.cpp)
 target_link_libraries(tekken3_decompressor_probe_contract PRIVATE tekken3_runtime)
 add_test(NAME tekken3_decompressor_probe_contract COMMAND tekken3_decompressor_probe_contract)

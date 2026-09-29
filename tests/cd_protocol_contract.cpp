@@ -292,13 +292,13 @@ bool completionsAreDrainedAndRefusedWhenTheChainCannotServe() {
   RecordingCdMachine draining;
   draining.write32(kChainLive, 2);
   draining.write32(kChainCursor, 0);
-  if (tekken3::CdProtocol::deliverCompletions(draining, kInterruptedReturnPc) != 2 ||
-      draining.guestEvents != 2 || draining.calls.size() != 2) {
+  if (tekken3::CdProtocol::deliverCompletions(draining, kInterruptedReturnPc) != 2 || draining.guestEvents != 2 ||
+      draining.calls.size() != 2) {
     return false;
   }
   for (const Call &call : draining.calls) {
-    if (call.address != kGuestEventEntry || call.returnPc != kInterruptedReturnPc ||
-        call.a0 != kEventDataReady || call.a1 != 0) {
+    if (call.address != kGuestEventEntry || call.returnPc != kInterruptedReturnPc || call.a0 != kEventDataReady ||
+        call.a1 != 0) {
       return false;
     }
   }
@@ -319,8 +319,7 @@ bool completionsAreDrainedAndRefusedWhenTheChainCannotServe() {
   RecordingCdMachine overfull;
   overfull.write32(kChainLive, kChainDepth + 1u);
   overfull.write32(kChainCursor, 0);
-  if (tekken3::CdProtocol::deliverCompletions(overfull, kInterruptedReturnPc) != 0 ||
-      overfull.guestEvents != 0) {
+  if (tekken3::CdProtocol::deliverCompletions(overfull, kInterruptedReturnPc) != 0 || overfull.guestEvents != 0) {
     return false;
   }
 
@@ -328,8 +327,7 @@ bool completionsAreDrainedAndRefusedWhenTheChainCannotServe() {
   RecordingCdMachine outside;
   outside.write32(kChainLive, 1);
   outside.write32(kChainCursor, kChainDepth);
-  if (tekken3::CdProtocol::deliverCompletions(outside, kInterruptedReturnPc) != 0 ||
-      outside.guestEvents != 0) {
+  if (tekken3::CdProtocol::deliverCompletions(outside, kInterruptedReturnPc) != 0 || outside.guestEvents != 0) {
     return false;
   }
 
@@ -340,8 +338,7 @@ bool completionsAreDrainedAndRefusedWhenTheChainCannotServe() {
   wedged.guestEventAdvancesTheChain = false;
   wedged.write32(kChainLive, kChainDepth);
   wedged.write32(kChainCursor, 0);
-  if (tekken3::CdProtocol::deliverCompletions(wedged, kInterruptedReturnPc) != 0 ||
-      wedged.guestEvents != 1) {
+  if (tekken3::CdProtocol::deliverCompletions(wedged, kInterruptedReturnPc) != 0 || wedged.guestEvents != 1) {
     return false;
   }
   return true;

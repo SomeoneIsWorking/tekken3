@@ -4,10 +4,69 @@ title: The card's spin is on the CONTROLLER port, not on the CD completion
 status: open
 symptom: The NAMCO PRESENTS card never leaves; the wait loop does not exit at any field
 state_items: S003
-tags: tekken3,pad,sio,cd-completion,blocker
+tags: tekken3,pad,sio,cd-completion,blocker,sector-callback-dispatch
 created: 2026-09-29
 updated: 2026-09-29
 ---
+
+## SUPERSEDED 2026-09-29 — BOTH REFUTATIONS BELOW ARE DEAD TAPS. SEE ISSUE 0020.
+
+**The two claims this issue rests on are both wrong, and both are zeros from a census that could not
+report anything else.** `docs/issues/0020` re-measures with `tools/census_word.py`, which is pinned
+in both directions:
+
+| this issue said | measured, of 295,936 walked words |
+|---|---|
+| `0x800A069F` has **0 materialised readers** | **4 readers, 5 writers** — including `0x8006BEBC`, inside `FUN_8006BEA8`, the function mode 2 is sitting in |
+| **no instruction reads** `0x8009B8D0` | **6 readers, 1 writer** — and `0x8009213C  jalr $a3` calls the value loaded from it at `0x80092110  lw $a3,8($s1)` |
+
+The sweep that produced the zeros propagated `lui`/`addiu` **in the same register only**, and this
+image builds every global the way a MIPS compiler does — `lui $v0` then `addiu $s0,$v0,imm`, i.e.
+built in one register and consumed in another. It also reset its register file at every branch
+target, discarding cross-block constants, and the handler that dispatches the sector callback holds
+`$s1 = 0x8009B8C8` live across ~40 instructions and four branches.
+
+**So "the card's spin is on the controller port" is refuted, and the CD chain is the blocker after
+all** — which is what issue 0018 said before this issue. The hop-2 dispatch is real, it is
+`0x8009213C`, and it is exactly where issue 0018 left it.
+
+**What survives from this issue unchanged:** the SIO measurements below. They answer a different
+question, nothing in issue 0020 touches them, and whether the pad is *also* wrong is still open. The
+CD chain being the blocker does not make the controller port correct.
+
+## A PARKING NOTE: the sector-callback dispatch, found on 2026-09-29 and parked here — THE PARKING
+## IS WRONG, see issue 0020
+
+The note below is kept rather than deleted, because the error's shape is the useful part: it is a
+confident negative about a callback slot, resting on a census, and it parked the real fix.
+
+`FUN_80091F38` (`0x80091F38`) stores the sector callback at **`0x8009B8D0`**
+(`0x80091F78  sw v1, -24(s0)` over the `s0 = 0x8009B8E8` base). **No instruction in the
+authenticated text reads that word** — a `lui`+`addiu`/displacement propagation census over all
+295,936 text words, pinned by requiring the same sweep to find the writers and the readers of
+`0x8009B8C8`..`0x8009B8E8` first (0x80092058, 0x80092158, 0x80091F50, 0x80091FD0, 0x80092494).
+
+The per-sector handler the same routine arms — `0x80091F7C  jal 0x8009268C` with
+`0x8009B8DC`-relative `0x80092034` going into slot `0x800BE034` — instead calls the pointer at
+**`0x8009B8CC`**:
+
+    800920E8  lw    v1, 4(s1)      ; s1 = 0x8009B8C8, so v1 = *(0x8009B8CC)
+    800920F0  slt   v0, v0, s0
+    800920F4  beq   v0, zero, ...
+    800920F8  addiu a0, zero, 1
+    80092100  jalr  ra, v1
+
+and `FUN_80091F38` **zeroes that very word** at `0x80091F70  sw zero, -28(s0)`. So the sector
+callback is installed into a slot nothing dispatches, while the slot that IS dispatched is cleared
+by the same routine. At the frontier, post-hop-1, `0x8009B8D0` = `0x8006C2A0` and `0x8009B8E8` = 1,
+so the install did happen and the dispatch still cannot reach it.
+
+**CORRECTION (issue 0020).** The listing above is read correctly but **concluded wrongly**, and the
+error is one instruction of bookkeeping. `0x800920E8  lw $v1,4($s1)` loads `0x8009B8CC` into `$v1`
+— but `$v1` is then used only for the `slt` comparison, and the `jalr $a1`-shaped call at
+`0x80092100` goes through a register loaded **at `0x800920D8  lw $v1,8($s1)`**, which is
+`0x8009B8C8 + 8` = **`0x8009B8D0`** — the sector-callback slot after all. The same handler's second
+arm is the one the test pins: `0x80092110  lw $a3,8($s1)` then `0x8009213C  jalr $a3`.
 
 ## WHAT THIS ISSUE GOT WRONG ON FIRST WRITE, AND WHAT SURVIVED
 
@@ -28,6 +87,14 @@ Three separate errors, in a comment that had never been checked against the byte
 And the word that probe called the wait byte, `0x800A069F`, has **0 materialised readers** in the
 whole text. So the byte several earlier notes call "mode 2, phase 8"'s wait target is not read by any
 instruction that materialises its address.
+
+**CORRECTION (issue 0020): the sentence above is false and so is the one it justifies.**
+`0x800A069F` has **4 readers and 5 writers** in the authenticated text. The sweep that reported 0
+propagated a global's address only when the `lui` and the `addiu` wrote the **same** register, and
+this image writes the base in `$v0` and consumes it in `$s0`. `0x8006BEBC` — inside `FUN_8006BEA8`,
+the very function mode 2 is sitting in — reads it. The 18 readers of `0x8009B964` quoted below came
+out of the same sweep, so they are not independently trustworthy either; the direction of the error
+is a **under**count, so a genuine 18 can only be larger, but the figure should not be quoted.
 
 The reason a wrong disassembly survives review is that it is a plausible, specific, quoted string.
 **A claim about an instruction is a measurement, and this one had none behind it.**

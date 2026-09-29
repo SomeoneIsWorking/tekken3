@@ -4,9 +4,9 @@ title: The in-segment clock fix ended the pad stall — and the card still does 
 status: open
 symptom: the pad wait loop now returns, the product runs 25,030 fields and 1.44 G guest instructions, and 0x800A069F is still 1 in every sample
 state_items: S003,S004,S007,S008
-tags: re-first,cd,completion,interrupt,loader,clock,recovery
+tags: re-first,cd,completion,interrupt,loader,clock,recovery,hop1-delivered
 created: 2026-09-28
-updated: 2026-09-28
+updated: 2026-09-29
 ---
 
 ## Answer
@@ -22,6 +22,76 @@ delivers.** The guest's own loader registers a completion callback, the callback
 unread, and the port has no mechanism that would ever call it. This is now a **title defect in a
 native override**, and it is the first one in this repository: issue 0017 and issue 0016 both
 attributed the stall to the framework and both are wrong about the remaining half.
+
+## MEASURED 2026-09-29 — HOP 1 IS DELIVERED AND MEASURED; THE CARD STILL DOES NOT LEAVE
+
+**`c93d0b1` landed `CdProtocol::deliverCompletions` without quoting a run. Here is the run.**
+
+`cd_sync.cpp` enters the guest's own CD-event routine `FUN_8008E928` with `$a0 = 2` and the
+INTERRUPTED return address after each completed operation. It works, and the evidence is the
+guest's own words in a live RAM capture at field 24,968 — **not** an inference:
+
+| word | before (`cdchain1`) | after (`cdchain_fixed`) |
+|---|---|---|
+| `0x800A3DD0` — chain record 3 at `+16` | **`0x8006C26C`** | `0x00000000` |
+| `0x800A3E3C` — ring cursor | `0` | **`4`** |
+| `0x800A3E40` — live records | `4` | **`0`** |
+| all 8 pool records' state word | `1` | **`0`** |
+| `0x8009B8D0` — the sector-callback slot | `0` | **`0x8006C2A0`** |
+| `0x8009B8E8` — the registration flag | `0` | **`1`** |
+| `0x800AE204` / `0x800AE224` — mode / phase | `2` / `8` | `2` / `8` |
+
+**So the registered callback ran.** `0x8006C26C` is gone from the queue because `FUN_8008E928`
+consumed its record, and it did what `0x8006C278`/`0x8006C288` say a class-2 completion does:
+`0x8009B8D0` holds `0x8006C2A0` and `0x8009B8E8` is `1`. A 524,288-word census of the whole capture
+agrees — `0x8006C26C` at **0 of 524,288** words, `0x8006C2A0` at **exactly one**, `0x8009B8D0`.
+
+**And the card still does not leave.** Mode 2 / phase 8 at field 25,123, `faults=0`,
+`fallback: calls=0`, 1,448,753,041 executed instructions in 242,402,963 blocks from 1,956
+translated. The last `[wide]` line is `native picture: aspect=0 wide_engine=0 native_width=368
+render_width=368` — the 4:3 leg, so that is the correct answer here, not a regression.
+
+**This does not make hop 2 the frontier, and it is worth saying why, because the obvious
+inference is wrong.** ~~One observation made while looking for hop 2: **no instruction in the
+authenticated text reads `0x8009B8D0`**~~ … ~~the sector-callback dispatch is a real but
+**downstream of a broken premise**. The card's spin is on the controller port, and issue 0019 owns
+that.~~
+
+**CORRECTION 2026-09-29 (issue 0020). That paragraph is REFUTED, and the two facts it rests on are
+both dead taps.** `0x8009B8D0` has **6 readers and 1 writer** in 295,936 walked words, and
+`0x800A069F` has **4 readers and 5 writers** — the reader at `0x8006BEBC` is inside `FUN_8006BEA8`,
+the function mode 2 is sitting in. The dispatch is `0x80092110 lw $a3,8($s1)` into
+`0x8009213C jalr $a3`. The sweep behind both zeros propagated `lui`/`addiu` only within one register
+and this image builds every global across two. **The card's blocker is NOT the controller port, and
+"the CD chain is the blocker" — the reading this issue originally took — is the one that survives.**
+
+**A live run, and the position has moved since the paragraph above was written.** Over the control
+channel: mode 2, phase 8, `0x800A069F` = 1, `0x800A069E` = **0**, `0x8009B8D0` = **`0x8006C2A0`**
+installed, `0x8009B8E8` = 1 registered, 4,167,259,337 executed instructions, `faults=0`,
+`fallback: calls=0`. So hop 2 is **armed**, which this issue's table below still calls "never
+armed", and — because `0x800A069E` is 0 while `0x800A069F` is 1 — the guest is **not** in
+`FUN_8006BEA8`'s inner spin, since that loop exits on `0x800A069E` and clears the byte on the way
+out. **The blocker is neither the controller port nor (any longer) the CD chain, and is not yet
+named.** Issue 0020 owns the frontier.
+
+**A WILD-CONTROL-TRANSFER STORM IS PRESENT AND IS NOT OURS.** The post-fix run logs 25,294
+`[executor:error] guest transferred control to 0x000000A0/0xB0/0xC0` lines; the pre-fix run on the
+older framework logs **0**. A one-variable discriminator settles it: pre-fix
+`game/core/cd_sync.{h,cpp}` from `c93d0b1^` rebuilt against the **current** framework still logs
+**23,543** of them, same three targets. The storm is a **framework** regression introduced between
+the two runs, not a consequence of `c93d0b1`, and psxport's newest commit `77c13f0c` ("Name the
+block behind a wild control transfer, and never go silent on the fatal one") is already on it.
+**Do not read it as a regression from the CD completion work.** It does mean every product number
+above comes from a framework logging a guest fault it should not, which bounds how far those
+figures can be trusted.
+
+**The four negative controls are load-bearing, shown by mutating the shipping file and rebuilding
+only the contract.** Delivering nothing, dropping the `live > kChainDepth` refusal, dropping the
+`cursorBefore >= kChainDepth` refusal, and dropping the liveness stop each turn
+`tekken3_cd_protocol_contract` **red** with `cd_protocol_contract: FAIL`; restoring the file turns
+it green. (The first attempt at the live-count mutation removed the only use of `live` and failed
+to COMPILE — recorded because a control that cannot compile proves nothing about behaviour, and the
+re-run used a never-true form that keeps the variable live.)
 
 ## 1. The clock fix is measured, and it is not the fix
 
@@ -174,8 +244,8 @@ existing mechanism.
 
 | hop | what it is | whose it is | state |
 |---|---|---|---|
-| 1 | the CD chain's completion callback `FUN_8006C26C`, sitting in the record at `0x800A3DD0` | the title's own CD driver, and the title's own `jal` passed it in | **undelivered** |
-| 2 | the sector callback `FUN_8007C2A0`, installed into `0x8009B8D0` by hop 1 | the framework's `cd_drive_stock_read`, pointed at a slot the title must declare | **never armed, because hop 1 never ran** |
+| 1 | the CD chain's completion callback `FUN_8006C26C`, sitting in the record at `0x800A3DD0` | the title's own CD driver, and the title's own `jal` passed it in | **DELIVERED and measured 2026-09-29** — the record drained (cursor 0 -> 4, live 4 -> 0) and the callback installed `0x8006C2A0` at `0x8009B8D0`; see the section above. It was never the card's blocker: `0x800A069F` has 0 readers (issue 0019) |
+| 2 | the sector callback `FUN_8007C2A0`, installed into `0x8009B8D0` by hop 1, and dispatched by the per-sector handler at `0x8009213C` | the framework's `cd_drive_stock_read`, pointed at a slot the title must declare | **ARMED and measured 2026-09-29** — `0x8009B8D0` holds `0x8006C2A0` and `0x8009B8E8` is 1 (issue 0020). **Still not observed to run**: `0x800A069F` is still 1. What invokes `0x80092034` is the open question |
 
 ## 4. The mode-3 recovery: the method is built and gated, and the subject is not there yet
 
@@ -263,20 +333,19 @@ Each of these would make this issue wrong, and each is a measurement rather than
 
 ## Next
 
-1. **Own the CD completion, in the title, at the point retail's controller interrupt ran.** The
-   contract the framework already states is "call the callback the game already registered"; for this
-   title the registered callback is the chain's `$a3`, and the sector callback lands in `0x8009B8D0`
-   afterwards. Both hops are named above, and hop 2 is the framework's loop pointed at a slot this
-   title must declare.
-2. **Re-run `tools/verify_pad_wait_exit.py` after it.** The `segmented` arm is now a duplicate of
-   `retail`; it is a spent mutant and the tool's `judge()` needs widening for the post-fix world.
-3. **Re-run this issue's §2 probe**, in this order: `0x800A069F` with `0x8009B8E8`; then
-   `0x800AE204` leaving 2. **Mode 3 reached is success; mode 2 phase 9 is not.**
-4. **Then `arm=window` against the new capture.** That is the moment the 11 handlers stop being data,
-   and it is the measurement this issue's §4 is built to receive.
-5. **Then the six other loaders**, in the order `arm=loaders` lists them, reading each one's resource
-   table the way §4 reads `0x800B8D58` — a stride-8 `{size, offset}` array of LZ payloads inside the
-   executable. One of them holds the code images, and it is readable from the disc with no run at all.
+1. **Not hop 2. The card's spin is the controller port, and issue 0019 owns it.** Hop 1 is delivered
+   and measured (see the section at the top). The `0x8009B8D0` / `0x8009B8CC` dispatch question found
+   while looking for hop 2 is real but downstream of a refuted premise, and is parked there.
+2. **Decide SIO CTRL bit 13** — issue 0019's open question, and the one that decides whether the
+   card's spin has a fix at all. Beetle's vendored `sio.c` is a self-described dummy, so the
+   evidence has to come from this image.
+3. **Then re-run the issue 0018 §2 probe** once the port answers: `0x800AE204` leaving 2 is the
+   only success condition. **Mode 3 reached is success; mode 2 phase 8 is not.**
+4. **Re-run `tools/verify_pad_wait_exit.py` after hop 2.** Its `segmented` arm is a spent mutant
+   and `judge()` needs widening for the post-fix world (unchanged by this issue).
+5. **Then `arm=window` against a capture taken past the card** — the measurement
+   `tools/recover_runtime_handlers.py` §4 is built to receive.
+6. **Then the six other loaders**, in the order `arm=loaders` lists them.
 
 ## Evidence discipline
 

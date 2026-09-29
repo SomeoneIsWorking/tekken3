@@ -54,7 +54,6 @@ constexpr std::uint32_t kMissingParameterFormat = 0x80028570u;
 constexpr std::uint32_t kGuestEventEntry = 0x8008E928u;
 constexpr std::uint32_t kEventDataReady = 2u;
 
-// The ring cursor, read at 0x8008E954 and written by the class-2 branch at 0x8008EA1C/0x8008EA24.
 // The record pool those callbacks live in, and the depth its own initialiser gives it:
 //   0x8008EC64  addiu s0,s0,15736      ; s0 = 0x800A0000 + 15736 = 0x800A3D78
 //   0x8008EC74  slti  v0,s1,8          ; eight records
@@ -349,10 +348,7 @@ void dispatch(Core &core, std::uint32_t address, std::uint32_t returnPc) {
 
 void cdQueueStartOverride(Core *core) {
   const R3000 caller = static_cast<const R3000 &>(*core);
-  auto finish = [&](std::uint32_t value) {
-    static_cast<R3000 &>(*core) = caller;
-    core->r[kV0] = value;
-  };
+  const std::uint32_t interruptedReturnPc = caller.r[31];
 
   std::uint32_t location = caller.r[kA0];
   if (caller.r[kA0] == 0) {
@@ -365,7 +361,7 @@ void cdQueueStartOverride(Core *core) {
   static_cast<R3000 &>(*core) = caller;
   core->r[kV0] = queued;
   CoreCdMachine completed(*core);
-  CdProtocol::deliverCompletions(completed, core->r[31]);
+  CdProtocol::deliverCompletions(completed, interruptedReturnPc);
 }
 
 void cdQueueResultOverride(Core *core) {
