@@ -234,7 +234,15 @@ bool frameStepKeepsServiceAndRenderOrder() {
       machine.operations[14].a2 != 0x80063020u) {
     return false;
   }
-  return !state.modeCallPending && machine.boundedStarts == 0 && machine.boundedResumes == 0 &&
+  // Mode 3 now goes through the SUSPENDING entry like every other mode, because a mode body may
+  // legitimately outlive a display field and the non-suspending entry aborts on `budget-exhausted`.
+  // This assertion was `boundedStarts == 0` — the mode-0-only contract — and it is the assertion the
+  // deliberate `frame_loop.cpp` change made false. It is updated here rather than deleted, because
+  // the ORDER of the surrounding operations is the real subject of this contract and `boundedStarts`
+  // is one line of it; dropping the line would have hidden the change instead of recording it.
+  // `boundedStartReturns` is true by default, so the call completes inside the field and the rest of
+  // the sequence is unchanged.
+  return !state.modeCallPending && machine.boundedStarts == 1 && machine.boundedResumes == 0 &&
          machine.memory[0x800AFA4Cu] == 10 && machine.memory[0x800A8C54u] == 0x800A85A4u &&
          machine.registers[2] == 0x800B0000u && machine.guestTicks == 71;
 }

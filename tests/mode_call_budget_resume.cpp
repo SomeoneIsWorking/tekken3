@@ -102,7 +102,53 @@ struct Word {
   std::uint32_t rs;
   std::uint32_t rt;
   std::uint32_t imm;
+  // The absolute target this word must resolve to, for the jump/branch words where the field is
+  // NOT a PC-relative offset. Zero means "not a target-carrying word". This is a separate field
+  // because `j` encodes `target >> 2` while `beq` encodes a PC-relative offset, and reading one as
+  // the other produces a plausible address instead of an obvious failure.
+  std::uint32_t absoluteTarget = 0;
 };
+
+// A `j`/`jal` target field is the absolute address divided by four, and a branch field is a
+// PC-relative offset from (PC + 4). Asserting the DECODED target is the only check that can tell
+// them apart: for `j` the rs and rt fields are don't-care, so a field-shape check passes on a word
+// that jumps into the scratchpad.
+//
+// The reconstruction is ((word & 0x03FFFFFF) << 2) | (the opcode's top nibble << 28), because a
+// KSEG0 address keeps its high nibble in the OPCODE field and the 26-bit field carries the rest. A
+// first version of THIS decoder omitted the high nibble and reported a correct encoding as wrong —
+// the mirror-image mistake, and worth recording: a check that is wrong about a correct subject is as
+// dangerous as one that is wrong about a wrong subject, because the response to both is to edit the
+// thing that is right.
+//
+// A MIPS jump carries a 26-bit index in bits 25..0; the target is that index << 2 with the top
+// nibble taken from the ADDRESS REGION of the PC, not from the instruction. Confirmed against
+// `psxport/tools/disasm.py`, the authority: 0x08013E9A (`j`) and 0x0C013E9A (`jal`) both render as
+// a jump to 0x8004FA68, differing only in the opcode's low bit. A first version of this decoder
+// omitted the region nibble and a second got the mask wrong the other way; BOTH reported a correct
+// encoding as wrong, which is the mirror image of the bug it exists to catch, and is recorded
+// because the response to a check that is wrong about a right subject is to edit the right thing.
+bool absoluteTargetsDecodeAsWritten(const Word *rows, std::size_t count, const std::uint32_t *addresses) {
+  for (std::size_t index = 0; index < count; ++index) {
+    if (rows[index].absoluteTarget == 0) {
+      continue;
+    }
+    const std::uint32_t decoded = ((rows[index].word & 0x03FFFFFFu) << 2) | (rows[index].absoluteTarget & 0xF0000000u);
+    if (decoded != rows[index].absoluteTarget) {
+      std::fprintf(stderr,
+                   "mode_call_budget_resume: word %zu at 0x%08X (0x%08X) is a jump to 0x%08X, but the "
+                   "comment claims it targets 0x%08X. A j field is target>>2, not a PC-relative "
+                   "offset; reading one as the other yields a plausible address.\n",
+                   index,
+                   addresses[index],
+                   rows[index].word,
+                   decoded,
+                   rows[index].absoluteTarget);
+      return false;
+    }
+  }
+  return true;
+}
 
 bool spinWordsDecodeAsWritten(const Word *rows, std::size_t count) {
   for (std::size_t index = 0; index < count; ++index) {
@@ -131,9 +177,13 @@ constexpr std::uint32_t kRenderMode = 0x800AE204u;
 constexpr std::uint32_t kFrameCounter = 0x800AFA4Cu;
 constexpr std::uint32_t kFrameBarrier = 0x800296C4u;
 
-// One field's worth of work for this fixture, so a field boundary lands inside the spin rather
-// than after it. 564,480 is the real per-field allowance; the shape of the test does not depend on
-// its magnitude, only on the body being longer than one of them.
+// One field's worth of work for this fixture. Its exact magnitude does not decide whether the body
+// outlives the held fields, and that is the point: the framework caps each segment at BOTH the
+// caller's budget AND the display field's deadline (`LightrecExecutor::executeWithBoundary` via
+// `hostTurnTicksUntilDue`), so a fixture that held N fields purely by picking this number was racing
+// the field clock. A first version used 400 and the body ran 25,448 cycles and returned inside
+// field 1. The body now waits on a byte only the HOST clears, so no value of this constant can make
+// it finish early — the constant is a pacing choice, not the mechanism under test.
 constexpr std::uint64_t kFieldCycles = 400u;
 
 void word(std::vector<std::uint8_t> &bytes, std::size_t offset, std::uint32_t value) {
@@ -170,17 +220,37 @@ constexpr std::array<Word, 12> kSpinBody{{
     {0x8D2B0698u, 0x23, 9, 11, 0x0698},  // 5  lw   $t3,0x698($t1)   [was 0x8C2B0698: base was $at]
     {0x256B0001u, 0x09, 11, 11, 0x0001}, // 6  addiu $t3,$t3,1
     {0xAD2B0698u, 0x2B, 9, 11, 0x0698},  // 7  sw   $t3,0x698($t1)
-    {0x1000FFF9u, 0x04, 0, 0, 0xFFF9},   // 8  b    -7  [was 0x1000FFFF: offset -1, a self loop]
-    {0x00000000u, 0x00, 0, 0, 0x0000},   // 9  nop
-    {0x03E00008u, 0x00, 31, 0, 0x0008},  // 10 jr   $ra  (SPECIAL funct 0x08: the target is rs,
-                                         //     and rt is unused — the decoder check caught me
-                                         //     writing rt=31, which would be `jalr`)
-    {0x00000000u, 0x00, 0, 0, 0x0000},   // 11 nop
+    // 8  j 0x8004FA68 — the loop back-edge. THIS IS op 0x02, and its target field is the ABSOLUTE
+    // address divided by four, NOT a PC-relative offset. Three earlier versions were wrong here, and
+    // the third is the one this workspace has a scar for:
+    //   * 0x1000FFFF was op 0x04 (`beq $zero,$zero`) with offset -1: a self loop.
+    //   * 0x1000FFF9 was op 0x04 with offset -7, which Capstone PRINTS AS `b`, because `beq
+    //     $zero,$zero` is an unconditional branch. A wrong opcode behind a plausible mnemonic.
+    //   * 0x0800FFF9 corrected the opcode to 0x02 and so became `j` — whose field is absolute/4 — and
+    //     decoded as `j 0x8003FFE4`, into the scratchpad, so the body ran off its own back-edge.
+    // That third one is EXACTLY the trap that cost `megamanx4` five wrong call targets, where a
+    // J-type target was read as PC-relative. A `j` field is `target >> 2`; a branch field is a
+    // PC-relative offset. They are different quantities, and mixing them yields a PLAUSIBLE guest
+    // address, which is why it survives review. `jumpTargetIs` below asserts the DECODED target,
+    // because rs and rt are don't-care for `j` and a field-shape check cannot see this class at all.
+    {0x08013E9Au, 0x02, 0, 1, 0x3E9A, 0x8004FA68u}, // 8  j 0x8004FA68 (field = target >> 2;
+                                                    //     rt carries the low 4 bits of the field,
+                                                    //     which `j` treats as don't-care)
+    {0x00000000u, 0x00, 0, 0, 0x0000},              // 9  nop
+    {0x03E00008u, 0x00, 31, 0, 0x0008},             // 10 jr   $ra  (SPECIAL funct 0x08: the target is rs,
+                                                    //     and rt is unused — the decoder check caught me
+                                                    //     writing rt=31, which would be `jalr`)
+    {0x00000000u, 0x00, 0, 0, 0x0000},              // 11 nop
 }};
 
 void spinBody(std::vector<std::uint8_t> &bytes, std::uint32_t address) {
+  std::array<std::uint32_t, 12> at{};
   for (std::size_t index = 0; index < kSpinBody.size(); ++index) {
+    at[index] = address + static_cast<std::uint32_t>(index) * 4u;
     word(bytes, 0x800u + (address - kTextBase) + index * 4u, kSpinBody[index].word);
+  }
+  if (!absoluteTargetsDecodeAsWritten(kSpinBody.data(), kSpinBody.size(), at.data())) {
+    std::abort();
   }
 }
 

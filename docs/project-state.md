@@ -59,6 +59,21 @@ remains one candidate, and the specific question is what invokes `0x80092034` at
 **What has NOT changed:** no fight is reached, S003 stays `partial`, and S007 (widescreen showing
 real scene content) is untouched — the only picture is still the authored 4:3 NAMCO PRESENTS card.
 
+**The gate is 30 tests with 2 red, and BOTH reds are known and owned, not skipped.** `build` is a
+configured tree and `ctest --test-dir build -N` reports **30**, so this is a real gate and not the
+ninth dead tap this workspace has already hit on an unconfigured directory.
+
+| test | state | why |
+|---|---|---|
+| `tekken3_psxport_pin_live` | red | **the bump is REFUSED, and correctly so.** `reconfigure -> build -> test -> bump` was run in that order: the reconfigure wrote `build/psxport_resolved.txt` at `d74e7f63`, the build is clean and the suite ran. `--bump` then refused with *"framework ... is dirty or changed since configure"* — because **another agent has 30 uncommitted files in `psxport`**, so the tree this port is built against is not a committed state and recording it as the verified pin would be false. The pin is therefore **left at `7981f596` deliberately.** This is the guard working, not a defect |
+| `tekken3_mode_call_budget_resume` | red | the inherited test's synthetic guest body is now correctly assembled, but its `sw` does not land in the `Core` memory it reads while the body demonstrably runs — **issue 0021**, a framework question psxport cannot answer from here |
+| `tekken3_frame_loop_contract` | **now green** | it asserted the OLD contract (`boundedStarts == 0`, mode 3 through the non-suspending entry). Updated to the new one, and its own pass message already claimed "3-field bounded continuation" — it was written for this behaviour and only the count was stale |
+
+**The frame-loop change itself is correct and kept**: routing every mode body through `BoundedCall`
+is required because mode 2's loader legitimately outlives a display field and the non-suspending
+entry aborts on `budget-exhausted`. `tekken3_frame_loop_contract` and `tekken3_mode_call_budget_resume`'s
+own `arm=control` both still show the two entries behaving differently, so they remain distinct.
+
 **Every product depth figure in this file was last taken on a framework that is logging a guest fault it should not, and that bounds how far it can be trusted.** A post-hop-1 run logs ~25,000 `[executor:error] guest transferred control to 0x000000A0/0xB0/0xC0` lines where an earlier run on an older framework logged **0**. A one-variable discriminator settles the attribution: pre-fix `game/core/cd_sync.{h,cpp}` from `c93d0b1^` rebuilt against the **current** framework still logs 23,543 of the same errors, so it is a **framework** regression and not a consequence of the CD completion work; psxport's own newest commit `77c13f0c` ("Name the block behind a wild control transfer, and never go silent on the fatal one") is already on it. Recorded in issue 0018 so the number is not re-read as a `c93d0b1` regression.
 
 **The framework clock fix landed, and it was not the blocker (issue 0018).** psxport `5d4b3327`
