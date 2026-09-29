@@ -290,7 +290,7 @@ bool perturbedProgramsAreRejected() {
                  "neighbour instead of refusing\n");
     return false;
   }
-  std::printf("program fields: %zu field perturbation(s) rejected, so the field check can fail\n", 5);
+  std::printf("program fields: %d field perturbation(s) rejected, so the field check can fail\n", 5);
   return misScheduledBodyStoresNothing();
 }
 

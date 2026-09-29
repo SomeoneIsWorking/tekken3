@@ -100,7 +100,7 @@ bool checkPins(const std::vector<std::uint8_t> &bytes, std::uint32_t tAddr, std:
       ok = false;
       continue;
     }
-    const auto offset = static_cast<std::size_t>(kTextFileOffset + (pin.address - tAddr));
+    const auto offset = std::size_t{kTextFileOffset} + std::size_t{pin.address - tAddr};
     std::uint32_t got = 0;
     std::memcpy(&got, bytes.data() + offset, 4);
     if (got == pin.word) {

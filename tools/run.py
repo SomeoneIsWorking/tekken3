@@ -204,6 +204,9 @@ def announce_framework(
 
 def argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__, add_help=False)
+    # Help is written to the stream run_launcher was handed, so its styling must not follow this
+    # process's terminal environment: Python 3.14 argparse honours FORCE_COLOR even for a StringIO.
+    parser.color = False
     parser.add_argument(
         "-h",
         "--help",
