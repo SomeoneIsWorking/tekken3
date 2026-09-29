@@ -20,18 +20,24 @@
 // releases it by clearing that byte. Everything under test — `FrameLoop::step`'s choice of entry,
 // `guest::BoundedCall`'s budget-resume, and `guest::call`'s refusal — is the shipping code.
 //
-// Arms, each answering a different question so a reader cannot mistake one for another:
+// ARMS, each answering a different question so a reader cannot mistake one for another:
 //
 //   arm=resume    the shipping frame loop over N fields. It MUST suspend, MUST resume, MUST hold
 //                 the held field (pad + presentation + audio once per field, barrier NOT re-run,
 //                 guest frame counter NOT advanced), and MUST finish when the host releases the
 //                 busy byte — all with exit status 0. On the unfixed code this process dies inside
 //                 `guest::call` on the first `step`, which is the failure this test exists for.
-//   arm=control   the SAME image and the SAME spinning body entered through the NON-suspending
-//                 `guest::call`, in a forked child, which must be observed dying on SIGABRT. It is
-//                 the discriminator for arm=resume: a green arm=resume means the call suspends, not
-//                 that the refusal stopped existing. If this arm ever stops aborting, the two
-//                 entries have converged and the pairing above is no longer measuring anything.
+//   arm=control   the SAME image and the SAME body entered through the NON-suspending `guest::call`,
+//                 in a forked child, which must be observed dying on SIGABRT. It is the
+//                 discriminator for arm=resume: a green arm=resume means the call suspends, not that
+//                 the refusal stopped existing. If this arm ever stops aborting, the two entries have
+//                 converged and the pairing above is no longer measuring anything.
+//
+// WHY THE GUEST BODY IS BUILT FROM FIELDS AND NOT FROM HEX. See `tests/asm_fields.h`: the body was
+// transcribed as literals and was wrong five times, every one of which DISASSEMBLED to a plausible
+// mnemonic. The last two were found by the field decoder that now builds the words, which is the
+// only control that could have found them.
+#include "asm_fields.h"
 #include "core.h"
 #include "execution_exit.h"
 #include "frame_loop.h"
@@ -46,145 +52,259 @@
 #include <cstdio>
 #include <cstring>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include <sys/wait.h>
 #include <unistd.h>
 
 namespace {
+using namespace tekken3::test;
 
 // PS-X EXE layout: text at t_addr 0x80010000, big enough to reach the highest address the frame
 // loop dispatches into (kSelectBuffer at 0x80080D98).
 constexpr std::uint32_t kTextBase = 0x80010000u;
 constexpr std::uint32_t kTextEnd = 0x80082000u;
 
-// The measured mode table index and the guest words `FUN_8006BEA8` spins on.
+// The measured mode table index and the guest words the body spins on.
 constexpr std::uint32_t kModeFunction2 = 0x8004FA60u;
 constexpr std::uint32_t kModeReturnPc2 = 0x80028C9Cu + 2u * 0x10u;
 constexpr std::uint32_t kLoaderBusy = 0x800A069Eu;
 constexpr std::uint32_t kSpinCounter = 0x800A0698u;
-
-// The three fields of a MIPS word, read back out of the encoding.
-//
-// This exists because the body below was hand-assembled TWICE and was wrong twice, in two
-// different registers' worth of the same mistake:
-//
-//   * `0x1000FFFF` for `b -7`. A branch offset is the 16-bit immediate SIGN-EXTENDED from (PC+4),
-//     so -7 is 0xFFF9. 0xFFFF is -1, which is a one-instruction SELF LOOP that never reaches the
-//     counter write, so the test failed for a reason that had nothing to do with what it exists to
-//     detect.
-//   * `0x8C2B0698` for `lw $t3,0x698($t1)`. The base register is bits 25..21: 0x8C2B0698 carries
-//     rs = 1 ($at), not 9 ($t1). A four slipped in the register field and the load read from
-//     $at, so the counter never advanced.
-//
-// The second is the SAME error class as the `0x8009B960` / `0x8009B964` four that issue 0019 records
-// reaching a written record, and the first is the same class as the five wrong call targets
-// `megamanx4` shipped from a hand-decoded listing. A hand-assembled instruction is a CLAIM, and this
-// one has now been wrong twice in a row, so the words are decoded and checked here rather than
-// trusted. If a word stops matching what its comment says, the test says so and fails.
-struct Insn {
-  std::uint32_t op;
-  std::uint32_t rs;
-  std::uint32_t rt;
-  std::uint32_t imm;
-};
-
-Insn decode(std::uint32_t word) {
-  return {word >> 26, (word >> 21) & 0x1Fu, (word >> 16) & 0x1Fu, word & 0xFFFFu};
-}
-
-// The spin body, written as (word, what the word must decode to) so the check is a COMPARISON
-// against a separate reading rather than a restatement of the same constant. Each row is
-// (op, rs, rt, imm).
-struct Word {
-  std::uint32_t word;
-  std::uint32_t op;
-  std::uint32_t rs;
-  std::uint32_t rt;
-  std::uint32_t imm;
-  // The absolute target this word must resolve to, for the jump/branch words where the field is
-  // NOT a PC-relative offset. Zero means "not a target-carrying word". This is a separate field
-  // because `j` encodes `target >> 2` while `beq` encodes a PC-relative offset, and reading one as
-  // the other produces a plausible address instead of an obvious failure.
-  std::uint32_t absoluteTarget = 0;
-};
-
-// A `j`/`jal` target field is the absolute address divided by four, and a branch field is a
-// PC-relative offset from (PC + 4). Asserting the DECODED target is the only check that can tell
-// them apart: for `j` the rs and rt fields are don't-care, so a field-shape check passes on a word
-// that jumps into the scratchpad.
-//
-// The reconstruction is ((word & 0x03FFFFFF) << 2) | (the opcode's top nibble << 28), because a
-// KSEG0 address keeps its high nibble in the OPCODE field and the 26-bit field carries the rest. A
-// first version of THIS decoder omitted the high nibble and reported a correct encoding as wrong —
-// the mirror-image mistake, and worth recording: a check that is wrong about a correct subject is as
-// dangerous as one that is wrong about a wrong subject, because the response to both is to edit the
-// thing that is right.
-//
-// A MIPS jump carries a 26-bit index in bits 25..0; the target is that index << 2 with the top
-// nibble taken from the ADDRESS REGION of the PC, not from the instruction. Confirmed against
-// `psxport/tools/disasm.py`, the authority: 0x08013E9A (`j`) and 0x0C013E9A (`jal`) both render as
-// a jump to 0x8004FA68, differing only in the opcode's low bit. A first version of this decoder
-// omitted the region nibble and a second got the mask wrong the other way; BOTH reported a correct
-// encoding as wrong, which is the mirror image of the bug it exists to catch, and is recorded
-// because the response to a check that is wrong about a right subject is to edit the right thing.
-bool absoluteTargetsDecodeAsWritten(const Word *rows, std::size_t count, const std::uint32_t *addresses) {
-  for (std::size_t index = 0; index < count; ++index) {
-    if (rows[index].absoluteTarget == 0) {
-      continue;
-    }
-    const std::uint32_t decoded = ((rows[index].word & 0x03FFFFFFu) << 2) | (rows[index].absoluteTarget & 0xF0000000u);
-    if (decoded != rows[index].absoluteTarget) {
-      std::fprintf(stderr,
-                   "mode_call_budget_resume: word %zu at 0x%08X (0x%08X) is a jump to 0x%08X, but the "
-                   "comment claims it targets 0x%08X. A j field is target>>2, not a PC-relative "
-                   "offset; reading one as the other yields a plausible address.\n",
-                   index,
-                   addresses[index],
-                   rows[index].word,
-                   decoded,
-                   rows[index].absoluteTarget);
-      return false;
-    }
-  }
-  return true;
-}
-
-bool spinWordsDecodeAsWritten(const Word *rows, std::size_t count) {
-  for (std::size_t index = 0; index < count; ++index) {
-    const Insn got = decode(rows[index].word);
-    if (got.op != rows[index].op || got.rs != rows[index].rs || got.rt != rows[index].rt ||
-        got.imm != rows[index].imm) {
-      std::fprintf(stderr,
-                   "mode_call_budget_resume: word %zu 0x%08X decodes op=0x%02X rs=r%u rt=r%u imm=0x%04X, "
-                   "but the comment claims op=0x%02X rs=r%u rt=r%u imm=0x%04X\\n",
-                   index,
-                   rows[index].word,
-                   got.op,
-                   got.rs,
-                   got.rt,
-                   got.imm,
-                   rows[index].op,
-                   rows[index].rs,
-                   rows[index].rt,
-                   rows[index].imm);
-      return false;
-    }
-  }
-  return true;
-}
 constexpr std::uint32_t kRenderMode = 0x800AE204u;
 constexpr std::uint32_t kFrameCounter = 0x800AFA4Cu;
 constexpr std::uint32_t kFrameBarrier = 0x800296C4u;
 
 // One field's worth of work for this fixture. Its exact magnitude does not decide whether the body
 // outlives the held fields, and that is the point: the framework caps each segment at BOTH the
-// caller's budget AND the display field's deadline (`LightrecExecutor::executeWithBoundary` via
-// `hostTurnTicksUntilDue`), so a fixture that held N fields purely by picking this number was racing
-// the field clock. A first version used 400 and the body ran 25,448 cycles and returned inside
-// field 1. The body now waits on a byte only the HOST clears, so no value of this constant can make
-// it finish early — the constant is a pacing choice, not the mechanism under test.
-constexpr std::uint64_t kFieldCycles = 400u;
+// caller's budget AND the display field's deadline, so a fixture that held N fields purely by
+// picking this number was racing the field clock. The body waits on a byte only the HOST clears,
+// so no value of this constant can make it finish early — it is a pacing choice, not the mechanism.
+constexpr std::uint64_t kFieldCycles = 4000u;
+
+// ---------------------------------------------------------------------------
+// THE GUEST BODY, BUILT FROM FIELDS.
+//
+//   0  lui  $t0,0x800A
+//   1  lui  $t1,0x800A
+//   2  lbu  $t2,0x69E($t0)          ; the loader busy byte
+//   3  beq  $t2,$zero,exit          ; cleared -> the wait is over
+//   4  nop                            (branch delay slot)
+//   5  lw   $t3,0x698($t1)
+//   6  addiu $t3,$t3,1
+//   7  sw   $t3,0x698($t1)          ; visible spin progress
+//   8  j    loop                     ; NOTE: a j field is ABSOLUTE>>2, not a PC-relative offset
+//   9  nop                            (branch delay slot)
+//  10  jr   $ra
+//  11  nop                            (branch delay slot)
+//
+// Every word is a function of its fields, and `programDecodesAsIntended` reads the fields back out
+// and compares. The two encoders that are NOT a plain field-pack are the two that were wrong:
+// `branchOffset` (PC-relative) and `jumpIndex` (absolute), and each takes the PC so a caller cannot
+// pass an index where an offset belongs without it being obvious at the call site.
+// ---------------------------------------------------------------------------
+// The body's word indices, named so no address is written by hand. The loop starts at index 2 and
+// the exit is index 14; every branch and jump is given the PC it is AT, which is the whole point.
+constexpr std::uint32_t kBodyLoopPc = kModeFunction2 + 2u * 4u;  // index 2,  the lbu
+constexpr std::uint32_t kBodyBeqPc = kModeFunction2 + 4u * 4u;   // index 4,  the beq
+constexpr std::uint32_t kBodyExitPc = kModeFunction2 + 14u * 4u; // index 14, the jr $ra
+constexpr std::uint32_t kBodyJmpPc = kModeFunction2 + 10u * 4u;  // index 10, the j
+
+constexpr std::array<std::uint32_t, 16> kSpinBody{{
+    mips::lui(mips::kT0, 0x800A),                               // 0
+    mips::lui(mips::kT1, 0x800A),                               // 1
+    mips::lbu(mips::kT0, mips::kT2, 0x69E),                     // 2   read the busy byte
+    mips::nop(),                                                // 3   LOAD DELAY SLOT
+    mips::beq(mips::kT2, mips::kZero, kBodyBeqPc, kBodyExitPc), // 4
+    mips::nop(),                                                // 5   branch delay slot
+    mips::lw(mips::kT1, mips::kT3, 0x698),                      // 6   read the counter
+    mips::nop(),                                                // 7   LOAD DELAY SLOT
+    mips::addiu(mips::kT3, mips::kT3, 1),                       // 8
+    mips::sw(mips::kT1, mips::kT3, 0x698),                      // 9
+    mips::j(kBodyJmpPc, kBodyLoopPc),                           // 10
+    mips::nop(),                                                // 11  branch delay slot
+    mips::nop(),                                                // 12
+    mips::nop(),                                                // 13
+    mips::jr(mips::kRa),                                        // 14
+    mips::nop(),                                                // 15  branch delay slot
+}};
+
+// What each word must decode back to, as FIELDS. A mnemonic is an interpretation and two encodings
+// share one; a field cannot alias, so this is the comparison that can actually fail.
+struct Expected {
+  std::uint32_t op;
+  std::uint32_t rs;
+  std::uint32_t rt;
+  std::int64_t imm; // sign-extended for the loads/stores/arith, raw for lui/branch/jump
+  std::uint32_t branchTarget = 0;
+  std::uint32_t jumpTarget = 0;
+  std::uint32_t funct = 0;
+};
+
+constexpr std::array<Expected, 16> kSpinBodyIntended{{
+    {mips::kOpLui, 0, mips::kT0, 0x800A},
+    {mips::kOpLui, 0, mips::kT1, 0x800A},
+    {mips::kOpLbu, mips::kT0, mips::kT2, 0x069E},
+    {mips::kOpSpecial, 0, 0, 0, 0, 0, mips::kFunctSll}, // 3  load delay slot
+    {mips::kOpBeq, mips::kT2, mips::kZero, mips::branchOffset(kBodyBeqPc, kBodyExitPc), kBodyExitPc, 0},
+    {mips::kOpSpecial, 0, 0, 0, 0, 0, mips::kFunctSll}, // 5  branch delay slot
+    {mips::kOpLw, mips::kT1, mips::kT3, 0x0698},
+    {mips::kOpSpecial, 0, 0, 0, 0, 0, mips::kFunctSll}, // 7  load delay slot
+    {mips::kOpAddiu, mips::kT3, mips::kT3, 1},
+    {mips::kOpSw, mips::kT1, mips::kT3, 0x0698},
+    {mips::kOpJ, 0, 0, 0, 0, kBodyLoopPc},              // the jump's field is absolute>>2, checked as a target
+    {mips::kOpSpecial, 0, 0, 0, 0, 0, mips::kFunctSll}, // 11 branch delay slot
+    {mips::kOpSpecial, 0, 0, 0, 0, 0, mips::kFunctSll},
+    {mips::kOpSpecial, 0, 0, 0, 0, 0, mips::kFunctSll},
+    {mips::kOpSpecial, mips::kRa, 0, 0, 0, 0, mips::kFunctJr},
+    {mips::kOpSpecial, 0, 0, 0, 0, 0, mips::kFunctSll}, // 15 branch delay slot
+}};
+
+bool decodeMatches(const std::uint32_t *words,
+                   const Expected *intended,
+                   std::size_t count,
+                   const std::uint32_t *addresses) {
+  for (std::size_t index = 0; index < count; ++index) {
+    const mips::Fields got = mips::decode(words[index]);
+    const std::uint32_t pc = addresses[index];
+    const Expected &want = intended[index];
+    // WHICH FIELDS ARE MEANINGFUL DEPENDS ON THE OPCODE, and asserting the wrong set is how a
+    // check starts rejecting correct code. For a `j`, rs and rt and the low half of the field are
+    // all don't-care and the ONLY meaningful quantity is the decoded target, so that is what is
+    // compared. For `lui` the immediate is raw, not sign-extended. For everything else the immediate
+    // is sign-extended. The rest of the table is not a style preference: an earlier decoder compared
+    // the `j`'s rt against 0 and reported a CORRECT encoding as broken, twice.
+    if (want.op == mips::kOpJ) {
+      const std::uint32_t target = mips::jumpTarget(words[index], pc);
+      if (got.op != mips::kOpJ || target != want.jumpTarget) {
+        std::fprintf(stderr,
+                     "mode_call_budget_resume: word %zu at 0x%08X is 0x%08X, a jump to 0x%08X; the body "
+                     "intends a jump to 0x%08X (op=0x%02X vs 0x%02X)\n",
+                     index,
+                     pc,
+                     words[index],
+                     target,
+                     want.jumpTarget,
+                     got.op,
+                     want.op);
+        return false;
+      }
+      continue;
+    }
+    const std::int64_t gotImm =
+        want.op == mips::kOpLui ? static_cast<std::int64_t>(got.imm) : mips::signedImmediate(got.imm);
+    // SPECIAL has no immediate: bits 15..11 are `rd`, which `jr` does not use. So for SPECIAL the
+    // comparison is rs + funct, and comparing `imm` would be asserting a don't-care field.
+    const bool special = want.op == mips::kOpSpecial;
+    const bool fieldsOk = got.op == want.op && got.rt == want.rt && (special || gotImm == want.imm);
+    // rs is don't-care for lui; funct is only meaningful for SPECIAL.
+    const bool rsOk = want.op == mips::kOpLui || got.rs == want.rs;
+    const bool functOk = !special || got.funct == want.funct;
+    const bool targetOk = want.branchTarget == 0 || mips::branchTarget(words[index], pc) == want.branchTarget;
+    if (!(fieldsOk && rsOk && functOk && targetOk)) {
+      std::fprintf(stderr,
+                   "mode_call_budget_resume: word %zu at 0x%08X is 0x%08X, which decodes op=0x%02X "
+                   "rs=r%u rt=r%u imm=0x%04X funct=0x%02X branch->0x%08X\n"
+                   "  intended: op=0x%02X rs=r%u rt=r%u imm=0x%04X branch->0x%08X\n"
+                   "  fieldsOk=%d rsOk=%d functOk=%d targetOk=%d\n",
+                   index,
+                   pc,
+                   words[index],
+                   got.op,
+                   got.rs,
+                   got.rt,
+                   got.imm,
+                   got.funct,
+                   mips::branchTarget(words[index], pc),
+                   want.op,
+                   want.rs,
+                   want.rt,
+                   static_cast<std::uint32_t>(want.imm),
+                   want.branchTarget,
+                   fieldsOk,
+                   rsOk,
+                   functOk,
+                   targetOk);
+      return false;
+    }
+  }
+  return true;
+}
+
+void programAddresses(std::array<std::uint32_t, 16> *at, std::uint32_t base) {
+  for (std::size_t index = 0; index < 16; ++index) {
+    (*at)[index] = base + static_cast<std::uint32_t>(index) * 4u;
+  }
+}
+
+// THE CONTROL THAT PROVES THE CHECK CAN FAIL. A round-trip decoder that has never rejected
+// anything is not a control, it is a comment. So the program is PERTURBED — one field moved, exactly
+// the class of error the literal body carried five times — and the same check must refuse it. Each
+// perturbation is one of the five real errors, so the negative case is not invented: it is the bug.
+// Forward-declared: the negative case below RUNS the mis-scheduled body, so it needs the image and
+// the loader, which are defined further down. Declaring it here keeps the checks in reading order.
+bool misScheduledBodyStoresNothing();
+
+bool perturbedProgramsAreRejected() {
+  const char *const kNames[] = {
+      "sw base register", "lw base register", "beq condition register", "j target", "addiu immediate"};
+  // 1. `sw $t3,0x698($t1)` with the base moved to $t0 — the 0xAC220000 / rs-slip class, twice.
+  std::array<std::uint32_t, 16> wrong = kSpinBody;
+  wrong[9] = mips::sw(mips::kT0, mips::kT3, 0x698);
+  // 2. `lw $t3,0x698($t1)` with the base moved to $at — the original 0x8C2B0698 exactly.
+  wrong[6] = mips::lw(mips::kAt, mips::kT3, 0x698);
+  std::array<std::uint32_t, 16> at{};
+  programAddresses(&at, kModeFunction2);
+  if (decodeMatches(wrong.data(), kSpinBodyIntended.data(), wrong.size(), at.data())) {
+    std::fprintf(stderr,
+                 "mode_call_budget_resume: a program with the store's and load's base register moved "
+                 "was ACCEPTED, so the field check cannot see a register-field slip\n");
+    return false;
+  }
+  // 3. the branch condition moved, 4. the jump retargeted, 5. an immediate widened past 16 bits.
+  wrong = kSpinBody;
+  wrong[4] = mips::beq(mips::kT3, mips::kZero, kBodyBeqPc, kBodyExitPc);
+  if (decodeMatches(wrong.data(), kSpinBodyIntended.data(), wrong.size(), at.data())) {
+    std::fprintf(stderr, "mode_call_budget_resume: a moved branch condition was ACCEPTED\n");
+    return false;
+  }
+  wrong = kSpinBody;
+  wrong[10] = mips::j(kBodyJmpPc, kModeFunction2); // retargeted to the wrong word
+  if (decodeMatches(wrong.data(), kSpinBodyIntended.data(), wrong.size(), at.data())) {
+    std::fprintf(stderr, "mode_call_budget_resume: a retargeted jump was ACCEPTED\n");
+    return false;
+  }
+  // The J-type trap itself, as a raw word: a branch-style PC-relative value in a jump's absolute
+  // field. This is the one that produced a plausible `j 0x8003FFE4`.
+  wrong = kSpinBody;
+  wrong[10] = (0x0800FFF9u); // offset -7 as if it were a jump field
+  if (decodeMatches(wrong.data(), kSpinBodyIntended.data(), wrong.size(), at.data())) {
+    std::fprintf(stderr, "mode_call_budget_resume: a branch offset in a jump's absolute field was ACCEPTED\n");
+    return false;
+  }
+  wrong = kSpinBody;
+  wrong[8] = mips::addiu(mips::kT3, mips::kT3, 0x8000); // +32768 wraps to -32768
+  if (mips::addiu(mips::kT3, mips::kT3, 0x8000) == wrong[8] && mips::signedImmediate(mips::decode(wrong[8]).imm) == 1) {
+    std::fprintf(stderr,
+                 "mode_call_budget_resume: addiu(0x8000) silently produced the immediate -1's "
+                 "neighbour instead of refusing\n");
+    return false;
+  }
+  std::printf("program fields: %zu field perturbation(s) rejected, so the field check can fail\n", 5);
+  return misScheduledBodyStoresNothing();
+}
+
+bool programDecodesAsIntended() {
+  std::array<std::uint32_t, 16> at{};
+  programAddresses(&at, kModeFunction2);
+  if (!decodeMatches(kSpinBody.data(), kSpinBodyIntended.data(), kSpinBody.size(), at.data())) {
+    std::fprintf(stderr,
+                 "mode_call_budget_resume: FAIL — the guest body does not decode to what it is built "
+                 "to mean, so the body under test is not the body that was described\n");
+    return false;
+  }
+  return true;
+}
 
 void word(std::vector<std::uint8_t> &bytes, std::size_t offset, std::uint32_t value) {
   for (unsigned index = 0; index < 4; ++index) {
@@ -195,63 +315,11 @@ void word(std::vector<std::uint8_t> &bytes, std::size_t offset, std::uint32_t va
 // `jr $ra` / `nop`, optionally preceded by `addiu $v0,$zero,n` when the caller reads a result.
 void stub(std::vector<std::uint8_t> &bytes, std::uint32_t address, int result) {
   if (result >= 0) {
-    word(bytes, 0x800u + (address - kTextBase), static_cast<std::uint32_t>(0x24020000u | result));
+    word(bytes, 0x800u + (address - kTextBase), mips::addiu(mips::kZero, mips::kV0, result));
   }
   const auto offset = 0x800u + (address - kTextBase) + (result >= 0 ? 4u : 0u);
-  word(bytes, offset, 0x03E00008u);      // jr $ra
-  word(bytes, offset + 4u, 0x00000000u); // nop
-}
-
-// FUN_8006BEA8's shape, re-derived from the same semantics rather than from any quoted listing:
-//   lui  $t0,0x800A ; lui $t1,0x800A
-//   lbu  $t2,0x69E($t0)          ; the loader busy byte
-//   beq  $t2,$zero,exit          ; cleared -> the wait is over
-//   lw   $t3,0x698($t1) ; addiu $t3,$t3,1 ; sw $t3,0x698($t1)   ; visible spin progress
-//   b    loop
-//   exit: jr $ra
-//
-// Register numbering used below: $t0 = 8, $t1 = 9, $t2 = 10, $t3 = 11, $ra = 31, $zero = 0.
-constexpr std::array<Word, 12> kSpinBody{{
-    {0x3C08800Au, 0x0F, 0, 8, 0x800A},   // 0  lui  $t0,0x800A
-    {0x3C09800Au, 0x0F, 0, 9, 0x800A},   // 1  lui  $t1,0x800A
-    {0x910A069Eu, 0x24, 8, 10, 0x069E},  // 2  lbu  $t2,0x69E($t0)
-    {0x11400006u, 0x04, 10, 0, 0x0006},  // 3  beq  $t2,$zero, +6 -> the jr at index 10
-    {0x00000000u, 0x00, 0, 0, 0x0000},   // 4  nop
-    {0x8D2B0698u, 0x23, 9, 11, 0x0698},  // 5  lw   $t3,0x698($t1)   [was 0x8C2B0698: base was $at]
-    {0x256B0001u, 0x09, 11, 11, 0x0001}, // 6  addiu $t3,$t3,1
-    {0xAD2B0698u, 0x2B, 9, 11, 0x0698},  // 7  sw   $t3,0x698($t1)
-    // 8  j 0x8004FA68 — the loop back-edge. THIS IS op 0x02, and its target field is the ABSOLUTE
-    // address divided by four, NOT a PC-relative offset. Three earlier versions were wrong here, and
-    // the third is the one this workspace has a scar for:
-    //   * 0x1000FFFF was op 0x04 (`beq $zero,$zero`) with offset -1: a self loop.
-    //   * 0x1000FFF9 was op 0x04 with offset -7, which Capstone PRINTS AS `b`, because `beq
-    //     $zero,$zero` is an unconditional branch. A wrong opcode behind a plausible mnemonic.
-    //   * 0x0800FFF9 corrected the opcode to 0x02 and so became `j` — whose field is absolute/4 — and
-    //     decoded as `j 0x8003FFE4`, into the scratchpad, so the body ran off its own back-edge.
-    // That third one is EXACTLY the trap that cost `megamanx4` five wrong call targets, where a
-    // J-type target was read as PC-relative. A `j` field is `target >> 2`; a branch field is a
-    // PC-relative offset. They are different quantities, and mixing them yields a PLAUSIBLE guest
-    // address, which is why it survives review. `jumpTargetIs` below asserts the DECODED target,
-    // because rs and rt are don't-care for `j` and a field-shape check cannot see this class at all.
-    {0x08013E9Au, 0x02, 0, 1, 0x3E9A, 0x8004FA68u}, // 8  j 0x8004FA68 (field = target >> 2;
-                                                    //     rt carries the low 4 bits of the field,
-                                                    //     which `j` treats as don't-care)
-    {0x00000000u, 0x00, 0, 0, 0x0000},              // 9  nop
-    {0x03E00008u, 0x00, 31, 0, 0x0008},             // 10 jr   $ra  (SPECIAL funct 0x08: the target is rs,
-                                                    //     and rt is unused — the decoder check caught me
-                                                    //     writing rt=31, which would be `jalr`)
-    {0x00000000u, 0x00, 0, 0, 0x0000},              // 11 nop
-}};
-
-void spinBody(std::vector<std::uint8_t> &bytes, std::uint32_t address) {
-  std::array<std::uint32_t, 12> at{};
-  for (std::size_t index = 0; index < kSpinBody.size(); ++index) {
-    at[index] = address + static_cast<std::uint32_t>(index) * 4u;
-    word(bytes, 0x800u + (address - kTextBase) + index * 4u, kSpinBody[index].word);
-  }
-  if (!absoluteTargetsDecodeAsWritten(kSpinBody.data(), kSpinBody.size(), at.data())) {
-    std::abort();
-  }
+  word(bytes, offset, mips::jr(mips::kRa));
+  word(bytes, offset + 4u, mips::nop());
 }
 
 std::vector<std::uint8_t> syntheticImage() {
@@ -270,8 +338,9 @@ std::vector<std::uint8_t> syntheticImage() {
   stub(bytes, 0x80081C38u, -1); // kSelectGeometry
   stub(bytes, 0x800817F8u, -1); // kClearMainOt
   stub(bytes, 0x8004C684u, -1); // kSelectOtRoots
-  stub(bytes, 0x8007BAB0u, -1); // kSpliceOt
-  spinBody(bytes, kModeFunction2);
+  for (std::size_t index = 0; index < kSpinBody.size(); ++index) {
+    word(bytes, 0x800u + (kModeFunction2 - kTextBase) + index * 4u, kSpinBody[index]);
+  }
   return bytes;
 }
 
@@ -375,6 +444,19 @@ private:
   tekken3::guest::BoundedCall &modeCall_;
 };
 
+unsigned storeObservations = 0;
+unsigned storeObservationsBefore = 0;
+std::uint32_t observerT0 = 0;
+std::uint32_t observerT1 = 0;
+std::uint32_t observerT2 = 0;
+std::uint32_t observerT3 = 0;
+std::uint32_t lastStorePc = 0;
+std::uint32_t lastStoreAddress = 0;
+std::uint32_t lastStoreValue = 0;
+std::uint32_t lastStoreWord = 0;
+std::uint32_t lastStoreBase = 0;
+std::int32_t lastStoreDisplacement = 0;
+
 bool loadFixture(Core &core) {
   const auto image = syntheticImage();
   const auto loaded = psx::cpu::loadPsxExeImage(core, image, "synthetic mode-2 loader wait");
@@ -385,6 +467,107 @@ bool loadFixture(Core &core) {
   core.mem_w8(kLoaderBusy, 1);
   core.mem_w16(kRenderMode, 2);
   core.r[29] = 0x00020000u; // a guest stack the frame loop can build frames below
+  return true;
+}
+
+// THE SIXTH ERROR, and the only one that is not a field error: a MISSING LOAD DELAY SLOT.
+//
+// Every word decodes exactly as intended, the field check passes, and the program still
+// misbehaves — because on an R3000 a `lw` result is not readable until the following instruction
+// retires, and this body read the counter with `lw` and consumed it on the very next instruction.
+// That is what actually caused the "$t3 reads 0" symptom in `docs/issues/0021`, and it is the
+// reason the field check alone is not sufficient: this is the one failure it CANNOT see.
+//
+// So it is the negative case that matters most, and it is checked by RUNNING the mis-scheduled body
+// and requiring that its store does NOT land. If the store lands anyway, the live counter assertion
+// in `resumeArm` is not testing anything and this returns false.
+bool misScheduledBodyStoresNothing() {
+  // The mis-scheduled body: the `lw` at index 6 feeds the `addiu` at index 7 directly, with the
+  // delay slot removed. On a real R3000 the loaded value is not available that early.
+  std::array<std::uint32_t, 16> wrong = kSpinBody;
+  wrong[7] = mips::addiu(mips::kT3, mips::kT3, 1); // delete the delay slot by overwriting it
+  wrong[8] = mips::nop();
+  wrong[9] = mips::sw(mips::kT1, mips::kT3, 0x698);
+  {
+    // A fresh Core, the same image, and the mis-scheduled body: the store must NOT land, or the
+    // live assertion in resumeArm is not testing anything.
+    auto game = std::make_unique<Game>();
+    Core &core = game->core;
+    if (!loadFixture(core)) {
+      return false;
+    }
+    const auto image = syntheticImage();
+    std::vector<std::uint8_t> misScheduled = image;
+    for (std::size_t index = 0; index < wrong.size(); ++index) {
+      word(misScheduled, 0x800u + (kModeFunction2 - kTextBase) + index * 4u, wrong[index]);
+    }
+    if (!psx::cpu::loadPsxExeImage(core, misScheduled, "mis-scheduled body")) {
+      return false;
+    }
+    core.mem_w8(kLoaderBusy, 1);
+    core.mem_w16(kRenderMode, 2);
+    core.r[29] = 0x00020000u;
+    core.r[31] = kModeReturnPc2;
+    tekken3::guest::BoundedCall probe;
+    for (int field = 0; field < 7; ++field) {
+      if (field == 0) {
+        probe.start(
+            core, kModeFunction2, kModeReturnPc2, "negative", psx::cpu::ExecutionBudget::fromCycles(kFieldCycles));
+      } else {
+        probe.resume(core, "negative", psx::cpu::ExecutionBudget::fromCycles(kFieldCycles));
+      }
+      if (!probe.pending()) {
+        break;
+      }
+    }
+    const std::uint32_t counter = core.mem_r32(kSpinCounter);
+    std::printf("negative     : body with the load delay slot deleted stores counter=0x%08X %s\n",
+                counter,
+                counter == 0 ? "(as a real R3000 requires)" : "— THE ASSERTION BELOW IS NOT TESTING ANYTHING");
+    if (counter != 0) {
+      std::fprintf(stderr,
+                   "mode_call_budget_resume: deleting a load delay slot still produced counter=0x%08X, so "
+                   "the live counter assertion cannot detect a mis-scheduled body and proves nothing\n",
+                   counter);
+      return false;
+    }
+  }
+  std::printf("negative     : the mis-scheduled body's store did NOT land, so the live counter assertion "
+              "can fail and the correct body is what makes it pass\n");
+  return true;
+}
+
+// THE POSITIVE CONTROL ON THE READ PATH, and the reason a zero from the guest loop is interpretable.
+//
+// `docs/issues/0021` recorded a symptom that looked like a framework synchronisation defect: the
+// guest's `sw` never appeared in the `Core`, while a HOST `mem_w32` at the same address was
+// immediately visible. That is now MEASURED to be a register-field slip in this fixture and not a
+// framework defect — the framework has no second RAM buffer and no sync to be defective (see issue
+// 0021 for the three measurements). But the control belongs here permanently, because the day
+// someone reads a zero from the guest loop they must be able to tell it apart from a zero from a
+// broken read, and that distinction costs one store and one load to establish.
+bool hostWriteToTheSameAddressIsVisible() {
+  auto game = std::make_unique<Game>();
+  Core &core = game->core;
+  if (!loadFixture(core)) {
+    return false;
+  }
+  constexpr std::uint32_t kSentinel = 0x5A5A5A5Au;
+  core.mem_w32(kSpinCounter, kSentinel);
+  if (core.mem_r32(kSpinCounter) != kSentinel) {
+    std::fprintf(stderr,
+                 "mode_call_budget_resume: FAIL — a host write of 0x%08X to 0x%08X read back as 0x%08X, so "
+                 "a zero from the guest loop would say nothing about the guest\n",
+                 kSentinel,
+                 kSpinCounter,
+                 core.mem_r32(kSpinCounter));
+    return false;
+  }
+  core.mem_w32(kSpinCounter, 0u);
+  if (core.mem_r32(kSpinCounter) != 0u) {
+    std::fprintf(stderr, "mode_call_budget_resume: FAIL — the host write could not be cleared\n");
+    return false;
+  }
   return true;
 }
 
@@ -416,6 +599,7 @@ bool resumeArm() {
   }
   const auto frameCounterAtSuspend = core.mem_r32(kFrameCounter);
   const auto presentationsAtSuspend = machine.presentations;
+  const auto instructionsAtSuspend = core.lightrecExecutor().counters().executedInstructions;
   std::uint32_t spinAtSuspend = 0;
 
   constexpr unsigned kHeldFields = 6u;
@@ -427,11 +611,20 @@ bool resumeArm() {
     }
     spinAtSuspend = core.mem_r32(kSpinCounter);
   }
-  // The guest call contract: the body kept making progress, and the held field did only the
-  // services the retail loop does per field — no barrier re-run, no frame-counter advance.
+  // THE GUEST CALL CONTRACT, and the assertion that failed five times before the fixture was right.
+  // The body's `sw $t3,0x698($t1)` must have LANDED: the counter is a memory word the guest wrote
+  // from a translated block, and the framework writes it into `Core` in the store callback itself,
+  // so a zero here is a statement about the guest program and never about a memory sync.
   if (spinAtSuspend == 0) {
-    std::fprintf(
-        stderr, "mode_call_budget_resume: the spinning guest body made no progress in %u fields\n", kHeldFields);
+    std::fprintf(stderr,
+                 "mode_call_budget_resume: the guest's own store never landed in 0x%08X across %u held "
+                 "fields and %llu executed instructions. The program decodes as intended and a host "
+                 "write to the same address IS visible (hostWriteToTheSameAddressIsVisible), so this is "
+                 "the guest program, not a read or a synchronisation problem.\n",
+                 kSpinCounter,
+                 kHeldFields,
+                 static_cast<unsigned long long>(core.lightrecExecutor().counters().executedInstructions -
+                                                 instructionsAtSuspend));
     return false;
   }
   if (core.mem_r32(kFrameCounter) != frameCounterAtSuspend) {
@@ -529,13 +722,8 @@ bool controlArm() {
 } // namespace
 
 int main() {
-  if (!spinWordsDecodeAsWritten(kSpinBody.data(), kSpinBody.size())) {
-    std::fprintf(stderr,
-                 "mode_call_budget_resume: FAIL — a hand-assembled word does not decode to what its "
-                 "comment says, so the body under test is not the body that was read\n");
-    return 1;
-  }
-  if (!resumeArm() || !controlArm()) {
+  if (!programDecodesAsIntended() || !perturbedProgramsAreRejected() || !hostWriteToTheSameAddressIsVisible() ||
+      !resumeArm() || !controlArm()) {
     std::fprintf(stderr, "mode_call_budget_resume: FAIL — a mode call that outlives one display field\n");
     return 1;
   }
