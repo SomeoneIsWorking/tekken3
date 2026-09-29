@@ -65,9 +65,16 @@ ninth dead tap this workspace has already hit on an unconfigured directory.
 
 | test | state | why |
 |---|---|---|
-| `tekken3_psxport_pin_live` | red | **the bump is REFUSED, and correctly so.** `reconfigure -> build -> test -> bump` was run in that order: the reconfigure wrote `build/psxport_resolved.txt` at `d74e7f63`, the build is clean and the suite ran. `--bump` then refused with *"framework ... is dirty or changed since configure"* — because **another agent has 30 uncommitted files in `psxport`**, so the tree this port is built against is not a committed state and recording it as the verified pin would be false. The pin is therefore **left at `7981f596` deliberately.** This is the guard working, not a defect |
-| `tekken3_mode_call_budget_resume` | red | the inherited test's synthetic guest body is now correctly assembled, but its `sw` does not land in the `Core` memory it reads while the body demonstrably runs — **issue 0021**, a framework question psxport cannot answer from here |
-| `tekken3_frame_loop_contract` | **now green** | it asserted the OLD contract (`boundedStarts == 0`, mode 3 through the non-suspending entry). Updated to the new one, and its own pass message already claimed "3-field bounded continuation" — it was written for this behaviour and only the count was stale |
+| `tekken3_psxport_pin_live` | red | **the pin is not bumped, and the required order is genuinely blocked — one level lower than before.** `psxport` itself is now **clean** at `c777c320`, so this is no longer "another agent's uncommitted files". The reconfigure fails in `psxport/cmake/lightrec_dependency.cmake:71`, which refuses because **`shared/lightrec` has worktree changes** — and the modified file is `blockcache.c`, which is exactly the file issue 0050 says must change to revoke a block on an interior-word write. **The psxport owner is mid-repair.** psxport pins `shared/lightrec` to `e1a6a09` and requires that exact clean revision, so `reconfigure -> build -> test -> bump` cannot complete until that commit lands. The guard is working; the pin stays at `7981f596` |
+| `tekken3_mode_call_budget_resume` | **now green** | was red for **six** separate reasons, all in its own synthetic body — five field-level hand-assembly errors and a missing MIPS load delay slot. See issue 0021 |
+| `tekken3_frame_loop_contract` | **now green** | asserted the old `boundedStarts == 0` contract; updated to the new one, and its own pass message already claimed "3-field bounded continuation" — it was written for this behaviour and only the count was stale |
+
+**A caveat that has to be stated rather than hidden:** the blocked reconfigure left `build/` unable
+to **regenerate** — `make` now fails at `cmake_check_build_system`, while `ctest` still runs and
+reports **30 tests, 29 passing**. The binaries are from the last successful build against
+`d74e7f63`. **That is a stale build tree, not a green one.** The next agent should reconfigure once
+`shared/lightrec` is committed rather than trusting `ctest` alone, which is the
+`ctest`-on-an-unconfigured-tree trap this workspace has already paid for once.
 
 **The frame-loop change itself is correct and kept**: routing every mode body through `BoundedCall`
 is required because mode 2's loader legitimately outlives a display field and the non-suspending
