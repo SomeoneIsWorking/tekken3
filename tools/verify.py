@@ -14,7 +14,7 @@ PSXPORT = ROOT / "external" / "psxport"
 
 def main() -> int:
     bootstrap = subprocess.run(
-        [sys.executable, ROOT / "tools" / "psxport_sync.py", "--auto"],
+        [sys.executable, ROOT / "tools" / "psxport_fetch.py", "--auto"],
         cwd=ROOT,
         check=False,
     )

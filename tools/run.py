@@ -248,7 +248,7 @@ def run_launcher(
         if "PSXPORT_DIR" not in environment:
             run_stage(
                 machine,
-                [python_executable, "tools/psxport_sync.py", "--auto"],
+                [python_executable, "tools/psxport_fetch.py", "--auto"],
                 "could not resolve external/psxport",
                 root=root,
                 environment=environment,

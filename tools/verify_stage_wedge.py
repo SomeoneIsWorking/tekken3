@@ -82,7 +82,7 @@ try:
 except ImportError as exc:
     raise SystemExit(
         "REFUSED: cannot import psxport's shared R3000A instruction decoder; "
-        "run tools/psxport_sync.py --auto or set PSXPORT_DIR"
+        "run tools/psxport_fetch.py --auto or set PSXPORT_DIR"
     ) from exc
 
 # Measured addresses. Each one is asserted against the hashed executable below.

@@ -44,7 +44,7 @@ jobs:
         run: uv sync --locked
 
       - name: Resolve the exact pinned framework
-        run: uv run --frozen python tools/psxport_sync.py --auto
+        run: uv run --frozen python tools/psxport_fetch.py --auto
 
       - name: Provision the shared pinned Linux build inputs
         uses: ./external/psxport/.github/actions/setup-linux

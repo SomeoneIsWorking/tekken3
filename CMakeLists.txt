@@ -7,13 +7,13 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # PSXPORT_DIR — the framework. external/psxport is NOT a git submodule (2026-08-16): it is a symlink
 # to the workspace's shared framework clone, or a private clone at this repo's psxport.pin on a fresh
-# machine; tools/psxport_sync.py --auto establishes whichever applies. Defaults to external/psxport so
+# machine; tools/psxport_fetch.py --auto establishes whichever applies. Defaults to external/psxport so
 # a bare clone of this repo builds standalone.
 set(PSXPORT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/psxport" CACHE PATH
     "psxport framework source directory (default: external/psxport)")
 if(NOT EXISTS "${PSXPORT_DIR}/cmake/psxport.cmake")
   message(FATAL_ERROR "PSXPORT_DIR=${PSXPORT_DIR} has no cmake/psxport.cmake — run "
-                      "`python3 tools/psxport_sync.py --auto`, or point PSXPORT_DIR at a psxport checkout.")
+                      "`python3 tools/psxport_fetch.py --auto`, or point PSXPORT_DIR at a psxport checkout.")
 endif()
 # RECORD WHAT THIS CONFIGURE RESOLVED, so `tools/psxport_sync.py --check` can compare the built
 # framework against the one psxport.pin RECORDS.

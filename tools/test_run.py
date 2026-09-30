@@ -107,7 +107,7 @@ class LauncherTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(stderr, "")
         self.assertIn("launching Tekken 3", stdout)
-        self.assertIn([LOCKED_PYTHON, "tools/psxport_sync.py", "--auto"], commands)
+        self.assertIn([LOCKED_PYTHON, "tools/psxport_fetch.py", "--auto"], commands)
         self.assertIn(
             [LOCKED_PYTHON, "-B", "tools/provision_executable.py", "Tekken 3.chd"],
             commands,
@@ -194,7 +194,7 @@ class LauncherTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(stderr, "")
         self.assertNotIn(
-            [LOCKED_PYTHON, "tools/psxport_sync.py", "--auto"], self.commands(host)
+            [LOCKED_PYTHON, "tools/psxport_fetch.py", "--auto"], self.commands(host)
         )
 
     def test_provision_failure_stops_before_player_build(self) -> None:

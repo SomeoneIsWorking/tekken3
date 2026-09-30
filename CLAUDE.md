@@ -46,7 +46,7 @@ Tekken source must not include or instantiate `LegacyGameRuntimeAdapter`, `GameC
 `GameHooks`.
 
 `external/psxport` is a symlink to the workspace's shared framework clone when one exists, or a
-private clone at this repo's `psxport.pin` on a fresh machine. `tools/psxport_sync.py --auto`
+private clone at this repo's `psxport.pin` on a fresh machine. `tools/psxport_fetch.py --auto`
 establishes whichever applies; `psxport_sync.py --bump` records the framework commit this game is
 built and verified against, and `--check` fails when the built framework is not the recorded pin.
 Framework edits happen in the shared clone (`$PSX/psxport`), never here.
