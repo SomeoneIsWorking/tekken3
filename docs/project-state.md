@@ -16,6 +16,7 @@ dependencies in `docs/re-frontier.md`.
 | S008 | Product frames, input, audio, and gameplay execute correctly | partial | S003, S004 | G001 |
 | S009 | The default launcher delivers the playable widescreen product | missing | S007, S008 | G001, G002, G003 |
 | S010 | Asset-free hosted verification builds and checks the real supported host product boundary | verified | S003 | G001, G003 |
+| S011 | Tekken 3: load operations complete without loading-only waits or presentation; logos cancel through the recovered route | missing | S003 | G004 |
 
 ## Current focus
 
@@ -313,3 +314,10 @@ Evidence: the Linux x86_64 asset-free product composition gate passed on main co
 `3afb4cf0fa167cf197dd6056cf00d5cfaeaa63d1` in
 [run 33960101763](https://github.com/SomeoneIsWorking/tekken3/actions/runs/33960101763).
 This verifies composition only; gameplay and unsupported host gaps remain as recorded above.
+
+### S011 — Tekken 3 loading removal
+
+Missing. No load operation has been censused or classified for Tekken 3. Gap: enumerate its load
+issuers and the wait and presentation each drives, then complete each through the title's own load
+mechanics without its loading-only wait, with payload and terminal state compared against retail
+and the absence of loading presentation captured.
