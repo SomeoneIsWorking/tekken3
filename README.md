@@ -4,9 +4,9 @@ PC-native PlayStation port of Tekken 3, built on
 [psxport](https://github.com/SomeoneIsWorking/psxport).
 
 The factual capability inventory and current focus live in `docs/project-state.md`; the ordered
-binary-evidence dependency chain lives in `docs/re-frontier.md`. Tekken 3 (`SLUS_004.02`) already
-runs at 60 fps, so this port exposes no fps60/interpolation option and no native-renderer option. Its
-rendering target is the measured guest path plus true widescreen.
+binary-evidence dependency chain and per-step RE status live in `docs/re-frontier.md`. Tekken 3
+(`SLUS_004.02`) already runs at 60 fps, so this port exposes no fps60/interpolation option and no
+native-renderer option. Its rendering target is the measured guest path plus true widescreen.
 
 ## Build and launch the player
 
@@ -42,8 +42,8 @@ for measured resident text, and exposes null legacy config/hooks/context views.
 `tekken3_port` is the only player product. The asset-free gate proves that it links to the shared
 Lightrec executor and title-native owners, but it contains no game bytes and therefore claims no
 verified frame or gameplay yet.
-See `titles/tekken3/README.md` for the measured target and
-`docs/re-frontier.md` for the ordered work required before a booted-frame claim is possible.
+See `titles/tekken3/README.md` for the measured target, `docs/re-frontier.md` for what has and has not
+been reverse-engineered, and `docs/issues/` for the open blockers.
 
 ## Provision the selected executable
 
@@ -54,13 +54,11 @@ unless all tracked identity and PS-X EXE header fields match:
 ```sh
 cmake --build build --target discdump
 python3 tools/provision_executable.py "/path/to/Tekken 3 (USA).chd"
-python3 tools/verify_startup.py
 ```
 
 The output is `scratch/bin/tekken3/SLUS_004.02`. Disc images and extracted executables are never
-committed. The startup verifier models the actual `entry -> game_main -> non-returning frame loop`
-shape; it does not reinterpret that call as a libc initialization boundary.
+committed, and the provisioner checks the tracked identity and PS-X EXE header fields against the
+real bytes on every run. `titles/tekken3/README.md` records the startup model.
 
-Historical interpreter/oracle agreement at the entry boundary remains evidence only. The current
-product discriminator must execute bounded guest work through Lightrec and compare it with the
+The current product discriminator is bounded guest work through Lightrec compared with the
 independent Mednafen oracle; the retired interpreter probe is not a current gate.

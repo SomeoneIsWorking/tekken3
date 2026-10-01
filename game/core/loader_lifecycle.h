@@ -1,13 +1,11 @@
 // loader_lifecycle.h — the recovered CD-read lifecycle that holds the NAMCO PRESENTS card.
 //
-// WHY THIS FILE EXISTS. `docs/issues/0018` measured the card never leaving and named the CD
-// completion as the cause; `docs/issues/0019` then REFUTED that, on the strength of a census that
-// reported "0 materialised readers" for the byte the wait loop reads. **That zero was a dead tap**
-// (the tenth in this workspace), and this file is the recovered behaviour that refutes it.
+// WHY THIS FILE EXISTS. The product's NAMCO PRESENTS card never leaves, and the CD completion is
+// the cause; a parked note once refuted that on the strength of a reader count that had itself
+// missed the addresses, and this file is the recovered behaviour that settles it.
 //
 // Every address, field offset and branch target below is decoded from the authenticated executable
-// with `psxport/tools/disasm.py`, and the addresses are re-derived by the census that caught the
-// dead tap, `tools/census_word.py`. Nothing here is quoted from a comment, because two records in
+// with `psxport/tools/disasm.py`. Nothing here is quoted from a comment, because two records in
 // this repository's own history were wrong precisely because they were quoted from one.
 //
 // WHAT THIS IS, AND WHAT IT IS NOT. This is a READING of guest behaviour, kept as named structures
@@ -123,11 +121,11 @@ inline constexpr std::uint32_t kSectorCallbackFlag = 0x8009B8E8u;
 inline constexpr std::uint32_t kSectorCallbackState = 0x8009B8C8u;
 
 // ---------------------------------------------------------------------------
-// The DISPATCH of the sector callback, which is what issue 0019 parked.
+// The DISPATCH of the sector callback.
 //
-// `docs/issues/0019` recorded that "no instruction in the authenticated text reads 0x8009B8D0", and
-// concluded from that the sector callback was installed into a slot nothing dispatches. **Both the
-// claim and the conclusion are wrong**, and the decoder check is one instruction apart:
+// An earlier note recorded that "no instruction in the authenticated text reads 0x8009B8D0", and
+// concluded the sector callback was installed into a slot nothing dispatches. **Both the claim and
+// the conclusion are wrong**, and the decoder check is one instruction apart:
 //
 //   0x80092048  lui   $s1,0x800A
 //   0x8009204C  addiu $s1,$s1,0xB8C8    ;  $s1 = 0x8009B8C8   <- the record base
@@ -136,8 +134,8 @@ inline constexpr std::uint32_t kSectorCallbackState = 0x8009B8C8u;
 //   0x8009213C  jalr  $a3                ;  CALL THE SECTOR CALLBACK
 //
 // The register is `$a3` (r7), not `$v1`: `0x80092110` is `0x8E270008`, and its rt field is 7.
-// `tools/census_word.py` counts **6 readers of 0x8009B8D0 in 295,936 walked words**, against the 0
-// the parked note reported. The `jalr $a3` is the whole hop 2.
+// A constant-propagation walk of the authenticated text finds **6 readers of 0x8009B8D0 in 295,936
+// walked words**, against the 0 the parked note reported. The `jalr $a3` is the whole hop 2.
 // ---------------------------------------------------------------------------
 inline constexpr std::uint32_t kDispatchSectorCallback = 0x8009213Cu;
 inline constexpr std::uint32_t kDispatchLoadsSlot = 0x80092110u;

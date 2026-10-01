@@ -34,7 +34,7 @@ constexpr std::uint32_t kAlternateViewHeight = 240u;
 constexpr std::uint32_t kAlternateDrawWidth = 320u;
 constexpr std::uint32_t kScratch = 0x1F800000u;
 /// One full turn of the title's direction tables is 0x1000 units (0x8001E8C4 holds
-/// round(sin(2*pi*i/4096)*4096), verified entry for entry by tools/verify_stage_wedge.py).
+/// round(sin(2*pi*i/4096)*4096), decoded from the authenticated executable).
 constexpr std::int32_t kTurnUnits = 0x1000;
 /// The table index that is a right angle; at or past it a wider frustum is already inside the cone.
 constexpr std::int32_t kQuarterTurn = kTurnUnits / 4;

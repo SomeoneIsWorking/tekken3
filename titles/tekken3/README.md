@@ -30,7 +30,7 @@ the frame-loop body at `0x80028BCC`.
 
 The first six instructions of `game_main` allocate its 32-byte frame, save `ra/s2/s1`, and call
 `0x80079D10` at `0x80028BB0`; its delay slot saves `s0` with word `0xAFB00010`. The tracked manifest
-records those facts and `tools/verify_startup.py` checks that no earlier call exists in `game_main`.
+records those facts.
 
 `FUN_80079d10` is a 28-instruction executable function `[0x80079D10,0x80079D80)`. Ghidra and narrow
 instruction inspection agree that it guards and sets the word at `0x80098A64`, contains a
@@ -41,15 +41,14 @@ zero-count constructor-loop path on this boot, restores its frame, and returns t
 A fresh Ghidra 12.0.4 decompile of the provisioned image (SHA-256 above) confirms both semantics:
 `FUN_80079c70` calls `FUN_80028ba0` and then traps, while `FUN_80028ba0` performs one-time calls and
 then loops forever around the mode dispatch and two `FUN_8007bab0` calls. The tracked executable and
-startup facts live in `executable.json`; `tools/verify_startup.py` checks those shipping facts against
-the real executable and has agreement/disagreement fixtures. Historical interpreter and independent
-Mednafen runs agreed on all 35 CPU fields at `0x80028BA0`; that retired probe is evidence rather than
-a current gate. A current execution claim needs a bounded Lightrec/oracle discriminator and cannot be
+startup facts live in `executable.json`; historical
+interpreter and independent
+Mednafen runs agreed on all 35 CPU fields at `0x80028BA0`. A current execution claim needs a bounded
+Lightrec/oracle discriminator and cannot be
 inferred from `game_main` structure, devices, frames, or gameplay.
 
 The tracked executable writes I_MASK at `0x80085D94`, reads it at `0x80085D98`, writes that result to
-I_STAT at `0x80085DA0`, then stores `0x33333333` to DPCR `0x1F8010F0` at `0x80085DB0`. The verifier
-checks all five hardware-frontier instruction words directly against the hashed executable. The shared
+I_STAT at `0x80085DA0`, then stores `0x33333333` to DPCR `0x1F8010F0` at `0x80085DB0`. The shared
 oracle routes only I_STAT/I_MASK through vendored Mednafen `irq.c`, so the same independent CPU executes
 the complete interrupt reset with its real load delay; its retained GPUSTAT negative case still stops.
 The oracle models DPCR and continues through the executable's context-save path to a strict capture at
@@ -74,9 +73,7 @@ The scan also found the word `0x48CCCCCE` at `0x800BAC20`. It is undisassembled 
 function or control-flow owner, and its reserved low 11 bits make it a noncanonical COP2 move. This
 exposed a shared decoder defect which is now fixed at the framework owner: psxport rejects the word's
 reserved bits instead of labeling it `ctc2`. Tekken neither exempts that address nor duplicates the
-instruction decoder. `tools/verify_projection.py` uses the shipping decoder to prove the complete six-
-writer census and mutates both a real writer and that resident data word to prove the decoder-backed
-gate can produce the opposite answer.
+instruction decoder.
 
 The title-level owners above the Psy-Q leaves are now identified:
 
@@ -94,8 +91,8 @@ The title-level owners above the Psy-Q leaves are now identified:
 - That preset call at `0x800B0574` is the first measured widescreen owner after the current
   `FUN_8006AB64` CD-init wedge at `0x800B0564` (the only intervening call is `FUN_800B0788`).
   `FUN_800B0840` calls `FUN_80080848` at `0x800B086C`, which reaches dimension owner
-  `FUN_80080A40` at `0x80080890` before the preset derives centre and H. The real-executable
-  verifier checks all five call edges and a mutated opposite answer.
+  `FUN_80080A40` at `0x80080890` before the preset derives centre and H. All five call edges are
+  recorded in `executable.json`.
 - `FUN_8006D014` is the stage submit owner. It calls `FUN_8006D95C` with a horizontal visibility
   angle of 600 normally and `0x30C` in mode 6. That helper traces the two rays at camera yaw plus and
   minus half the supplied angle and selects visible cells from the stage's 6x6 tile grid.
@@ -111,9 +108,8 @@ implementation must therefore carry the title-authored projection width/centre s
 PSX display mode, resolve both retail modes from their 4:3 presentation semantics, keep H and the
 vertical centre unchanged, and widen guest geometry, draw coverage, and final sampling as one plan.
 Changing only the host viewport would stretch the picture; changing only OFX would crop it.
-Issue #9 records a framework blocker exposed by this preset: GP1(08) bit 6 selects 368 pixels, but
-the current decoder ignores that bit and records 256. This must be fixed generically before Tekken's
-native presentation extent can be trusted; a title-side 368 override would only split the two owners.
+The framework decodes GP1(08) bit 6, so the 368-pixel preset resolves generically; a title-side 368
+override would only split the two owners.
 The stage/effect right-edge tests must consume the same resolved wide display bound, while the stage
 tile visibility angle must be checked against the resolved wide frustum. Static evidence identifies
 that owner but does not select an angle formula: if the authored wedge becomes too narrow, any change
@@ -127,19 +123,6 @@ display/frame boundary, a final-presentation A/B must show a bit-identical 4:3 c
 vertical projection, horizontal translation about the widened centre without scale change, and new
 scene geometry in the added margins.
 
-The durable real-executable gate currently passes 38/38 measured projection/display/culling facts and
-8/8 positive, disagreement, and refusal cases:
-
-```sh
-python3 tools/verify_projection.py
-python3 tools/verify_projection.py --selftest
-```
-
-The gate checks six canonical control-register writers, exact direct-call censuses, both raw 16-byte
-presets and their derived centres, preset-0 boot selection, initial H=500, both stage-wedge call/angle
-pairs, twelve rendering-path `-368` bounds, and the separate retail-2D `-368` use. It is a static owner
-gate, not evidence of a frame or pixels.
-
 ## Reproduce the identity measurement
 
 After the root README's Clang configure, run the project-owned provisioner:
@@ -147,7 +130,6 @@ After the root README's Clang configure, run the project-owned provisioner:
 ```sh
 CCACHE_DISABLE=1 cmake --build build --target discdump
 python3 tools/provision_executable.py "/path/to/disc.chd"
-python3 tools/verify_startup.py
 ```
 
 Resolution is CLI argument > `PSXPORT_TEKKEN3_DISC` > `.env` > one root `*.chd` drop-in. A selected

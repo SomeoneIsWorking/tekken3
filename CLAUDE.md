@@ -1,6 +1,9 @@
 # Tekken 3 port
 
 Read `external/psxport/CLAUDE.md` and `external/psxport/docs/workspace/PROTOCOL.md` before work.
+`docs/project-goals.md` holds the epic intent, `docs/project-state.md` the capability inventory and
+current focus, `docs/codemap.md` ownership, `docs/issues/` the open bugs, and
+`docs/re-frontier.md` what has and has not been reverse-engineered.
 Never commit discs, extracted executables,
 runtime JIT caches, `.env`, or machine-specific paths. Run artifacts go under `scratch/`, never
 `/tmp`; builds go under `build/`.
