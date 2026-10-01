@@ -23,9 +23,6 @@ iteration, and the segment ends only when the budget is spent — after the loop
 The counter, the countdown, and the loop's code are all correct. **Where the accounting happens is
 the defect, and the owner is the framework's Lightrec integration, not this title.**
 
-Measured by `tools/verify_pad_wait_exit.py`, which runs the authenticated image's own loop on the
-shipping executor and reports four arms.
-
 ## The loop, from the bytes
 
 ```asm
@@ -204,19 +201,8 @@ completion be delivered is not established here and is the next run.**
    run time from disc-compressed resources. So a fight frame is at least one more unknown away, and
    this issue does not guess at it.
 
-## Evidence discipline
+## Next step
 
-`tools/verify_pad_wait_exit.py` refuses to report unless it first reproduces **18/18** known
-instructions at their file offsets, and it re-derives the threshold global, the snapshot global and
-the arm argument from the instruction words rather than trusting its own constants. Its selftest is
-**3 image refusals** (blank text, truncated extent, a one-word edit to a ground-truth instruction),
-**1 accepted ground truth**, and **10 transcript refusals** — a defeated control, a non-returning
-control, a control as expensive as the case, a counter frozen even with accounting (the tautology
-guard), a loop that exits, a zero denominator, a short read, an unnamed arm, a defeated mutant, an
-unvaried mutant, and a starved mutant. The **3 image + 1 accepted** split exists because a wrong file
-offset shifts every decoded address while the tool keeps returning confident non-zero answers; that
-is recorded in issue 0011 as a bug that this guard was written to catch.
-
-**No product run was made.** `coord/claims/product-slot/claim.md` was held by another agent until
-2026-09-29T13:05, and two instances are never run at once here. Every live claim above is either
-static or quoted from a run another agent already made, whose log is retained.
+Run the authenticated image's own loop on the shipping executor. The first arm is the image as
+shipped; the second advances the guest clock inside the segment, and a segment-length mutant is what
+must release the loop. No product run was made here.

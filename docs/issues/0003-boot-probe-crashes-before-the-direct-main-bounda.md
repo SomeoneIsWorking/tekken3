@@ -1,22 +1,18 @@
 ---
 id: 3
-title: Boot probe crashes before the direct-main boundary
+title: A boot probe crashed before the direct-main boundary
 status: resolved
-symptom: The first psxport leg exits with SIGSEGV after loading the PS-X EXE, before the observer reaches game_main
-tags: harness,psxport,core,lifecycle
+symptom: the first psxport leg exits with SIGSEGV after loading the PS-X EXE, before the observer reaches game_main
+tags: harness,lifecycle
 created: 2026-08-21
 updated: 2026-08-21
 ---
 
-## Root cause
+**Two failures, both harness-side, both worth not repeating.** First, the probe placed the roughly
+12 MB `Core` object on the process stack and overflowed it; `Core` belongs on the heap. Moving it
+exposed a second lifecycle violation: constructing `Core` alone leaves `core.game` null while the
+interpreter consults `game->platform_hle` at every JAL target, so the harness must heap-allocate
+`Game` (the shipping machine owner) and use its `Core` member.
 
-The probe first placed the roughly 12 MB `Core` object on the process stack, overflowing it. Moving
-`Core` to the heap exposed a second lifecycle violation: constructing `Core` alone leaves `core.game`
-null, while the interpreter consults `game->platform_hle` at every JAL target. The shipping machine
-owner is `Game`, whose constructor wires that invariant.
-
-## Resolution
-
-The probe heap-allocates `Game`, uses its `Core` member, and captures the direct-main boundary through
-the normal `PcObserver` seam. The permanent two-engine selftest passes its agreement,
-forced-disagreement, and too-short-window refusal cases. No framework change or null bypass was added.
+No framework change and no null bypass was added; the boundary is captured through the normal
+`PcObserver` seam.

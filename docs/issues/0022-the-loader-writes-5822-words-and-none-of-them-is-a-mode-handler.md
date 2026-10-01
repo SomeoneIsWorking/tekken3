@@ -53,7 +53,7 @@ Those table entries are the **`jal` STUB addresses**, not the handlers. A mode's
 | 7, 8, 10, 11, 16, 18 | `0x80050318`, `0x80050428`, `0x80055590`, `0x80052520`, `0x800501C0`, `0x8004FF74` | disc text |
 | **3, 4, 5, 6, 9, 12, 13, 14, 15, 17, 19** | `0x800DB1B8`, `0x800DB5B4`, `0x800DDE64`, `0x800D3228`, `0x8010FF4C`, `0x800EEE8C`, `0x800EF92C`, `0x800F0458`, `0x800F18E8`, `0x800C2434`, `0x800FF0C4` | **window** |
 
-**11 of 20 — exactly the number issues 0016 and 0018 recorded, confirming the runtime-written handler
+**11 of 20 — exactly the number issue 0016 recorded, confirming the runtime-written handler
 window is real.** The gap was one level of indirection: the table holds the stubs, and the handler is
 a `jal` further on. `frame_loop.cpp`'s `kModeFunctions` and its `0x80028C9C + mode*0x10` return-PC
 formula are the *stub* arithmetic, which is why the port's own dispatch never named a window address.
@@ -67,16 +67,16 @@ investigation stop. **Mode 3, the handler the card is blocking, is `0x800DB1B8` 
 
 **Established:** the mode-dispatch path is not exposed to 0050's interior-word case **from mode 0's
 loader run**, and that is a measurement with a denominator rather than an argument. It also explains
-something issue 0018 recorded and could not account for: mode 0's loader "ran to completion without
+something issue 0016 recorded and could not account for: mode 0's loader "ran to completion without
 writing a single word to any handler address". The two agree — the 5,822 writes went to
 `0x8012867C+`, which is **vertex/CLUT data**, and the 11 window handlers sit at `0x800C2434` through
 `0x8010FF4C`, which is a different part of the window entirely.
 
 **NOT established, and it is the part that matters for the blocker:**
 
-1. **Whether the OTHER six loaders write into the handler window.** `arm=loaders` in
-   `tools/recover_runtime_handlers.py` names six placement sites other than mode 0's, and only mode
-   0's has been observed. **This is the exposure that counts**: the 11 window handlers have no bytes
+1. **Whether the OTHER six loaders write into the handler window.** Six placement sites other than
+   mode 0's are known and only mode 0's has been observed. **This is the exposure that counts**: the
+   11 window handlers have no bytes
    from the disc and no bytes from mode 0, so one of the six *must* place them, and whichever does is
    writing into a range that the mode-3 dispatch will execute. If that write lands interior to a block
    already translated, 0050 bites, and the owner of the fix is the Lightrec fork, not this title.
@@ -100,31 +100,6 @@ writing a single word to any handler address". The two agree — the 5,822 write
 - Any of the six other loaders observed placing code at a window handler. **Not observed, and this is
   the measurement that would turn this issue from a bound into a finding.**
 
-## The audit: does any OTHER sweep in this repo carry the single-register assumption?
-
-`docs/issues/0020`'s tenth dead tap came from a census that propagated `lui`/`addiu` **only within one
-register**, while this image builds every global as `lui $v0` then `addiu $s0,$v0,imm`. Every sweep in
-`tools/` that decodes a `lui` was checked for that shape:
-
-| tool | how it holds a base | same assumption? |
-|---|---|---|
-| `tools/census_word.py` | 32 per-register constants, carried across blocks | **no** — this is the replacement |
-| `tools/probe_global_writers.py` | `holds[rt] = …`, a per-register map | **no** — reads `src = holds[ins.rs]` and writes `holds[ins.rt]` |
-| `tools/verify_title_flow.py` | matches `lui` by its `rt` against the consumer's `rs` | **no**, and its own header says so: *"`lui`, the immediates, the loads and the shifts name their destination in `rt`. Reading `rd` for a `lui` silently yields register 0"* |
-| `tools/verify_vsync_field_clock.py` | decodes one named `lui` at a fixed address and adds a displacement | **no** — it is a single-address check, not a sweep |
-| `tools/tekken3_sio_poll_census.py` | reads the **opcode and immediate fields** only | **no** — it never propagates a base at all, which is why it could not have produced this class of error |
-| `tools/recover_runtime_handlers.py` | resolves the 20 stubs' `jal` targets | **no** — and this pass confirmed it: it reports 11 window handlers, which matches the `jal` resolution exactly |
-
-**So the single-register assumption was in exactly one tool, and it was the one that produced the
-zero.** That is worth stating plainly rather than as a general warning: the defect was not a pattern
-shared across the repository, it was one sweep, and the other five are structurally incapable of it
-because none of them tracks a base across instructions into a different register.
-
-**The one real caveat is `probe_global_writers.py`'s deliberate choice to end tracking at a control
-transfer** ("soundness beats recall"). That loses true positives *inside* a function that reloads a
-base across a call — it under-counts, never invents — so it is the safe direction and is not the same
-defect. Noted so the next reader does not have to re-derive it.
-
 ## Method note
 
 The comparison is a whole-window word-for-word diff against the authenticated executable, not a
@@ -134,3 +109,8 @@ here" from "the loader wrote here and the bytes happen to match the disc", and t
 the case where a marker search reports a confident zero. **The diff answers the question; the marker
 search would have restated it.** And the handler list came from resolving each stub's `jal`, because
 reading the stub TABLE as if it held handlers produces the same zero for the same wrong reason.
+
+That class of error — a table read as the thing it points at, or a base propagated in only one
+register — was this image's repeated failure mode. It cost one wrong writer census and one wrong
+reader census before the constants above were right, which is why every address here is decoded from
+the instruction words rather than carried over from a previous reading.

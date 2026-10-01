@@ -28,20 +28,17 @@ separate test target -> independent oracle (never linked or selectable by the ga
 | Title runtime | Own executable facts, render capabilities, platform-HLE policy, image-aware native override registration, original calls, and retail-entry dispatch | target: `game/core/tekken3_runtime.*`, `game/core/sync_native.*`, a cohesive native-override registry | `tekken3::Tekken3Runtime` | `CLAUDE.md` |
 | Dynamic executor | Translate every non-native guest instruction at runtime, synchronize canonical machine state at service boundaries, invalidate changed executable memory, and make bounded exits explicit | target: shared `external/psxport` Lightrec integration; Lightrec retains its own cache/code memory | target: per-`Core` psxport executor | `docs/re-frontier.md` |
 | Frame cadence | Own the finite retail-main prefix, one measured title frame, RCntCNT2 event delivery, pad publication, and presentation/audio service order; original guest bodies execute through the dynarec | target: `game/core/frame_loop.*` plus psxport override/original-call API | `tekken3::Tekken3FrameDriver` | `docs/issues/0011-whole-product-interrupt-exit-reaches-unseeded-te.md` |
-| CD synchronization | Preserve Tekken's linked-libcd wrapper/response state while delegating commands and the sole queued directory-read path to shared synchronous stock-libcd owners; **own the completion lifecycle those synchronous bodies currently delete — the CD chain's `$a3` callback and then the sector callback it installs — so the guest's per-sector loop terminates on its own signal rather than a host write** | target: `game/core/cd_sync.*` plus native override/original-call bindings; the registered slot this title must declare to the framework is `0x8009B8D0` | `tekken3::installCdOverrides` | `docs/issues/0018-the-clock-fix-ended-the-pad-stall-and-the-card-still-does-not-move.md` |
-| GPU synchronization | Preserve Tekken's linked GPU queue timeout and reset contract while sourcing its field deadline from the same guest VBlank field word the retail libetc VSync query returns; original arm/poll bodies execute by address through the dynarec | target: `game/core/gpu_sync.*` plus native override/original-call bindings | `tekken3::installGpuSyncOverrides` | `docs/issues/0014-gpu-queue-timeout-owner-was-armed-from-a-field.md` |
-| VSync field clock | Own the measured linked-libetc VSync entry, its body end, and the guest VBlank field word its negative modes return; declare that word to the framework so its protected handler can answer the guest's queries, and bind it to guest RAM for the title's own timeout owners | `game/core/vsync_field_clock.h`, `game/core/vsync_field_clock.cpp`, `game/core/sync_native.cpp`; verified by `tools/verify_vsync_field_clock.py` | `tekken3::vsync::readFieldCounter`, `tekken3::platformHlePlan` | `docs/issues/0014-gpu-queue-timeout-owner-was-armed-from-a-field.md` |
+| CD synchronization | Preserve Tekken's linked-libcd wrapper/response state while delegating commands and the sole queued directory-read path to shared synchronous stock-libcd owners; **own the completion lifecycle those synchronous bodies currently delete — the CD chain's `$a3` callback and then the sector callback it installs — so the guest's per-sector loop terminates on its own signal rather than a host write** | target: `game/core/cd_sync.*` plus native override/original-call bindings; the registered slot this title must declare to the framework is `0x8009B8D0` | `tekken3::installCdOverrides` | `docs/issues/0020-the-card-blocker-is-the-cd-completion-chain.md` |
+| GPU synchronization | Preserve Tekken's linked GPU queue timeout and reset contract while sourcing its field deadline from the same guest VBlank field word the retail libetc VSync query returns; original arm/poll bodies execute by address through the dynarec | target: `game/core/gpu_sync.*` plus native override/original-call bindings | `tekken3::installGpuSyncOverrides` | `game/core/gpu_sync.h` |
+| VSync field clock | Own the measured linked-libetc VSync entry, its body end, and the guest VBlank field word its negative modes return; declare that word to the framework so its protected handler can answer the guest's queries, and bind it to guest RAM for the title's own timeout owners | `game/core/vsync_field_clock.h`, `game/core/vsync_field_clock.cpp`, `game/core/sync_native.cpp`; verified by `tools/verify_vsync_field_clock.py` | `tekken3::vsync::readFieldCounter`, `tekken3::platformHlePlan` | `game/core/vsync_field_clock.h` |
 | Target executable | Record identity, load map, startup facts, projection facts, and controlled-boundary facts | `titles/tekken3/executable.json`, `titles/tekken3/README.md` | `tools/provision_executable.py` | `titles/tekken3/README.md` |
-| Startup verification | Verify the authenticated executable's direct-main structure | `tools/verify_startup.py`, `titles/tekken3/executable.json` | `tools/verify_startup.py` | `docs/re-frontier.md` |
-| Title-card flow | Verify the mode and phase dispatches, the CD read mode 2 phase 8 waits on, the card it draws while waiting, and the single byte copy that leaves it — so "the card waits for input" is a claim the image can be asked about | `tools/verify_title_flow.py`, `titles/tekken3/executable.json` (`title_flow`) | `tools/verify_title_flow.py` | `docs/issues/0016-the-namco-presents-card-is-mode-2-phase-8s-cd-read.md` |
-| Pad-wait exit | Verify the authenticated image's own controller-port wait loop against the shipping executor — that the loop is a bounded RCnt2 timeout, that a control reaches it and returns, and that a segment-length mutant is what releases it — so "the port never delivers a hardware response" is not mistaken for "the guest's clock is not advanced inside a segment" | `tools/verify_pad_wait_exit.py`, `tests/pad_wait_exit.cpp` | `tools/verify_pad_wait_exit.py` | `docs/issues/0017-the-pad-driver-second-wait-loop-is-a-timeout-the.md` |
-| Mode-handler provenance | Establish where the 20 mode-dispatch handlers come from — disc text, a live RAM capture, or the mode-0 LZ payloads — with a control that can fail, so "not derivable from the disc" and "written at run time" are measured rather than assumed | `tools/recover_runtime_handlers.py` | `tools/recover_runtime_handlers.py` | `docs/issues/0018-the-clock-fix-ended-the-pad-stall-and-the-card-still-does-not-move.md` |
+| Startup and title-card facts | Record the direct-main structure and the mode/phase flow the title card waits on | `titles/tekken3/executable.json`, `titles/tekken3/README.md` | `tools/provision_executable.py` | `docs/issues/0016-the-namco-presents-card-is-mode-2-phase-8s-cd-read.md` |
 | Dynamic execution verification | Report bounded Lightrec guest-call exits from the shipping frame boundary; compare execution, overrides, original calls, invalidation, and machine/device state against an independent emulator or separately built test oracle | `game/core/decompressor_probe.*`, `tests/decompressor_probe_contract.cpp`; further target: focused game-owned drivers under `tools/` and test-only runners under `tests/` | `tekken3::DecompressorProbe::describe`; later native/Lightrec discriminator gate | `docs/issues/0011-whole-product-interrupt-exit-reaches-unseeded-te.md` |
-| Projection and culling RE | Verify title-owned view, focal-length, display, stage-visibility, and clipping owners | `tools/verify_projection.py`, `titles/tekken3/executable.json` | `tools/verify_projection.py` | `titles/tekken3/README.md` |
+| Projection and culling RE | Verify title-owned view, focal-length, display, stage-visibility, and clipping owners | `titles/tekken3/executable.json`, `game/core/widescreen.*` | `tekken3::Tekken3Widescreen` | `titles/tekken3/README.md` |
 | Widescreen projection and clipping | Apply the shared non-temporal guest-widescreen plan to Tekken's measured view-dimension owner and stage/effect right-edge clippers, with the faithful original bodies reached through dynarec original calls | target: `game/core/widescreen.*`, `game/core/tekken3_runtime.*`, native override/original-call bindings | `tekken3::Tekken3Widescreen` | `docs/issues/0008-tekken-wide-margins-lose-stage-and-effect-primit.md` |
 | Runtime-input policy | Execute the authenticated user-provided executable as runtime data and keep provisioning non-executable | CMake, launcher, and repository structure | native/Lightrec conformance gate | `docs/project-state.md` |
 | Verification policy | Compose executable, tool, test, source-structure, and Clang format/tidy checks | `CMakeLists.txt`, `.clang-format`, `.clang-tidy`, `tools/psxport_fetch.py` | `verify` target | `README.md` |
-| Project knowledge | Separate epic intent, factual capability state, and atomic work | `docs/project-goals.md`, `docs/project-state.md`, `docs/issues/` | — | `CLAUDE.md` |
+| Project knowledge | Separate epic intent, factual capability state, atomic work, and the ordered RE frontier | `docs/project-goals.md`, `docs/project-state.md`, `docs/issues/`, `docs/re-frontier.md` | — | `CLAUDE.md` |
 
 ## Where does X go?
 
@@ -55,24 +52,22 @@ separate test target -> independent oracle (never linked or selectable by the ga
 - New linked GPU queue wait/timeout ownership: `game/core/gpu_sync.*`
 - New CD **completion delivery** behaviour — the callback the guest registered being invoked, in the
   order retail's controller interrupt invoked it: `game/core/cd_sync.*`. It is **not** a framework
-  edit and **not** a host write to the wait byte; issue 0018 names both hops and why the framework's
+  edit and **not** a host write to the wait byte; issue 0020 names both hops and why the framework's
   existing per-sector driver cannot reach this title's chain callback
 - A new measurement about where guest code or data lives in RAM or in the disc's payloads:
-  `tools/recover_runtime_handlers.py` and its selftest, not a prose claim
+  `tools/ghidra_query.py` against the imported image, and the result as a named constant or
+  structure in the owning module, not a prose claim
 - New measured fact about Tekken's linked libetc VSync, or a new consumer of the guest field word:
   `game/core/vsync_field_clock.*`
 - New title projection or clipping behavior: `game/core/widescreen.*`; other rendering
   responsibilities get their own cohesive owner rather than growing product composition
-- New executable-derived fact: `titles/tekken3/executable.json` plus its verifier. A fact about the
-  mode/phase flow or the card belongs in that file's `title_flow` section and is re-derived by
-  `tools/verify_title_flow.py` on every gate.
+- New executable-derived fact: `titles/tekken3/executable.json`, checked against the hashed
+  executable by `tools/provision_executable.py`.
 - New fact about a guest WAIT on a hardware register, or about where the runtime's guest clock is
-  advanced: `tools/verify_pad_wait_exit.py` and its test-only runner. A fact about a guest's own
-  countdown or timeout belongs there, and it is re-derived from the instruction words on every gate.
+  advanced: `game/core/loader_lifecycle.h` and its owner.
 - New independent execution comparison: the focused owner under `tools/` plus a separately built
   test-only runner under `tests/`; any interpreter oracle stays test-only and out of the gameplay product
 - Epic product scope: `docs/project-goals.md`
 - Verified, partial, blocked, or missing capability: `docs/project-state.md`
-- Atomic task, bug, finding, or dead end: `docs/issues/`
-- Evidence claim or instrument trust: `docs/info/`
-- Ordered binary-evidence dependency: `docs/re-frontier.md`
+- Atomic bug or missing capability: `docs/issues/`
+- Ordered binary-evidence dependency and per-step RE status: `docs/re-frontier.md`

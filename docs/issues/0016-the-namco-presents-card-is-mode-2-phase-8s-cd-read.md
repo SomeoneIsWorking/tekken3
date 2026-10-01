@@ -16,11 +16,8 @@ product is *inside* it.** Leaving it copies one guest byte into the mode word an
 anywhere on the path. So the missing thing is not a pad edge, and a route that pressed buttons would
 be compensating for nothing.
 
-Everything below is measured out of the authenticated `SLUS_004.02` by
-`tools/verify_title_flow.py`, which refuses to report until it reproduces the file-offset formula
-against two known instructions, and whose recorded facts are diffed against
-`titles/tekken3/executable.json` (`title_flow`) on every run. The same run is the product's
-regression: 24/24, including **eight one-word negative cases and two controls**.
+Everything below is decoded out of the authenticated `SLUS_004.02` from file offset `0x800` to
+`t_addr`, and the recorded facts live in `titles/tekken3/executable.json` (`title_flow`).
 
 ## The two dispatch tables, read out of the image
 
@@ -160,11 +157,9 @@ CFG walk, because the dispatch tests `$a0` *and* `$a1` against `0x100`; phase 8 
 8004FEF0  sh    $v1, -0x1DFC($v0)   ; 0x800AE204 = 3   <- THE MODE SWITCH
 ```
 
-`tools/verify_title_flow.py` scans the **294 instructions** between this block and the card call for
-a dereference of a controller-port pointer and reports **none**. That scan is not vacuous: the
-selftest injects the guest's own two-instruction form of that read (`lui $a1, 0x800A` /
-`lw $a1, -0x469C($a1)`, exactly as `FUN_80093478` writes it) into this window and requires it to be
-found.
+Of the **294 instructions** between this block and the card call, none dereferences a
+controller-port pointer; the guest's own two-instruction form of that read (`lui $a1, 0x800A` /
+`lw $a1, -0x469C($a1)`, exactly as `FUN_80093478` writes it) appears nowhere in the window.
 
 **Therefore no pad edge takes this card anywhere.** The only gate is the sector callback that clears
 `0x800A069F`.
@@ -204,7 +199,7 @@ Issue 0011 attributes the stall to the first spin in the guest's per-VBlank cont
 **That spin is not where the product is.** `FUN_80093478`'s next act is
 `jal 0x800951B8` with `$a0 = 0x190`, and `FUN_800951B8`'s only effect is
 `DAT_800AE228 = $a0` plus a snapshot of RCnt2. A constant-propagation sweep of the authenticated
-text (`tools/probe_global_writers.py`, 227,175 instructions scanned) finds **exactly two** stores to
+text finds **exactly two** stores to
 `0x800AE228`: the constant `0x1AE` at `0x80093398`, and `FUN_800951B8`'s own store. Decoding every
 `jal` to `0x800951B8` gives seven sites, and the delay-slot immediates are `0x91`, `0x50`, **`0x190`**,
 `0x3C`, `0x3C`, `0x3C`, `0x3C` — so `0x190` names one site and one only, `0x800934EC`.

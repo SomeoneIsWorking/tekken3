@@ -97,27 +97,22 @@ directly: `*(0x1F8010F0) |= 0x8000` (DPCR3 enable), `*(0x1F8010B0) = dest` (MADR
 are the sync mode, and `0x10000` sets bit 16, **not** bits 0-1. The caller is `FUN_8006C2A0` ->
 `FUN_80090AA8(dest, 0x800 >> 2)`, so the count is `0x200` and `BCR3 = 0x10200`, giving
 `0x10200 & 3 == 0` — **manual/block mode**. Tekken 3 chains no DMA transfer, so the psxport
-`492adace` fix changed nothing for this title. `tools/probe_dma_sync_mode.py` reports the 12 DMA
-register literals it found and says plainly that they are descriptor-table addresses, not BCR values;
-the value itself had to be read from the instruction that writes it.
+`492adace` fix changed nothing for this title. The 12 DMA register literals the image names are
+descriptor-table addresses, not BCR values; the value itself has to be read from the instruction
+that writes it.
 
-## Instrument note: two wrong answers, and what caught them
+## What caught two wrong writer answers
 
-`tools/probe_global_writers.py` is a constant-propagation sweep over the authenticated text. It was
-wrong twice before it was right, and both times it answered confidently, so both are recorded:
+A constant-propagation sweep over the authenticated text is wrong twice before it is right, and both
+times it answered confidently:
 
-1. It omitted the PS-X EXE's 0x800-byte header from the file offset. Every decoded instruction and
-   every reported address was shifted, and it reported 0x8009B750 as having **18 stores** when the
-   truth is 3. It now refuses to report anything unless it first reproduces two known instructions
-   (`GROUND_TRUTH`), and the selftest asserts it does.
-2. It could not see the `lui`/`addiu`/`sw` form, so it reported 0 for 0x8009B750 — and that zero was
-   *believable*, because Ghidra's reference model independently reported zero references to the same
-   address. Two instruments agreeing was not two facts: both missed the same form. `FUN_8008FBB4`
+1. Omitting the PS-X EXE's 0x800-byte header from the file offset shifts every decoded instruction and
+   every reported address: it reported 0x8009B750 as having **18 stores** when the truth is 3.
+2. Not modelling the `lui`/`addiu`/`sw` form reports 0 for 0x8009B750 — and that zero was *believable*,
+   because Ghidra's reference model independently reported zero references to the same address. Two
+   instruments agreeing was not two facts: both missed the same form. `FUN_8008FBB4`
    reaches that address as `sll a0,a0,2` / `lui v0,0x800A` / `addu` / `lw v0,-18608(v0)`, so the
-   byte-scaled-index form is now modelled.
-3. Its first draft used 0x8009B750 as a **negative** control ("must find no store"). The
-   disassembly disproved that — the three writers are real — so the control was false and the selftest
-   correctly failed. A control that is simply false is worse than no control.
+   byte-scaled-index form is what a reader has to model.
 
 The confirmed writer census for the CD chain state word, each hand-checked in the disassembly:
 
@@ -127,10 +122,9 @@ The confirmed writer census for the CD chain state word, each hand-checked in th
 | `0x800908D8` | `sw v1,0(v0)`, `v0 = 0x800A0000-0xB750`, `v1 = 1` | `0x8009B750 = 1` (ready) |
 | `0x8008FA54` | `sw v0,8(s0)`, `s0 = 0x800A0000-0x46B8`, `v0 = 2` | `0x8009B750 = 2` (in flight) |
 
-which is exactly the 1 -> 2 transition `FUN_8008FB08` performs when it issues. No sweep-level
-"wrong offset must disagree" control is claimed: one was tried and it produced identical counts,
-because wrong bytes are mostly rejected by the decoder rather than producing different answers. The
-guard that works is the pre-flight `GROUND_TRUTH` refusal, and that is what caught the real bug.
+which is exactly the 1 -> 2 transition `FUN_8008FB08` performs when it issues. Wrong bytes are mostly
+rejected by the decoder rather than producing different answers, so an offset guard has to reproduce
+known instructions before it reports anything.
 
 ## The live control endpoint did not exist for this title
 

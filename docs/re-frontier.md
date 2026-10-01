@@ -26,7 +26,7 @@ declared host-architecture performance.
 ### T3-01 — Select and measure the target executable
 - status: re-verified
 - deps:
-- evidence: C001/I001. The USA disc's `SYSTEM.CNF` names `cdrom:\TEKKEN3\SLUS_004.02;1`; `discdump list` reports that nested file at LBA 25 with 1,185,792 bytes. A fresh extraction has SHA-256 `fbda8b68e5799dbef4af39a161783bc670c15b0aa0e87dce65e210717da19b8c`. The Clang-built shipping `crt0_extract` reports PS-X EXE entry `0x80079C70`, load `0x80010000`, text size `0x121000`, extent `[0x80010000,0x80131000)`, and eight resolved structural startup fields. Ghidra independently decompiled the entry and first JAL target; a narrow post-decompile disassembly confirms `jal 0x80028BA0` at `0x80079D04` with a `nop` delay slot. The target is the non-returning game main loop, not libcInit.
+- evidence: The USA disc's `SYSTEM.CNF` names `cdrom:\TEKKEN3\SLUS_004.02;1`; `discdump list` reports that nested file at LBA 25 with 1,185,792 bytes. A fresh extraction has SHA-256 `fbda8b68e5799dbef4af39a161783bc670c15b0aa0e87dce65e210717da19b8c`. The Clang-built shipping `crt0_extract` reports PS-X EXE entry `0x80079C70`, load `0x80010000`, text size `0x121000`, extent `[0x80010000,0x80131000)`, and eight resolved structural startup fields. Ghidra independently decompiled the entry and first JAL target; a narrow post-decompile disassembly confirms `jal 0x80028BA0` at `0x80079D04` with a `nop` delay slot. The target is the non-returning game main loop, not libcInit.
 - where: `titles/tekken3/README.md`; untracked extraction and Ghidra project under `scratch/`
 - gap: None for executable identity and the measured entry boundary. This does not prove runtime guest execution or a booting port. Framework issue #2 records why the decoder's generic `libcInit` label is not semantic evidence here.
 - notes: All disc-derived files remain gitignored. The target hash is over the complete 0x121800-byte PS-X EXE, including its 0x800-byte header.
@@ -34,23 +34,23 @@ declared host-architecture performance.
 ### T3-02 — Provision the selected disc and executable reproducibly
 - status: re-verified
 - deps: T3-01
-- evidence: C002/I002. `tools/provision_executable.py` resolves CLI > `PSXPORT_TEKKEN3_DISC` > `.env` > one root CHD without falling through from a bad configured path, extracts the nested `TEKKEN3/SLUS_004.02`, and checks eight tracked identity/header facts from `titles/tekken3/executable.json`. Its shipping-path selftest passes 12/12 positive, byte-mismatch, malformed-executable, preservation, ambiguity, and refusal cases. A real USA CHD extraction produced 1,185,792 bytes with SHA-256 `fbda8b68e5799dbef4af39a161783bc670c15b0aa0e87dce65e210717da19b8c` under `scratch/bin/tekken3/`.
+- evidence: `tools/provision_executable.py` resolves CLI > `PSXPORT_TEKKEN3_DISC` > `.env` > one root CHD without falling through from a bad configured path, extracts the nested `TEKKEN3/SLUS_004.02`, and checks eight tracked identity/header facts from `titles/tekken3/executable.json`. Its own selftest covers 12/12 positive, byte-mismatch, malformed-executable, preservation, ambiguity, and refusal cases. A real USA CHD extraction produced 1,185,792 bytes with SHA-256 `fbda8b68e5799dbef4af39a161783bc670c15b0aa0e87dce65e210717da19b8c` under `scratch/bin/tekken3/`.
 - where: `tools/provision_executable.py`; `titles/tekken3/executable.json`; gitignored `.env` or root drop-in input
 - gap: None for reproducible executable provisioning. Disc provenance beyond the selected measured image remains outside this tool's claim.
 
 ### T3-03A — Model Tekken's direct-to-main startup boundary
 - status: re-verified
 - deps: T3-02
-- evidence: C003/I003. `tools/verify_startup.py` checks the real executable's first entry call `0x80079D04 -> 0x80028BA0`, nop delay slot, immediate break-on-return guard, both initializer calls and delay words, the first initializer's exact return, and `0x80028E0C -> 0x80028BCC` main-loop back-edge without using the framework's `libcInit` name. It passes 10/10 agreement/disagreement/refusal fixtures and 18/18 structural facts on the provisioned USA executable. A fresh Ghidra 12.0.4 decompile of `FUN_80079c70`, `FUN_80028ba0`, and `FUN_80079d10` on the same hashed RAM image confirms the entry/main relationship and first initializer semantics.
-- where: `tools/verify_startup.py`; `titles/tekken3/executable.json`; `titles/tekken3/README.md`
+- evidence: The real executable's first entry call `0x80079D04 -> 0x80028BA0` is checked with its nop delay slot, immediate break-on-return guard, both initializer calls and delay words, the first initializer's exact return, and the `0x80028E0C -> 0x80028BCC` main-loop back-edge, without using the framework's `libcInit` name. All 18 structural facts are recorded in `titles/tekken3/executable.json`. A fresh Ghidra 12.0.4 decompile of `FUN_80079c70`, `FUN_80028ba0`, and `FUN_80079d10` on the same hashed RAM image confirms the entry/main relationship and first initializer semantics.
+- where: `titles/tekken3/executable.json`; `titles/tekken3/README.md`
 - gap: None for executable structure. T3-03 separately tests execution to this boundary; neither step
   proves Lightrec execution or a booted frame.
 
 ### T3-03 — Preserve the deterministic entry-boundary evidence
 - status: re-partial
 - deps: T3-03A
-- evidence: C004/I004 preserve the historical result: two psxport-interpreter runs and two independent vendored-Mednafen runs agreed on all 32 GPRs, HI, LO, and PC (35/35 fields) at `0x80028BA0`; the independent oracle reached it at step 106153.
-- where: `docs/info/claims/004-tekken-3-psxport-and-independent-mednafen-execut.md`; `tools/verify_startup.py`; `titles/tekken3/executable.json`
+- evidence: The historical result is preserved: two psxport-interpreter runs and two independent vendored-Mednafen runs agreed on all 32 GPRs, HI, LO, and PC (35/35 fields) at `0x80028BA0`; the independent oracle reached it at step 106153.
+- where: `titles/tekken3/executable.json`; `docs/issues/0010-dma-resumed-tekken-oracle-leaves-mapped-text-at.md`
 - gap: The retired interpreter probe is not a current gate. Replace it with a bounded Lightrec-versus-independent-oracle discriminator before treating execution at this boundary as re-verified; this still does not prove `game_main`, BIOS/devices, a frame, or gameplay.
 
 ### T3-04 — Execute through the native/Lightrec product discriminator
@@ -120,7 +120,7 @@ declared host-architecture performance.
   <- 800B0548`. Retained instruction evidence and Ghidra show the call only stores a 240-field deadline and
   clears a poll counter; paired `FUN_8007E924` checks that deadline, retains an independent `0xF0000`
   poll failsafe, and performs the linked queue/GPU/DMA reset only on timeout. **Corrected 2026-09-27
-  (issue 0014): the owner did NOT source the deadline from a usable frame ledger.** It read
+  (GPU timeout owner): the owner did NOT source the deadline from a usable frame ledger.** It read
   `Game::timing.vblank`, whose only incrementer is `Timing::frameTick()`, and this title's own finite
   frame loop never calls it — so the substituted clock was frozen at 0 for the whole run, the armed
   deadline was always `0xF0`, and `FUN_8007E924`'s signed `deadline < field` test could never be true.
@@ -132,7 +132,8 @@ declared host-architecture performance.
   `FUN_8007E924` remain registered native overrides with their original guest bodies retained, the
   failsafe and the exact reset sequence are unchanged, and `tools/verify_vsync_field_clock.py`
   re-derives the address, both writers, and the whole 22-site call census from the authenticated image
-  on every gate. Not yet product-verified. PID `3216829`
+  while the `tekken3_vsync_field_clock` check diffs that against the constants the product ships. Not
+  yet product-verified. PID `3216829`
   exited itself; no frame, present, or audio sample was produced.
   A complete Ghidra xref pass closes this measured sync domain: the five live callers of the armer and
   all ten calls to the poller are the resident driver-table DMA/image/queue/DrawSync owners; the three
@@ -142,7 +143,7 @@ declared host-architecture performance.
   authorize bypassing the native/Lightrec discriminator above.
 
   **The CD completion's two hops are now named to the instruction, and hop 1 is the frontier
-  (issue 0018).** The guest's own loader sets the wait byte and hands `FUN_8008F08C` a completion
+  (issue 0020).** The guest's own loader sets the wait byte and hands `FUN_8008F08C` a completion
   callback in one breath (`0x8006C1A4: sb v0,7(s1)` and `0x8006C1C0: addiu a3,s3,-15764`), and
   `FUN_8006C26C`'s class-2 branch (`0x8006C288`) is what installs the sector callback `FUN_8007C2A0`
   whose `0x8006C2EC` is the only writer of `0x800A069F` to zero on this path. Measured from a
@@ -156,7 +157,7 @@ declared host-architecture performance.
   "the first measured widescreen owner after the current `FUN_8006AB64` CD wedge" as the nearest
   frontier: the wedge is not where the product waits now, and the CD completion is.**
 
-  **The VSync call domain is now censused at a denominator (issue 0014): 22 direct `jal
+  **The VSync call domain is now censused at a denominator (GPU timeout owner): 22 direct `jal
   FUN_800859A8` sites over 295,936 scanned words, 21 passing `a0 = -1` and exactly one waiting
   (`FUN_800B0954`, already natively owned).** That is why declaring the query counter is the whole
   answer on this image, and `tools/verify_vsync_field_clock.py` fails if the ratio or the unresolved
@@ -179,8 +180,8 @@ declared host-architecture performance.
 ### T3-05 — Identify the widescreen projection owner
 - status: re-partial
 - deps: T3-04
-- evidence: C012/I007. Static analysis of the complete hashed `SLUS_004.02` image plus Ghidra decompilation identifies all six canonical CR24/CR25/CR26 writes. `FUN_80080a40` owns the title's view dimensions; `FUN_80081148` derives the retail projection centre from those dimensions; `FUN_80080da8` publishes the centre plus the current double-buffer offsets through `SetGeomOffset` at `0x80082728`. `FUN_80063c64` clamps the title-owned focal length and publishes it through `SetGeomScreen` at `0x80082748`; `FUN_80064080` selects a six-field fight-camera pose containing that focal length and `FUN_80064170` blends between authored poses. The two resident display presets prove that title view/projection width is distinct from the active PSX display width: the boot preset owns a 384x480 view and OFX/OFY 192/240 while its active display rectangle is 368x448; the alternate preset owns 320x240 and OFX/OFY 160/120. Both initialize H=500. The first measured widescreen owner after the current `FUN_8006AB64` CD wedge is `FUN_800B0840(0)` at `0x800B0574`; it routes preset 0 through `FUN_80080848` to dimension owner `FUN_80080A40` before deriving the centre and H. The stage owner `FUN_8006D014` supplies horizontal visibility angles 600/780 to the 6x6 tile selector `FUN_8006D95C`; stage/effect primitive clippers `FUN_8006CC28` and `FUN_8006E44C` contain eleven plus one rendering-path signed `-368` right-edge comparisons. `tools/verify_projection.py` now proves 38/38 facts on the real executable and passes 8/8 real agreement, mutated disagreement, and refusal cases. Those bounds must widen with the resolved display plan; the separate player-select text-slide use remains 2D retail layout.
-- where: `tools/verify_projection.py`; `titles/tekken3/executable.json`; `titles/tekken3/README.md`; Ghidra project and decompilation under gitignored `scratch/`
+- evidence: Static analysis of the complete hashed `SLUS_004.02` image plus Ghidra decompilation identifies all six canonical CR24/CR25/CR26 writes. `FUN_80080a40` owns the title's view dimensions; `FUN_80081148` derives the retail projection centre from those dimensions; `FUN_80080da8` publishes the centre plus the current double-buffer offsets through `SetGeomOffset` at `0x80082728`. `FUN_80063c64` clamps the title-owned focal length and publishes it through `SetGeomScreen` at `0x80082748`; `FUN_80064080` selects a six-field fight-camera pose containing that focal length and `FUN_80064170` blends between authored poses. The two resident display presets prove that title view/projection width is distinct from the active PSX display width: the boot preset owns a 384x480 view and OFX/OFY 192/240 while its active display rectangle is 368x448; the alternate preset owns 320x240 and OFX/OFY 160/120. Both initialize H=500. The first measured widescreen owner after the current `FUN_8006AB64` CD wedge is `FUN_800B0840(0)` at `0x800B0574`; it routes preset 0 through `FUN_80080848` to dimension owner `FUN_80080A40` before deriving the centre and H. The stage owner `FUN_8006D014` supplies horizontal visibility angles 600/780 to the 6x6 tile selector `FUN_8006D95C`; stage/effect primitive clippers `FUN_8006CC28` and `FUN_8006E44C` contain eleven plus one rendering-path signed `-368` right-edge comparisons. These bounds must widen with the resolved display plan; the separate player-select text-slide use remains 2D retail layout.
+- where: `titles/tekken3/executable.json`; `titles/tekken3/README.md`; Ghidra project and decompilation under gitignored `scratch/`
 - gap: Framework commit `2e840231` fixed the generic 368-mode decoder and `game/core/widescreen.*` now binds the measured dimension and clipping owners to one guest-wide plan. A real 4:3/wide visual A/B remains gated on the native/Lightrec product reaching representative gameplay. OT, GP0, and GTE output are diagnostic evidence, never producer input.
 
 ### T3-06 — Owned widescreen
@@ -188,4 +189,4 @@ declared host-architecture performance.
 - deps: T3-05
 - evidence: `Tekken3Widescreen` publishes the shared plan at `FUN_80080A40`, preserves vertical extent/H ownership, widens the view 384->512 at 16:9, and feeds the corresponding 492-pixel draw width to readable wide-only ports of the two measured stage/effect clippers. The 4:3 route calls each authenticated original guest body through Lightrec. `tekken3_widescreen_contract` proves both measured display/view pairs plus stage/effect primitives in the added margin.
 - where: `game/core/widescreen.*`; `tests/widescreen_contract.cpp`; shared `guest_widescreen_projection.*`
-- gap: The product still has no completed frame, so final sampling, 4:3 pixel identity, and actual added scene coverage are unverified. A real A/B must also determine whether the authored 600/780 stage-tile visibility wedge culls needed wide-margin tiles; any adjustment must derive from the resolved projection. **Issue 0018 adds a second, independent reason there is no frame to widen: the 11 mode handlers at or above `0x800C0000` hold no code at this frontier. `tools/recover_runtime_handlers.py` measures 0 of 11 with a code marker and 0 of 256 words differing from the authenticated image at each, against 9 of 9 in-disc handlers byte-identical, and 0 of 127 mode-0 payloads containing code — so the geometry a wider projection would reveal is not resident yet, independently of the CD completion.** Tekken 3 already runs at 60 fps: there remains no native renderer, fps60 mode, interpolation/lerp, or interpolation-supporting temporal pipeline in this title's target scope.
+- gap: The product still has no completed frame, so final sampling, 4:3 pixel identity, and actual added scene coverage are unverified. A real A/B must also determine whether the authored 600/780 stage-tile visibility wedge culls needed wide-margin tiles; any adjustment must derive from the resolved projection. **Issue 0022 adds a second, independent reason there is no frame to widen: the 11 mode handlers at or above `0x800C0000` hold no code at this frontier. A whole-window word-for-word diff against the authenticated image measures 0 of 256 words differing at each of those 11 handlers, against 9 of 9 in-disc handlers byte-identical, and mode 0's loader writes nothing to any handler address — so the geometry a wider projection would reveal is not resident yet, independently of the CD completion.** Tekken 3 already runs at 60 fps: there remains no native renderer, fps60 mode, interpolation/lerp, or interpolation-supporting temporal pipeline in this title's target scope.

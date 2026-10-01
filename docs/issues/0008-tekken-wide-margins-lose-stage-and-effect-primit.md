@@ -25,8 +25,8 @@ The separate `-368` use in `FUN_80054B48` was inspected and ruled out: it is a
 player-select text-slide distance, not a rendering clip bound, and belongs to retail 2D
 layout.
 
-`tools/verify_projection.py` now proves the complete eleven-plus-one rendering census and
-the distinct 2D use against the real executable. This resolves the ownership uncertainty,
+The complete eleven-plus-one rendering census and the distinct 2D use are decoded from the real
+executable. This resolves the ownership uncertainty,
 not the missing wide implementation or its pixel A/B.
 
 ## Resolution
