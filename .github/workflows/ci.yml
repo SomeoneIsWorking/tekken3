@@ -43,7 +43,7 @@ jobs:
       - name: Install the locked Python environment
         run: uv sync --locked
 
-      - name: Resolve the exact pinned framework
+      - name: Resolve the framework
         run: uv run --frozen python tools/psxport_fetch.py --auto
 
       - name: Provision the shared pinned Linux build inputs

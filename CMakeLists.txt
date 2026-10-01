@@ -5,9 +5,9 @@ enable_testing()
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# PSXPORT_DIR — the framework. external/psxport is NOT a git submodule (2026-08-16): it is a symlink
-# to the workspace's shared framework clone, or a private clone at this repo's psxport.pin on a fresh
-# machine; tools/psxport_fetch.py --auto establishes whichever applies. Defaults to external/psxport so
+# PSXPORT_DIR — the framework. external/psxport is NOT a git submodule (2026-08-16): it is a relative
+# symlink to the workspace's live framework checkout, or a clone of its main where there is none;
+# tools/psxport_fetch.py --auto establishes whichever applies. Defaults to external/psxport so
 # a bare clone of this repo builds standalone.
 set(PSXPORT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/psxport" CACHE PATH
     "psxport framework source directory (default: external/psxport)")
@@ -15,16 +15,6 @@ if(NOT EXISTS "${PSXPORT_DIR}/cmake/psxport.cmake")
   message(FATAL_ERROR "PSXPORT_DIR=${PSXPORT_DIR} has no cmake/psxport.cmake — run "
                       "`python3 tools/psxport_fetch.py --auto`, or point PSXPORT_DIR at a psxport checkout.")
 endif()
-# RECORD WHAT THIS CONFIGURE RESOLVED, so `external/psxport/tools/psxport_sync.py --check` can compare the built
-# framework against the one psxport.pin RECORDS.
-execute_process(COMMAND git -C "${PSXPORT_DIR}" rev-parse HEAD
-                OUTPUT_VARIABLE PSXPORT_RESOLVED_SHA OUTPUT_STRIP_TRAILING_WHITESPACE
-                ERROR_QUIET RESULT_VARIABLE _psxport_rev_rc)
-if(NOT _psxport_rev_rc EQUAL 0)
-  set(PSXPORT_RESOLVED_SHA "unknown")
-endif()
-file(WRITE "${CMAKE_BINARY_DIR}/psxport_resolved.txt"
-     "dir = ${PSXPORT_DIR}\ncommit = ${PSXPORT_RESOLVED_SHA}\n")
 add_subdirectory("${PSXPORT_DIR}" psxport_build)
 
 add_library(
@@ -329,8 +319,6 @@ add_custom_target(
   VERBATIM)
 add_custom_target(
   verify
-  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/external/psxport/tools/psxport_sync.py"
-          --repo "${CMAKE_SOURCE_DIR}" --check --build "${CMAKE_BINARY_DIR}"
   DEPENDS
     cpp_policy
     tekken3_cd_protocol_contract_check
@@ -349,24 +337,3 @@ add_custom_target(
 if(TARGET tekken3_product_help_contract_check)
   add_dependencies(verify tekken3_product_help_contract_check)
 endif()
-
-# THE LIVE PIN CHECK. Not a selftest: this runs the real function against this repository's real
-# psxport.pin and the real build receipt, so it can fail when the pin is actually wrong.
-#
-# MEASURED 2026-09-27: every port in the workspace registered only a SELFTEST of the check function, run
-# against a temporary fixture. A selftest asserts the function behaves; it cannot fail when this repo's
-# pin is stale, which is why ten ports reported green while four pins were demonstrably stale. --build
-# points at THIS build directory, configured moments ago, so the receipt is current by construction and
-# the staleness guard cannot fire spuriously. Verified: perturbing psxport.pin turns it red.
-# NOT guarded by if(BUILD_TESTING): this repository calls enable_testing() directly and never defines
-# that variable, so a guarded registration here is silently INERT. That is the same failure as the
-# workspace-wide one this test exists to fix -- a registration that reads as present and runs nothing --
-# caught in the act on the port that was missing the gate. Verified: ctest -N went 17 -> 18.
-add_test(
-  NAME tekken3_psxport_pin_live
-  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/external/psxport/tools/psxport_sync.py"
-          --repo "${CMAKE_SOURCE_DIR}" --check --build "${CMAKE_BINARY_DIR}")
-
-# The pin tool's own behaviour (staleness guard, a bump that records the commit the build RESOLVED) is
-# tested once, in the framework (tests/test_psxport_sync.py). The only pin tool this repository ships
-# is tools/psxport_fetch.py.
