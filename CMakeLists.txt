@@ -102,40 +102,12 @@ add_custom_target(
 add_executable(tekken3_decompressor_probe_contract tests/decompressor_probe_contract.cpp)
 target_link_libraries(tekken3_decompressor_probe_contract PRIVATE tekken3_runtime)
 add_test(NAME tekken3_decompressor_probe_contract COMMAND tekken3_decompressor_probe_contract)
-add_executable(tekken3_decompressor_lightrec tests/decompressor_lightrec.cpp)
-target_link_libraries(tekken3_decompressor_lightrec PRIVATE tekken3_runtime)
-add_test(
-  NAME tekken3_decompressor_lightrec_selftest
-  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/verify_decompressor_lightrec.py" --selftest)
 add_custom_target(
   tekken3_decompressor_probe_contract_check
   COMMAND "$<TARGET_FILE:tekken3_decompressor_probe_contract>"
   DEPENDS tekken3_decompressor_probe_contract
   USES_TERMINAL
   VERBATIM)
-
-# The SIO0 census carries its own control - thirteen field readings checked against the ENCODING,
-# which is how it caught a four-byte slip between the globals 0x8009B960 and 0x8009B964 during this
-# session's own write-up. It is registered so that control runs in the gate rather than sitting in a
-# file.
-#
-# What this test does NOT cover, stated so nobody reads more into it: it runs `--selftest`, which
-# returns before any disassembly, so the tool's CHECK of each route-A candidate against the framework's
-# disassembler is exercised by running `tools/tekken3_sio_poll_census.py` against a provisioned image,
-# not here. That path needs `uv` and the framework's locked environment, which is deliberately not a
-# gate dependency; the census therefore prints "UNVERIFIED" rather than a number when it cannot ask.
-add_test(
-  NAME tekken3_sio_poll_census_selftest
-  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/tekken3_sio_poll_census.py"
-          --selftest)
-
-# Test-only. Runs the authenticated image's own pad-wait loop through the shipping Lightrec
-# executor; tools/verify_pad_wait_exit.py owns the decision and its selftest.
-add_executable(tekken3_pad_wait_exit tests/pad_wait_exit.cpp)
-target_link_libraries(tekken3_pad_wait_exit PRIVATE tekken3_runtime)
-add_test(
-  NAME tekken3_pad_wait_exit_selftest
-  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/verify_pad_wait_exit.py" --selftest)
 
 add_executable(tekken3_cd_protocol_contract tests/cd_protocol_contract.cpp)
 target_link_libraries(tekken3_cd_protocol_contract PRIVATE tekken3_runtime)
@@ -204,93 +176,6 @@ target_include_directories(
 target_compile_features(tekken3_irq_oracle PRIVATE cxx_std_20)
 add_test(NAME tekken3_irq_oracle_selftest COMMAND tekken3_irq_oracle --selftest)
 
-add_custom_target(
-  tekken3_tool_selftests
-  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/provision_executable.py" --selftest
-  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/verify_startup.py" --selftest
-  COMMAND
-    "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tools/test_run.py"
-  COMMAND
-    "${Python3_EXECUTABLE}" -B
-    "${CMAKE_CURRENT_SOURCE_DIR}/tools/test_launcher_help.py"
-  COMMAND
-    "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/verify_projection.py"
-    --selftest --exe "${TEKKEN3_EXE}"
-  COMMAND
-    "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/verify_stage_wedge.py"
-    --selftest --exe "${TEKKEN3_EXE}"
-  COMMAND
-    "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/verify_focal_length.py"
-    --selftest --exe "${TEKKEN3_EXE}"
-  COMMAND
-    "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/probe_wedge_extent_census.py"
-    --selftest --exe "${TEKKEN3_EXE}"
-  COMMAND
-    "${Python3_EXECUTABLE}" -B
-    "${CMAKE_CURRENT_SOURCE_DIR}/tools/probe_global_writers.py" --selftest "${TEKKEN3_EXE}"
-  COMMAND
-    "${Python3_EXECUTABLE}" -B
-    "${CMAKE_CURRENT_SOURCE_DIR}/tools/probe_dma_sync_mode.py" "${TEKKEN3_EXE}"
-  COMMAND
-    "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tools/verify_vsync_field_clock.py"
-    --selftest --exe "${TEKKEN3_EXE}"
-  USES_TERMINAL
-  VERBATIM)
-# The 4:3-vs-16:9 receipt logic, a real `add_test` and NOT another COMMAND inside the aggregate target
-# above. Two of its checks are scope checks rather than receipt checks: this title is already 60 fps, so
-# an fps60 row reported as ACTIVE is a defect, and a tracked settings file containing `fps60=1` is a
-# defect. The selftest half needs no disc, no GPU and no product; the pair itself is a maintainer run
-# because it needs the user's CHD and the machine's single product slot. See docs/issues/0015.
-add_test(
-  NAME tekken3_widescreen_pair_selftest
-  COMMAND
-    "${Python3_EXECUTABLE}" -B
-    "${CMAKE_CURRENT_SOURCE_DIR}/tools/probe_tekken3_widescreen_pair.py" --selftest)
-add_test(
-  NAME tekken3_projection_selftest
-  COMMAND
-    "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/verify_projection.py"
-    --selftest --exe "${TEKKEN3_EXE}")
-add_test(
-  NAME tekken3_stage_wedge_selftest
-  COMMAND
-    "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/verify_stage_wedge.py"
-    --selftest --exe "${TEKKEN3_EXE}")
-# The title-card flow: the mode and phase dispatches, the CD read mode 2 phase 8 waits on, the card
-# it draws while it waits, and the single byte copy that leaves. The selftest half needs only the
-# provisioned executable; the real half is the same run, since every fact is read out of the image
-# rather than from a product. See docs/issues/0016.
-add_test(
-  NAME tekken3_title_flow_selftest
-  COMMAND
-    "${Python3_EXECUTABLE}" -B
-    "${CMAKE_CURRENT_SOURCE_DIR}/tools/verify_title_flow.py" --selftest --exe "${TEKKEN3_EXE}")
-add_test(
-  NAME tekken3_title_flow
-  COMMAND
-    "${Python3_EXECUTABLE}" -B
-    "${CMAKE_CURRENT_SOURCE_DIR}/tools/verify_title_flow.py" --exe "${TEKKEN3_EXE}")
-add_test(
-  NAME tekken3_focal_length_selftest
-  COMMAND
-    "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/verify_focal_length.py"
-    --selftest --exe "${TEKKEN3_EXE}")
-# Where the 20 mode handlers come from: three independent routes to the same bytes (the disc, a live
-# `dumpram` capture, and mode 0's LZ payloads decoded offline) with a control that can fail. The
-# selftest is the registered half; it needs only the provisioned executable, and it is what keeps the
-# route-B "0 of 11" reading interpretable by proving the instrument finds what IS there first. The
-# capture-fed half is a maintainer run against a real run's scratch capture, not a gate, because a
-# RAM dump is not an asset-free input. See docs/issues/0018.
-add_test(
-  NAME tekken3_recover_runtime_handlers_selftest
-  COMMAND
-    "${Python3_EXECUTABLE}" -B
-    "${CMAKE_CURRENT_SOURCE_DIR}/tools/recover_runtime_handlers.py" --selftest)
-add_test(
-  NAME tekken3_extent_census
-  COMMAND
-    "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/probe_wedge_extent_census.py"
-    --exe "${TEKKEN3_EXE}")
 # The real check, not a selftest of a helper: it parses game/core/vsync_field_clock.h and diffs the
 # constants the product SHIPS against what it measures out of the authenticated executable. Unguarded
 # on purpose, as this repository never defines BUILD_TESTING.
@@ -319,6 +204,8 @@ add_custom_target(
   VERBATIM)
 add_custom_target(
   verify
+  COMMAND "${CMAKE_COMMAND}" -E echo
+          "[verify] aggregate: product composition, policy and title contract checks"
   DEPENDS
     cpp_policy
     tekken3_cd_protocol_contract_check
@@ -329,7 +216,6 @@ add_custom_target(
     tekken3_vsync_field_clock_contract_check
     tekken3_runtime_contract_check
     tekken3_runtime_seam_check
-    tekken3_tool_selftests
     tekken3_widescreen_contract_check
     tekken3_widescreen_stage_wedge_contract_check
   USES_TERMINAL

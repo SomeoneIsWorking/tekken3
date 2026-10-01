@@ -79,9 +79,9 @@ CALLBACK_BODY = (0x800863B0, 0x8008641C)
 # The census this tool exists to keep honest. The tool resolves a site's mode from the call's own
 # delay slot or a straight-line backward walk; six sites materialise a0 behind a loop edge, so the
 # walk stops and the tool reports them UNRESOLVED rather than guessing. Those six are resolved by
-# Ghidra decompilation of their enclosing functions instead, and the decompiled source is quoted in
-# docs/issues/0014: FUN_80083904, FUN_80083B84 and FUN_800846D0 each open with
-# `FUN_800859a8(0xffffffff)`, and FUN_800910DC / FUN_80091254 / FUN_80091328 pass the same -1.
+# Ghidra decompilation of their enclosing functions instead: FUN_80083904, FUN_80083B84 and
+# FUN_800846D0 each open with `FUN_800859a8(0xffffffff)`, and FUN_800910DC / FUN_80091254 /
+# FUN_80091328 pass the same -1.
 #
 # The gate is the SET, not a count. A new call site that this tool cannot resolve fails, because an
 # unexamined site is exactly where a WAIT could hide — and a wait is what "declaring a query counter"
@@ -346,7 +346,7 @@ def check(data: bytes, header_text: str) -> list[str]:
     if unresolved:
         print(
             f"    the {len(unresolved)} unresolved site(s) are resolved by Ghidra decompilation of "
-            f"their enclosing functions, quoted in docs/issues/0014, not by this tool"
+            f"their enclosing functions, not by this tool"
         )
 
     if len(sites) != EXPECTED_TOTAL_SITES:

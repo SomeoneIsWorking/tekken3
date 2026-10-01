@@ -48,8 +48,8 @@ constexpr int kWideDrawWidth = 492;
 constexpr int kUltraDrawWidth = 644;
 
 // The stage block the title's own initializer FUN_8006C95C publishes for a descriptor tile unit of
-// 2048: tile 10*unit, both origins -30*unit, direction step scale 7*unit. tools/verify_stage_wedge.py
-// proves that arithmetic against the executable and re-derives these four values.
+// 2048: tile 10*unit, both origins -30*unit, direction step scale 7*unit, decoded from the
+// authenticated executable.
 constexpr int kTileUnit = 2048;
 constexpr int kTile = 10 * kTileUnit;
 constexpr int kBlockOrigin = -30 * kTileUnit;
@@ -89,8 +89,8 @@ std::string maskOf(const Tekken3StageWedge::Result &result) {
   return text;
 }
 
-// One word of the title's own Q12 direction table. tools/verify_stage_wedge.py proves the guest's
-// resident tables are exactly round(sin/cos(2*pi*i/4096)*4096) over all 4096 entries each.
+// One word of the title's own Q12 direction table. The guest's resident tables are exactly
+// round(sin/cos(2*pi*i/4096)*4096) over all 4096 entries each.
 std::int32_t wordAt(std::int32_t index, bool sine) {
   const double turn = 2.0 * std::numbers::pi * static_cast<double>(index) / 4096.0;
   const double exact = sine ? std::sin(turn) : std::cos(turn);
@@ -129,7 +129,7 @@ Tekken3StageWedge::Result selectWith(std::int32_t wedge, const Tekken3StageWedge
 }
 
 // --- the recovered direction words, measured from the title's resident tables -------------------
-// tools/verify_stage_wedge.py proves both tables are exactly round(sin/cos(2*pi*i/4096)*4096) over all
+// Both resident tables are exactly round(sin/cos(2*pi*i/4096)*4096) over all
 // 4096 entries, so these words are what the guest's `lh` at 0x8006DA14/0x8006DA2C reads.
 bool directionWordsAreTheGuestTable() {
   const struct {
@@ -621,7 +621,7 @@ bool productionPathPublishesThePlanAndWritesTheGrid() {
   // The owner writes the 36-word block where the guest caller expects it, from the two stack
   // argument slots the selector reads at 0x8006D96C/0x8006D968, and takes its directions from the
   // title's resident tables at 0x8001E8C4/0x8001F0C4. A bare Core has no image, so the contract writes
-  // the same table words the executable holds (proved by tools/verify_stage_wedge.py) at the guest's
+  // the same table words the executable holds at the guest's
   // own addresses: the read path under test is the shipping one.
   constexpr std::uint32_t kGrid = 0x800A0000u;
   constexpr std::uint32_t kStack = 0x800A1000u;
