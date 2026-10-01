@@ -15,7 +15,7 @@ if(NOT EXISTS "${PSXPORT_DIR}/cmake/psxport.cmake")
   message(FATAL_ERROR "PSXPORT_DIR=${PSXPORT_DIR} has no cmake/psxport.cmake — run "
                       "`python3 tools/psxport_fetch.py --auto`, or point PSXPORT_DIR at a psxport checkout.")
 endif()
-# RECORD WHAT THIS CONFIGURE RESOLVED, so `tools/psxport_sync.py --check` can compare the built
+# RECORD WHAT THIS CONFIGURE RESOLVED, so `external/psxport/tools/psxport_sync.py --check` can compare the built
 # framework against the one psxport.pin RECORDS.
 execute_process(COMMAND git -C "${PSXPORT_DIR}" rev-parse HEAD
                 OUTPUT_VARIABLE PSXPORT_RESOLVED_SHA OUTPUT_STRIP_TRAILING_WHITESPACE
@@ -329,7 +329,8 @@ add_custom_target(
   VERBATIM)
 add_custom_target(
   verify
-  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/psxport_sync.py" --check
+  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/external/psxport/tools/psxport_sync.py"
+          --repo "${CMAKE_SOURCE_DIR}" --check --build "${CMAKE_BINARY_DIR}"
   DEPENDS
     cpp_policy
     tekken3_cd_protocol_contract_check
@@ -363,13 +364,9 @@ endif()
 # caught in the act on the port that was missing the gate. Verified: ctest -N went 17 -> 18.
 add_test(
   NAME tekken3_psxport_pin_live
-  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/psxport_sync.py"
-          --check --build "${CMAKE_BINARY_DIR}")
+  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/external/psxport/tools/psxport_sync.py"
+          --repo "${CMAKE_SOURCE_DIR}" --check --build "${CMAKE_BINARY_DIR}")
 
-# The pin tool's own behaviour: the staleness guard, and a bump that records the commit the build
-# RESOLVED rather than the framework's current HEAD. Added because 7 of 10 ports shipped the tool with no
-# test gating it at all. Unguarded on purpose where this repository does not define BUILD_TESTING -- a
-# guarded add_test there is silently inert, which is the failure this gate exists to prevent.
-add_test(
-  NAME tekken3_psxport_pin_selftest
-  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_psxport_sync.py")
+# The pin tool's own behaviour (staleness guard, a bump that records the commit the build RESOLVED) is
+# tested once, in the framework (tests/test_psxport_sync.py). The only pin tool this repository ships
+# is tools/psxport_fetch.py.

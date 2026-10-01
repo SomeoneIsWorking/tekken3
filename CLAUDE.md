@@ -47,8 +47,9 @@ Tekken source must not include or instantiate `LegacyGameRuntimeAdapter`, `GameC
 
 `external/psxport` is a symlink to the workspace's shared framework clone when one exists, or a
 private clone at this repo's `psxport.pin` on a fresh machine. `tools/psxport_fetch.py --auto`
-establishes whichever applies; `psxport_sync.py --bump` records the framework commit this game is
-built and verified against, and `--check` fails when the built framework is not the recorded pin.
+establishes whichever applies; `external/psxport/tools/psxport_sync.py --repo . --bump` records the
+framework commit this game is built and verified against, and `--check` fails when the built
+framework is not the recorded pin.
 Framework edits happen in the shared clone (`$PSX/psxport`), never here.
 
 `./run.sh` is the shipping zero-argument player contract: a slim `uv run --frozen` shim into
