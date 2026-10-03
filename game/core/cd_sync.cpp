@@ -2,9 +2,11 @@
 
 #include "cd_control.h"
 #include "core.h"
+#include "decompressor_probe.h"
 #include "disc.h"
+#include "execution_exit.h"
 #include "game.h"
-#include "guest_execution.h"
+#include "native_dispatch.h"
 
 #include <cstdint>
 #include <cstdlib>
@@ -129,7 +131,7 @@ public:
 
   void call(std::uint32_t address, std::uint32_t returnPc) override {
     core_.r[31] = returnPc;
-    guest::call(core_, address, "Tekken3 CD guest call");
+    DecompressorProbe::callToReturn(core_, address, "Tekken3 CD guest call");
   }
 
   void call2(std::uint32_t address, std::uint32_t returnPc, std::uint32_t a0, std::uint32_t a1) override {
@@ -343,7 +345,7 @@ void cdCommandOverride(Core *core) {
 
 void dispatch(Core &core, std::uint32_t address, std::uint32_t returnPc) {
   core.r[31] = returnPc;
-  guest::call(core, address, "Tekken3 queued CD guest call");
+  DecompressorProbe::callToReturn(core, address, "Tekken3 queued CD guest call");
 }
 
 void cdQueueStartOverride(Core *core) {
@@ -430,12 +432,12 @@ std::uint32_t CdProtocol::control(
 }
 
 void installCdOverrides(Core &core) {
-  guest::install(core, kCdSync, "Tekken3::cdSync", cdSyncOverride);
-  guest::install(core, kCdReady, "Tekken3::cdReady", cdReadyOverride);
-  guest::install(core, kCdControl, "Tekken3::cdControl", cdControlOverride);
-  guest::install(core, kCdCommand, "Tekken3::cdCommand", cdCommandOverride);
-  guest::install(core, kCdQueueStart, "Tekken3::cdQueueStart", cdQueueStartOverride);
-  guest::install(core, kCdQueueResult, "Tekken3::cdQueueResult", cdQueueResultOverride);
+  psx::cpu::installNativeOverride(core, kCdSync, "Tekken3::cdSync", cdSyncOverride);
+  psx::cpu::installNativeOverride(core, kCdReady, "Tekken3::cdReady", cdReadyOverride);
+  psx::cpu::installNativeOverride(core, kCdControl, "Tekken3::cdControl", cdControlOverride);
+  psx::cpu::installNativeOverride(core, kCdCommand, "Tekken3::cdCommand", cdCommandOverride);
+  psx::cpu::installNativeOverride(core, kCdQueueStart, "Tekken3::cdQueueStart", cdQueueStartOverride);
+  psx::cpu::installNativeOverride(core, kCdQueueResult, "Tekken3::cdQueueResult", cdQueueResultOverride);
 }
 
 } // namespace tekken3

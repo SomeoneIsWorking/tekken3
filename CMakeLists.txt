@@ -22,7 +22,6 @@ add_library(
   game/core/cd_sync.cpp
   game/core/decompressor_probe.cpp
   game/core/frame_loop.cpp
-  game/core/guest_execution.cpp
   game/core/gpu_sync.cpp
   game/core/tekken3_runtime.cpp
   game/core/sync_native.cpp

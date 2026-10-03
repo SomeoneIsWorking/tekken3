@@ -1,10 +1,10 @@
 #include "frame_loop.h"
 
 #include "core.h"
+#include "decompressor_probe.h"
 #include "execution_control.h"
 #include "execution_services.h"
 #include "game.h"
-#include "guest_execution.h"
 #include "native_dispatch.h"
 
 #include <array>
@@ -68,12 +68,12 @@ constexpr std::array<std::uint32_t, 20> kModeFunctions{
 
 class CoreFrameMachine final : public FrameMachine {
 public:
-  CoreFrameMachine(Game &game, Core &core, guest::BoundedCall &modeCall)
+  CoreFrameMachine(Game &game, Core &core, psx::cpu::ResumableGuestCall &modeCall)
       : game_(game), core_(core), modeCall_(modeCall) {}
 
   void call(std::uint32_t address, std::uint32_t returnPc) override {
     core_.r[31] = returnPc;
-    guest::call(core_, address, "Tekken3 frame guest call");
+    DecompressorProbe::callToReturn(core_, address, "Tekken3 frame guest call");
   }
 
   void call1(std::uint32_t address, std::uint32_t returnPc, std::uint32_t a0) override {
@@ -90,12 +90,32 @@ public:
   }
 
   bool startModeCall(std::uint32_t address, std::uint32_t returnPc) override {
-    return modeCall_.start(
-        core_, address, returnPc, "Tekken3 frame mode call", psx::cpu::ExecutionBudget::currentTurn(core_));
+    modeCall_.begin(core_, "Tekken3 frame mode call", address, returnPc, psx::cpu::kUnboundedCallTurns);
+    return settled(step());
   }
 
   bool resumeModeCall() override {
-    return modeCall_.resume(core_, "Tekken3 frame mode call", psx::cpu::ExecutionBudget::currentTurn(core_));
+    return settled(step());
+  }
+
+  // A mode body may legitimately outlive display fields: mode 0 decompresses the resident resource
+  // table and mode 2 waits for a sector completion that arrives on a later field. The frame state
+  // machine bounds how many fields it will wait, so the call itself states no turn cap.
+  bool settled(psx::cpu::CallStep step) {
+    if (step.outcome == psx::cpu::CallOutcome::Refused) {
+      lucent::error("tekken3-guest",
+                    "Tekken3 frame mode call refused after {} host turn(s) and {} cycles at 0x{:08X}: {}",
+                    step.turns,
+                    step.cycles,
+                    step.guestPc,
+                    step.detail);
+      std::abort();
+    }
+    return step.outcome == psx::cpu::CallOutcome::Returned;
+  }
+
+  psx::cpu::CallStep step() {
+    return modeCall_.advance();
   }
 
   void deliverEvent(std::uint32_t eventClass, std::uint32_t spec) override {
@@ -153,7 +173,7 @@ public:
 private:
   Game &game_;
   Core &core_;
-  guest::BoundedCall &modeCall_;
+  psx::cpu::ResumableGuestCall &modeCall_;
 };
 
 void finishFrame(FrameMachine &machine, std::uint32_t buffer) {
@@ -324,11 +344,11 @@ void FrameLoop::step(FrameMachine &machine, FrameStepState &state) {
     // sector completion that arrives on a later field. `ExecutionBudget::currentTurn` is one field
     // by construction, and psxport states that exceeding it is an ORDINARY bounded exit the host
     // commits, reports and then resumes deliberately — so a body that needs more than one field
-    // must be entered through `BoundedCall`. The non-suspending `call` above is for the small,
-    // per-field guest calls only; dispatching a spanning call through it turned the mode-2 loader
-    // wait into `[tekken3-lz:error] guest_call=0x8004FA60 exit=budget-exhausted` and
-    // `std::abort()` at game/core/guest_execution.cpp:93. The mode-0-only condition is what made
-    // the same defect invisible until the loader card.
+    // must be entered through `startModeCall` (`psx::cpu::ResumableGuestCall`). The
+    // non-suspending `call` above is for the small, per-field guest calls only; dispatching a
+    // spanning call through it turned the mode-2 loader wait into a budget exhaustion reported as
+    // `guest_call=0x8004FA60 exit=budget-exhausted` and a fatal refusal. The mode-0-only
+    // condition is what made the same defect invisible until the loader card.
     state.buffer = buffer;
     if (!machine.startModeCall(address, returnPc)) {
       state.modeCallPending = true;
@@ -388,9 +408,9 @@ void Tekken3FrameDriver::displayInitOverride(Core *core) {
 }
 
 void Tekken3FrameDriver::installOverrides() {
-  guest::install(game_.core, FrameLoop::kMain, "Tekken3::finiteMain", mainOverride);
-  guest::install(game_.core, FrameLoop::kFrameBarrier, "Tekken3::frameBarrier", frameBarrierOverride);
-  guest::install(game_.core, FrameLoop::kDisplayInit, "Tekken3::displayInit", displayInitOverride);
+  psx::cpu::installNativeOverride(game_.core, FrameLoop::kMain, "Tekken3::finiteMain", mainOverride);
+  psx::cpu::installNativeOverride(game_.core, FrameLoop::kFrameBarrier, "Tekken3::frameBarrier", frameBarrierOverride);
+  psx::cpu::installNativeOverride(game_.core, FrameLoop::kDisplayInit, "Tekken3::displayInit", displayInitOverride);
 }
 
 void Tekken3FrameDriver::runBootPrefix(Core &core, std::uint32_t programEntry) {

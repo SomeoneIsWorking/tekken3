@@ -1,10 +1,12 @@
 #include "widescreen.h"
 
 #include "core.h"
+#include "decompressor_probe.h"
+#include "execution_exit.h"
 #include "game.h"
 #include "gpu_vk.h"
-#include "guest_execution.h"
 #include "mods.h"
+#include "native_dispatch.h"
 
 #include <algorithm>
 #include <array>
@@ -43,19 +45,23 @@ constexpr std::int32_t kHalfTurn = kTurnUnits / 2;
 constexpr double kRadiansPerTurn = 2.0 * std::numbers::pi;
 
 void originalViewDimensions(Core *core) {
-  guest::callOriginal(*core, kViewDimensions, "Tekken3::viewDimensions original");
+  psx::cpu::callOriginalToReturn(
+      *core, kViewDimensions, psx::cpu::ExecutionBudget::currentTurn(*core), "Tekken3::viewDimensions original");
 }
 
 void originalStageClip(Core *core) {
-  guest::callOriginal(*core, kStageClip, "Tekken3::stageClip original");
+  psx::cpu::callOriginalToReturn(
+      *core, kStageClip, psx::cpu::ExecutionBudget::currentTurn(*core), "Tekken3::stageClip original");
 }
 
 void originalEffectClip(Core *core) {
-  guest::callOriginal(*core, kEffectClip, "Tekken3::effectClip original");
+  psx::cpu::callOriginalToReturn(
+      *core, kEffectClip, psx::cpu::ExecutionBudget::currentTurn(*core), "Tekken3::effectClip original");
 }
 
 void originalStageTileSelector(Core *core) {
-  guest::callOriginal(*core, kStageTileSelector, "Tekken3::stageTileSelector original");
+  psx::cpu::callOriginalToReturn(
+      *core, kStageTileSelector, psx::cpu::ExecutionBudget::currentTurn(*core), "Tekken3::stageTileSelector original");
 }
 
 void refuse(const char *detail) {
@@ -282,7 +288,7 @@ std::int32_t blockDistance(const Tekken3StageWedge::Selection &selection,
 
 void Tekken3StageWedge::install(Core &core) {
   retailSelector_ = originalStageTileSelector;
-  guest::install(core, kStageTileSelector, "Tekken3::stageTileSelector", selectTilesOverride);
+  psx::cpu::installNativeOverride(core, kStageTileSelector, "Tekken3::stageTileSelector", selectTilesOverride);
 }
 
 void Tekken3StageWedge::publishPlan(const GuestProjectionPlan &plan) const {
@@ -529,9 +535,9 @@ void Tekken3Widescreen::install(Core &core) {
   retailDimensions_ = originalViewDimensions;
   retailStageClip_ = originalStageClip;
   retailEffectClip_ = originalEffectClip;
-  guest::install(core, kViewDimensions, "Tekken3::viewDimensions", publishDimensionsOverride);
-  guest::install(core, kStageClip, "Tekken3::stageClip", stageClipOverride);
-  guest::install(core, kEffectClip, "Tekken3::effectClip", effectClipOverride);
+  psx::cpu::installNativeOverride(core, kViewDimensions, "Tekken3::viewDimensions", publishDimensionsOverride);
+  psx::cpu::installNativeOverride(core, kStageClip, "Tekken3::stageClip", stageClipOverride);
+  psx::cpu::installNativeOverride(core, kEffectClip, "Tekken3::effectClip", effectClipOverride);
   stageWedge_.install(core);
 }
 

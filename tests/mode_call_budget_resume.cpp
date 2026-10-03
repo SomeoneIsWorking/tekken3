@@ -18,7 +18,7 @@
 // The synthetic image carries the MECHANISM, not the retail bytes: mode 2's entry at `0x8004FA60`
 // spins on a guest busy byte exactly the way `FUN_8006BEA8` spins on `0x800A069E`, and the host
 // releases it by clearing that byte. Everything under test — `FrameLoop::step`'s choice of entry,
-// `guest::BoundedCall`'s budget-resume, and `guest::call`'s refusal — is the shipping code.
+// `psx::cpu::ResumableGuestCall`'s budget-resume, and the probe call's refusal — is the shipping code.
 //
 // ARMS, each answering a different question so a reader cannot mistake one for another:
 //
@@ -26,8 +26,8 @@
 //                 the held field (pad + presentation + audio once per field, barrier NOT re-run,
 //                 guest frame counter NOT advanced), and MUST finish when the host releases the
 //                 busy byte — all with exit status 0. On the unfixed code this process dies inside
-//                 `guest::call` on the first `step`, which is the failure this test exists for.
-//   arm=control   the SAME image and the SAME body entered through the NON-suspending `guest::call`,
+//                 the probe call on the first `step`, which is the failure this test exists for.
+//   arm=control   the SAME image and the SAME body entered through the NON-suspending probe call,
 //                 in a forked child, which must be observed dying on SIGABRT. It is the
 //                 discriminator for arm=resume: a green arm=resume means the call suspends, not that
 //                 the refusal stopped existing. If this arm ever stops aborting, the two entries have
@@ -39,12 +39,13 @@
 // only control that could have found them.
 #include "asm_fields.h"
 #include "core.h"
+#include "decompressor_probe.h"
 #include "execution_exit.h"
 #include "frame_loop.h"
 #include "game.h"
-#include "guest_execution.h"
 #include "lightrec_executor.h"
 #include "psx_exe_image.h"
+#include "resumable_guest_call.h"
 
 #include <array>
 #include <csignal>
@@ -348,11 +349,11 @@ std::vector<std::uint8_t> syntheticImage() {
 // stays headless. Every GUEST call below goes through the shipping guest_execution.cpp entries.
 class BudgetMachine final : public tekken3::FrameMachine {
 public:
-  BudgetMachine(Core &core, tekken3::guest::BoundedCall &modeCall) : core_(core), modeCall_(modeCall) {}
+  BudgetMachine(Core &core, psx::cpu::ResumableGuestCall &modeCall) : core_(core), modeCall_(modeCall) {}
 
   void call(std::uint32_t address, std::uint32_t returnPc) override {
     ++suspendingEntryAbuses;
-    tekken3::guest::call(core_, address, "mode_call_budget_resume control");
+    tekken3::DecompressorProbe::callToReturn(core_, address, "mode_call_budget_resume control");
   }
 
   void call1(std::uint32_t address, std::uint32_t returnPc, std::uint32_t a0) override {
@@ -364,16 +365,25 @@ public:
     call(address, returnPc);
   }
 
+  static bool settled(psx::cpu::CallStep step) {
+    if (step.outcome == psx::cpu::CallOutcome::Refused) {
+      std::fprintf(stderr, "mode_call_budget_resume: refused: %s\n", step.detail.c_str());
+      std::abort();
+    }
+    return step.outcome == psx::cpu::CallOutcome::Returned;
+  }
+
   bool startModeCall(std::uint32_t address, std::uint32_t returnPc) override {
     ++boundedStarts;
     lastEntry = address;
     lastReturnPc = returnPc;
-    return modeCall_.start(core_, address, returnPc, "mode call", psx::cpu::ExecutionBudget::fromCycles(kFieldCycles));
+    modeCall_.begin(core_, "mode call", address, returnPc, psx::cpu::kUnboundedCallTurns);
+    return settled(modeCall_.advance(std::nullopt, psx::cpu::ExecutionBudget::fromCycles(kFieldCycles)));
   }
 
   bool resumeModeCall() override {
     ++boundedResumes;
-    return modeCall_.resume(core_, "mode call", psx::cpu::ExecutionBudget::fromCycles(kFieldCycles));
+    return settled(modeCall_.advance(std::nullopt, psx::cpu::ExecutionBudget::fromCycles(kFieldCycles)));
   }
 
   void deliverEvent(std::uint32_t, std::uint32_t) override {
@@ -441,7 +451,7 @@ public:
 
 private:
   Core &core_;
-  tekken3::guest::BoundedCall &modeCall_;
+  psx::cpu::ResumableGuestCall &modeCall_;
 };
 
 unsigned storeObservations = 0;
@@ -508,13 +518,16 @@ bool misScheduledBodyStoresNothing() {
     core.mem_w16(kRenderMode, 2);
     core.r[29] = 0x00020000u;
     core.r[31] = kModeReturnPc2;
-    tekken3::guest::BoundedCall probe;
+    psx::cpu::ResumableGuestCall probe;
     for (int field = 0; field < 7; ++field) {
       if (field == 0) {
-        probe.start(
-            core, kModeFunction2, kModeReturnPc2, "negative", psx::cpu::ExecutionBudget::fromCycles(kFieldCycles));
-      } else {
-        probe.resume(core, "negative", psx::cpu::ExecutionBudget::fromCycles(kFieldCycles));
+        probe.begin(core, "negative", kModeFunction2, kModeReturnPc2, psx::cpu::kUnboundedCallTurns);
+      }
+      const psx::cpu::CallStep probeStep =
+          probe.advance(std::nullopt, psx::cpu::ExecutionBudget::fromCycles(kFieldCycles));
+      if (probeStep.outcome == psx::cpu::CallOutcome::Refused) {
+        std::fprintf(stderr, "mode_call_budget_resume: negative probe refused: %s\n", probeStep.detail.c_str());
+        return false;
       }
       if (!probe.pending()) {
         break;
@@ -577,7 +590,7 @@ bool resumeArm() {
   if (!loadFixture(core)) {
     return false;
   }
-  tekken3::guest::BoundedCall modeCall;
+  psx::cpu::ResumableGuestCall modeCall;
   BudgetMachine machine(core, modeCall);
   tekken3::FrameStepState state;
 
@@ -685,7 +698,7 @@ bool controlArmAborts() {
     return false;
   }
   core.r[31] = kModeReturnPc2;
-  tekken3::guest::call(core, kModeFunction2, "mode_call_budget_resume control");
+  tekken3::DecompressorProbe::callToReturn(core, kModeFunction2, "mode_call_budget_resume control");
   return false; // the entry returned, which is the claim being refuted
 }
 
@@ -704,7 +717,7 @@ bool controlArm() {
     std::fprintf(stderr, "mode_call_budget_resume: waitpid failed\n");
     return false;
   }
-  // A child that exited 0 means `guest::call` returned a body that outlived its budget, and a child
+  // A child that exited 0 means the probe call returned a body that outlived its budget, and a child
   // that exited 3 means it returned without aborting. Only SIGABRT is the expected answer, and it
   // is what makes a green arm=resume mean "resumed" rather than "the refusal is gone".
   if (!WIFSIGNALED(status) || WTERMSIG(status) != SIGABRT) {

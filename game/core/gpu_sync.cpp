@@ -1,7 +1,9 @@
 #include "gpu_sync.h"
 
 #include "core.h"
-#include "guest_execution.h"
+#include "decompressor_probe.h"
+#include "execution_exit.h"
+#include "native_dispatch.h"
 #include "vsync_field_clock.h"
 
 #include <lucent/log.h>
@@ -48,7 +50,7 @@ public:
   std::uint32_t setCriticalSection(std::uint32_t enabled, std::uint32_t returnPc) override {
     core_.r[kA0] = enabled;
     core_.r[kRa] = returnPc;
-    guest::call(core_, kCriticalSection, "Tekken3 GPU critical-section guest call");
+    DecompressorProbe::callToReturn(core_, kCriticalSection, "Tekken3 GPU critical-section guest call");
     return core_.r[kV0];
   }
 
@@ -132,8 +134,8 @@ std::int32_t GpuSyncProtocol::poll(GpuSyncMachine &machine) {
 }
 
 void installGpuSyncOverrides(Core &core) {
-  guest::install(core, kGpuTimeoutArm, "Tekken3::gpuTimeoutArm", gpuTimeoutArmOverride);
-  guest::install(core, kGpuTimeoutPoll, "Tekken3::gpuTimeoutPoll", gpuTimeoutPollOverride);
+  psx::cpu::installNativeOverride(core, kGpuTimeoutArm, "Tekken3::gpuTimeoutArm", gpuTimeoutArmOverride);
+  psx::cpu::installNativeOverride(core, kGpuTimeoutPoll, "Tekken3::gpuTimeoutPoll", gpuTimeoutPollOverride);
 }
 
 } // namespace tekken3

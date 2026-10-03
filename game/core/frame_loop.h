@@ -1,7 +1,7 @@
 #pragma once
 
 #include "game_runtime.h"
-#include "guest_execution.h"
+#include "resumable_guest_call.h"
 
 #include <cstdint>
 
@@ -71,7 +71,7 @@ private:
 
   Game &game_;
   FrameStepState frameStep_;
-  guest::BoundedCall modeCall_;
+  psx::cpu::ResumableGuestCall modeCall_;
   bool bootStarted_ = false;
   bool bootComplete_ = false;
 };

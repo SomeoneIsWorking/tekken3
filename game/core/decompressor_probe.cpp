@@ -1,10 +1,12 @@
 #include "decompressor_probe.h"
 
 #include "core.h"
+#include "native_dispatch.h"
 
 #include <lucent/log.h>
 
 #include <cstddef>
+#include <cstdlib>
 #include <limits>
 #include <optional>
 
@@ -148,6 +150,19 @@ std::string imageWrapperExtent(Core &core, std::uint32_t source, std::uint32_t o
 
 GuestCallEntry DecompressorProbe::captureEntry(const Core &core, std::uint32_t address) {
   return {address, core.r[31], {core.r[4], core.r[5], core.r[6], core.r[7], core.r[9]}};
+}
+
+void DecompressorProbe::callToReturn(Core &core, std::uint32_t address, std::string_view owner) {
+  const GuestCallEntry entry = captureEntry(core, address);
+  const psx::cpu::ExecutionResult result =
+      psx::cpu::dispatchGuest(core, address, psx::cpu::ExecutionBudget::currentTurn(core), owner);
+  if (result.returned()) {
+    return;
+  }
+  lucent::error("tekken3-lz", "{}", describe(core, entry, result));
+  if (!psx::cpu::requireGuestReturn(result, owner)) {
+    std::abort();
+  }
 }
 
 std::string DecompressorProbe::describe(Core &core, GuestCallEntry entry, const psx::cpu::ExecutionResult &result) {

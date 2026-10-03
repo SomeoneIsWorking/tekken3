@@ -73,7 +73,7 @@ declared host-architecture performance.
   function B(0x19) HookEntryInt; SELFTEST 11/11 includes missing-note and wrong-function refusals at
   that edge. Boundary SELFTEST 11/11, IRQ SELFTEST 2/2, and framework oracle 43/43 detect
   register/source/boundary/hardware-register/device errors.
-- where: `game/core/tekken3_runtime.*`; `game/core/guest_execution.*`;
+- where: `game/core/tekken3_runtime.*`; `game/core/decompressor_probe.*`;
   `game/core/frame_loop.*`; historical `scratch/raw/t3-04/oracle.trace`
 - gap: The authenticated Lightrec product now completes its first title frame after six bounded
   suspensions of the 127-resource mode call (issue 0011), with 360,083 executed blocks and zero

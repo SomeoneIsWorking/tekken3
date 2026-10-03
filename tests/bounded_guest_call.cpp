@@ -1,4 +1,4 @@
-#include "guest_execution.h"
+#include "resumable_guest_call.h"
 
 #include "core.h"
 #include "game.h"
@@ -62,8 +62,10 @@ bool run(std::uint32_t returnPc, psx::cpu::ExecutionBudget firstBudget, bool exp
     std::fprintf(stderr, "bounded_guest_call: synthetic image rejected: %s\n", loaded.detail.c_str());
     return false;
   }
-  tekken3::guest::BoundedCall call;
-  const bool firstReturned = call.start(core, kEntry, returnPc, "synthetic frame mode call", firstBudget);
+  psx::cpu::ResumableGuestCall call;
+  call.begin(core, "synthetic frame mode call", kEntry, returnPc, psx::cpu::kUnboundedCallTurns);
+  psx::cpu::CallStep step = call.advance(std::nullopt, firstBudget);
+  const bool firstReturned = step.outcome == psx::cpu::CallOutcome::Returned;
   if (firstReturned == expectSuspend || call.pending() != expectSuspend) {
     return false;
   }
@@ -73,7 +75,10 @@ bool run(std::uint32_t returnPc, psx::cpu::ExecutionBudget firstBudget, bool exp
   unsigned resumedFields = 0;
   while (call.pending() && resumedFields < 8u) {
     ++resumedFields;
-    call.resume(core, "synthetic frame mode call", psx::cpu::ExecutionBudget::fromCycles(200));
+    step = call.advance(std::nullopt, psx::cpu::ExecutionBudget::fromCycles(200));
+    if (step.outcome == psx::cpu::CallOutcome::Refused) {
+      return false;
+    }
   }
   const auto &counters = core.lightrecExecutor().counters();
   std::printf("arm=%s first=%s resumes=%u final_pc=0x%08X ra=0x%08X v0=%u blocks=%llu fallback=%llu\n",
