@@ -1,30 +1,30 @@
-#include "tekken3_port.h"
-#include "psx_exe_image.h"
+#include "entry/product_launch.h"
 
-#include "c_subsys.h"
+#include "c_subsys.h" // watchdog_init, load_exe
 #include "cfg.h"
 #include "core.h"
 #include "game.h"
 #include "gpu_vk.h" // gpu_vk_windowed — the windowed/headless discriminator
 #include "machine.h"
+#include "program/title_runtime.h"
+#include "psx_exe_image.h"
 #include "render_mode.h"
-#include "tekken3_runtime.h"
 
+#include <cstdint>
 #include <memory>
-
-extern "C" {
-void watchdog_init(void);
-}
 
 namespace {
 
 constexpr const char *kDefaultExecutable = "scratch/bin/tekken3/SLUS_004.02";
 
+// A run with no explicit bound and no window is unattended: bound it, or it never ends.
+constexpr std::uint32_t kUnattendedFieldCap = 120;
+
 } // namespace
 
 namespace tekken3 {
 
-int runPort(Tekken3Runtime &runtime, int argc, char **argv) {
+int launchProduct(TitleRuntime &runtime, int argc, char **argv) {
   const char *const executable = argc > 1 ? argv[1] : kDefaultExecutable;
 
   psxport_install_game(runtime);
@@ -47,13 +47,12 @@ int runPort(Tekken3Runtime &runtime, int argc, char **argv) {
   machine.prepare();
   runtime.bootInit(*core);
 
-  // This title's own frame bound. The endpoint is attached BEFORE the cap is settled, because an
-  // attached client means the run is driven rather than unattended, and a cap ends the process
-  // before anyone can drive it.
+  // The endpoint is attached BEFORE the cap is settled, because an attached client means the run is
+  // driven rather than unattended, and a cap ends the process before anyone can drive it.
   const int requestedFrames = cfg_int("PSXPORT_NATIVE_FRAMES", 0);
   std::uint32_t frameLimit = requestedFrames > 0 ? static_cast<std::uint32_t>(requestedFrames) : 0u;
   if (frameLimit == 0 && !gpu_vk_windowed()) {
-    frameLimit = 120;
+    frameLimit = kUnattendedFieldCap;
   }
   machine.attachControlChannel(frameLimit);
   machine.run(frameLimit);

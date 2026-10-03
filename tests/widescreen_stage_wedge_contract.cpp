@@ -1,5 +1,5 @@
 #include "core.h"
-#include "widescreen.h"
+#include "widescreen/widescreen.h"
 
 #include <array>
 #include <cmath>
@@ -11,7 +11,7 @@
 
 namespace {
 
-using tekken3::Tekken3StageWedge;
+using tekken3::widescreen::StageTileWedge;
 
 GuestProjectionGeometry observedGeometry;
 std::uint32_t retailWidth = 0;
@@ -55,7 +55,7 @@ constexpr int kTile = 10 * kTileUnit;
 constexpr int kBlockOrigin = -30 * kTileUnit;
 constexpr int kStepScale = 7 * kTileUnit;
 
-Tekken3StageWedge::StageBlock measuredBlock() {
+tekken3::widescreen::StageTileWedge::StageBlock measuredBlock() {
   return {
       .firstOrigin = kBlockOrigin,
       .secondOrigin = kBlockOrigin,
@@ -63,7 +63,7 @@ Tekken3StageWedge::StageBlock measuredBlock() {
   };
 }
 
-Tekken3StageWedge::Query measuredQuery(std::int32_t heading, int column, int row) {
+tekken3::widescreen::StageTileWedge::Query measuredQuery(std::int32_t heading, int column, int row) {
   return {
       .heading = heading,
       .first = kBlockOrigin + column * kTile + kTile / 2,
@@ -72,15 +72,15 @@ Tekken3StageWedge::Query measuredQuery(std::int32_t heading, int column, int row
   };
 }
 
-std::string maskOf(const Tekken3StageWedge::Result &result) {
+std::string maskOf(const tekken3::widescreen::StageTileWedge::Result &result) {
   std::string text;
-  text.reserve(Tekken3StageWedge::kCells);
+  text.reserve(tekken3::widescreen::StageTileWedge::kCells);
   for (const std::uint32_t value : result.selection.cell) {
     if (value == 0) {
       text.push_back('0');
     } else if (value == 1u) {
       text.push_back('1');
-    } else if (value == Tekken3StageWedge::kCameraCell) {
+    } else if (value == tekken3::widescreen::StageTileWedge::kCameraCell) {
       text.push_back('C');
     } else {
       text.push_back('?');
@@ -113,19 +113,21 @@ bool ok(const std::string &what) {
 
 // The plan-derived wedge, applied exactly as the owner does: halve, offset by the negated heading,
 // mask into the turn, read the title's own Q12 direction tables, scale by the stage step scale.
-Tekken3StageWedge::Wedge wedgeWith(std::int32_t wedge, const Tekken3StageWedge::Query &query) {
-  const Tekken3StageWedge::StageBlock block = measuredBlock();
+tekken3::widescreen::StageTileWedge::Wedge wedgeWith(std::int32_t wedge,
+                                                     const tekken3::widescreen::StageTileWedge::Query &query) {
+  const tekken3::widescreen::StageTileWedge::StageBlock block = measuredBlock();
   const std::int32_t half = wedge >> 1;
   const auto direction = [&](bool positive) {
     const std::int32_t offset = positive ? half : -half;
     const std::int32_t index = (-query.heading + offset) & 0xFFF;
-    return Tekken3StageWedge::DirectionWord{wordAt(index, true), wordAt(index, false)};
+    return tekken3::widescreen::StageTileWedge::DirectionWord{wordAt(index, true), wordAt(index, false)};
   };
-  return Tekken3StageWedge::wedgeFor(wedge, block, direction(false), direction(true));
+  return tekken3::widescreen::StageTileWedge::wedgeFor(wedge, block, direction(false), direction(true));
 }
 
-Tekken3StageWedge::Result selectWith(std::int32_t wedge, const Tekken3StageWedge::Query &query) {
-  return Tekken3StageWedge::select(query, measuredBlock(), wedgeWith(wedge, query));
+tekken3::widescreen::StageTileWedge::Result selectWith(std::int32_t wedge,
+                                                       const tekken3::widescreen::StageTileWedge::Query &query) {
+  return tekken3::widescreen::StageTileWedge::select(query, measuredBlock(), wedgeWith(wedge, query));
 }
 
 // --- the recovered direction words, measured from the title's resident tables -------------------
@@ -154,9 +156,11 @@ bool directionWordsAreTheGuestTable() {
   }
   // The step scale is the stage's own 7*unit, and the guest keeps the low word of the 32-bit product
   // before shifting right by 15 (0x8006DA20/0x8006DA58).
-  const Tekken3StageWedge::StageBlock block = measuredBlock();
-  const Tekken3StageWedge::Ray left = Tekken3StageWedge::stepOf({-1819, 3670}, block);
-  const Tekken3StageWedge::Ray right = Tekken3StageWedge::stepOf({1819, 3670}, block);
+  const tekken3::widescreen::StageTileWedge::StageBlock block = measuredBlock();
+  const tekken3::widescreen::StageTileWedge::Ray left =
+      tekken3::widescreen::StageTileWedge::stepOf({-1819, 3670}, block);
+  const tekken3::widescreen::StageTileWedge::Ray right =
+      tekken3::widescreen::StageTileWedge::stepOf({1819, 3670}, block);
   if (left.firstStep != -796 || left.secondStep != 1605 || right.firstStep != 795 || right.secondStep != 1605) {
     return fails("direction steps for the 600 wedge at heading 0",
                  "-796/1605 and 795/1605",
@@ -169,16 +173,16 @@ bool directionWordsAreTheGuestTable() {
 // --- the derivation ------------------------------------------------------------------------------
 bool planThatDidNotWidenIsTheIdentity() {
   for (std::int32_t wedge = 0; wedge <= 4096; ++wedge) {
-    if (Tekken3StageWedge::widenWedge(wedge, kBootProjectionWidth, kBootProjectionWidth) != wedge) {
-      return fails(
-          "4:3 plan leaves every authored wedge untouched",
-          "identity",
-          std::to_string(wedge) + " -> " +
-              std::to_string(Tekken3StageWedge::widenWedge(wedge, kBootProjectionWidth, kBootProjectionWidth)));
+    if (tekken3::widescreen::StageTileWedge::widenWedge(wedge, kBootProjectionWidth, kBootProjectionWidth) != wedge) {
+      return fails("4:3 plan leaves every authored wedge untouched",
+                   "identity",
+                   std::to_string(wedge) + " -> " +
+                       std::to_string(tekken3::widescreen::StageTileWedge::widenWedge(
+                           wedge, kBootProjectionWidth, kBootProjectionWidth)));
     }
   }
   // A plan that reports a narrower projection than the measured one is not a widening either.
-  if (Tekken3StageWedge::widenWedge(kRetailWedge, kBootProjectionWidth, 320) != kRetailWedge) {
+  if (tekken3::widescreen::StageTileWedge::widenWedge(kRetailWedge, kBootProjectionWidth, 320) != kRetailWedge) {
     return ok("a narrower plan must not rewrite the wedge");
   }
   return true;
@@ -197,8 +201,8 @@ bool derivedWedgesComeFromThePlan() {
       {kUltraProjectionWidth, kAlternateWedge, 1138},
   };
   for (const Expectation &expectation : expectations) {
-    const std::int32_t measured =
-        Tekken3StageWedge::widenWedge(expectation.retail, kBootProjectionWidth, expectation.projectionWidth);
+    const std::int32_t measured = tekken3::widescreen::StageTileWedge::widenWedge(
+        expectation.retail, kBootProjectionWidth, expectation.projectionWidth);
     if (measured != expectation.expected) {
       return fails("derived wedge for retail " + std::to_string(expectation.retail) + " at " +
                        std::to_string(expectation.projectionWidth),
@@ -217,7 +221,8 @@ bool derivationIsTangentDomainNotAnAngleScale() {
   if (angleScale != 800) {
     return ok("the naive 4/3 angle scale of the 600 wedge is 800");
   }
-  const std::int32_t derived = Tekken3StageWedge::widenWedge(kRetailWedge, kBootProjectionWidth, kWideProjectionWidth);
+  const std::int32_t derived =
+      tekken3::widescreen::StageTileWedge::widenWedge(kRetailWedge, kBootProjectionWidth, kWideProjectionWidth);
   if (derived == angleScale) {
     return ok("the derived wedge must not be the naive 4/3 angle scale");
   }
@@ -256,8 +261,8 @@ bool derivedWedgeCoversTheWidenedFrustum() {
     return std::tan((wedge >> 1) * 2.0 * std::numbers::pi / 4096.0);
   };
   const double retailTan = tangentOf(kRetailWedge);
-  const double wideTan =
-      tangentOf(Tekken3StageWedge::widenWedge(kRetailWedge, kBootProjectionWidth, kWideProjectionWidth));
+  const double wideTan = tangentOf(
+      tekken3::widescreen::StageTileWedge::widenWedge(kRetailWedge, kBootProjectionWidth, kWideProjectionWidth));
   const double frustum4x3 = (kBootDrawWidth / 2.0) / 500.0;
   const double frustumWide = (kWideDrawWidth / 2.0) / 500.0;
   // The retail wedge has authored slack over its own frustum; the derived one has the SAME slack.
@@ -382,7 +387,7 @@ const RecoveredState kRecoveredStates[] = {
 
 bool recoveredStatesMatch() {
   for (const RecoveredState &state : kRecoveredStates) {
-    const Tekken3StageWedge::Query query = measuredQuery(state.heading, state.column, state.row);
+    const tekken3::widescreen::StageTileWedge::Query query = measuredQuery(state.heading, state.column, state.row);
     const std::string retail = maskOf(selectWith(kRetailWedge, query));
     if (retail != state.retail) {
       return fails("4:3 identity at heading " + std::to_string(state.heading) + " cell (" +
@@ -390,16 +395,18 @@ bool recoveredStatesMatch() {
                    state.retail,
                    retail);
     }
-    const std::string wide = maskOf(
-        selectWith(Tekken3StageWedge::widenWedge(kRetailWedge, kBootProjectionWidth, kWideProjectionWidth), query));
+    const std::string wide = maskOf(selectWith(
+        tekken3::widescreen::StageTileWedge::widenWedge(kRetailWedge, kBootProjectionWidth, kWideProjectionWidth),
+        query));
     if (wide != state.wide) {
       return fails("16:9 selection at heading " + std::to_string(state.heading) + " cell (" +
                        std::to_string(state.column) + "," + std::to_string(state.row) + ")",
                    state.wide,
                    wide);
     }
-    const std::string ultra = maskOf(
-        selectWith(Tekken3StageWedge::widenWedge(kRetailWedge, kBootProjectionWidth, kUltraProjectionWidth), query));
+    const std::string ultra = maskOf(selectWith(
+        tekken3::widescreen::StageTileWedge::widenWedge(kRetailWedge, kBootProjectionWidth, kUltraProjectionWidth),
+        query));
     if (ultra != state.ultra) {
       return fails("21:9 selection at heading " + std::to_string(state.heading) + " cell (" +
                        std::to_string(state.column) + "," + std::to_string(state.row) + ")",
@@ -412,22 +419,25 @@ bool recoveredStatesMatch() {
 
 bool wideSelectionAddsExactlyTheNamedCells() {
   for (const RecoveredState &state : kRecoveredStates) {
-    const Tekken3StageWedge::Query query = measuredQuery(state.heading, state.column, state.row);
-    const Tekken3StageWedge::Result retail = selectWith(kRetailWedge, query);
-    const Tekken3StageWedge::Result wide =
-        selectWith(Tekken3StageWedge::widenWedge(kRetailWedge, kBootProjectionWidth, kWideProjectionWidth), query);
+    const tekken3::widescreen::StageTileWedge::Query query = measuredQuery(state.heading, state.column, state.row);
+    const tekken3::widescreen::StageTileWedge::Result retail = selectWith(kRetailWedge, query);
+    const tekken3::widescreen::StageTileWedge::Result wide = selectWith(
+        tekken3::widescreen::StageTileWedge::widenWedge(kRetailWedge, kBootProjectionWidth, kWideProjectionWidth),
+        query);
     std::string added;
     std::string dropped;
-    for (std::size_t index = 0; index < Tekken3StageWedge::kCells; ++index) {
+    for (std::size_t index = 0; index < tekken3::widescreen::StageTileWedge::kCells; ++index) {
       const bool before = retail.selection.cell[index] != 0;
       const bool after = wide.selection.cell[index] != 0;
       if (after && !before) {
-        added.push_back(static_cast<char>('A' + static_cast<int>(index / Tekken3StageWedge::kSpan)));
-        added.push_back(static_cast<char>('0' + static_cast<int>(index % Tekken3StageWedge::kSpan)));
+        added.push_back(static_cast<char>('A' + static_cast<int>(index / tekken3::widescreen::StageTileWedge::kSpan)));
+        added.push_back(static_cast<char>('0' + static_cast<int>(index % tekken3::widescreen::StageTileWedge::kSpan)));
       }
       if (before && !after) {
-        dropped.push_back(static_cast<char>('A' + static_cast<int>(index / Tekken3StageWedge::kSpan)));
-        dropped.push_back(static_cast<char>('0' + static_cast<int>(index % Tekken3StageWedge::kSpan)));
+        dropped.push_back(
+            static_cast<char>('A' + static_cast<int>(index / tekken3::widescreen::StageTileWedge::kSpan)));
+        dropped.push_back(
+            static_cast<char>('0' + static_cast<int>(index % tekken3::widescreen::StageTileWedge::kSpan)));
       }
     }
     if (added != state.addedWide) {
@@ -458,7 +468,7 @@ struct Boundary {
 
 bool wedgeBoundariesArePinnedOnBothSides() {
   constexpr std::int32_t heading = 3072;
-  const Tekken3StageWedge::Query query = measuredQuery(heading, 1, 4);
+  const tekken3::widescreen::StageTileWedge::Query query = measuredQuery(heading, 1, 4);
   const Boundary boundaries[] = {
       // the wedge opening: the whole border appears at half-angle 0 and is gone by 73
       {0, 0, true, 73},
@@ -513,7 +523,8 @@ bool wedgeBoundariesArePinnedOnBothSides() {
 // The two authored wedges' own boundaries: the retail cone must not already contain the 16:9 one.
 bool derivedConeStrictlyContainsTheRetailCone() {
   const std::int32_t retail = kRetailWedge;
-  const std::int32_t wide = Tekken3StageWedge::widenWedge(retail, kBootProjectionWidth, kWideProjectionWidth);
+  const std::int32_t wide =
+      tekken3::widescreen::StageTileWedge::widenWedge(retail, kBootProjectionWidth, kWideProjectionWidth);
   if (wide <= retail) {
     return ok("the derived 16:9 wedge must be strictly wider than the retail one");
   }
@@ -527,42 +538,47 @@ bool derivedConeStrictlyContainsTheRetailCone() {
 
 // --- negative cases ------------------------------------------------------------------------------
 bool refusesTheGuestsUndefinedInputs() {
-  const Tekken3StageWedge::Wedge wedge{};
-  const Tekken3StageWedge::Query good = measuredQuery(0, 2, 2);
-  const Tekken3StageWedge::StageBlock block = measuredBlock();
+  const tekken3::widescreen::StageTileWedge::Wedge wedge{};
+  const tekken3::widescreen::StageTileWedge::Query good = measuredQuery(0, 2, 2);
+  const tekken3::widescreen::StageTileWedge::StageBlock block = measuredBlock();
   // A wedge edge with no direction step cannot leave the block, and the guest's march has no bound
   // either, so the owner reports it rather than spinning.
-  if (Tekken3StageWedge::select(good, block, wedge).status != Tekken3StageWedge::SelectionStatus::marchUnbounded) {
+  if (tekken3::widescreen::StageTileWedge::select(good, block, wedge).status !=
+      tekken3::widescreen::StageTileWedge::SelectionStatus::marchUnbounded) {
     return ok("a wedge edge with no direction step must be refused, not marched forever");
   }
-  Tekken3StageWedge::Query noTile = good;
+  tekken3::widescreen::StageTileWedge::Query noTile = good;
   noTile.tileSize = 0;
-  if (Tekken3StageWedge::select(noTile, block, wedge).status != Tekken3StageWedge::SelectionStatus::noTileSize) {
+  if (tekken3::widescreen::StageTileWedge::select(noTile, block, wedge).status !=
+      tekken3::widescreen::StageTileWedge::SelectionStatus::noTileSize) {
     return ok("a zero tile size must be refused, not divided by");
   }
   noTile.tileSize = -kTile;
-  if (Tekken3StageWedge::select(noTile, block, wedge).status != Tekken3StageWedge::SelectionStatus::noTileSize) {
+  if (tekken3::widescreen::StageTileWedge::select(noTile, block, wedge).status !=
+      tekken3::widescreen::StageTileWedge::SelectionStatus::noTileSize) {
     return ok("a negative tile size must be refused");
   }
-  Tekken3StageWedge::StageBlock noStep = block;
+  tekken3::widescreen::StageTileWedge::StageBlock noStep = block;
   noStep.stepScale = 0;
-  if (Tekken3StageWedge::select(good, noStep, wedge).status != Tekken3StageWedge::SelectionStatus::noStepScale) {
+  if (tekken3::widescreen::StageTileWedge::select(good, noStep, wedge).status !=
+      tekken3::widescreen::StageTileWedge::SelectionStatus::noStepScale) {
     return ok("a zero direction step scale must be refused");
   }
   // A block whose origin no longer matches the initializer's -3*tile puts the camera cell outside
   // the 36, where the guest's border walk has no defined start.
-  Tekken3StageWedge::Query shifted = good;
+  tekken3::widescreen::StageTileWedge::Query shifted = good;
   shifted.first = -kTile;
   shifted.second = -kTile;
-  Tekken3StageWedge::StageBlock moved = block;
+  tekken3::widescreen::StageTileWedge::StageBlock moved = block;
   moved.firstOrigin = 0;
   moved.secondOrigin = 0;
-  if (Tekken3StageWedge::select(shifted, block, wedgeWith(kRetailWedge, shifted)).status !=
-      Tekken3StageWedge::SelectionStatus::ok) {
+  if (tekken3::widescreen::StageTileWedge::select(shifted, block, wedgeWith(kRetailWedge, shifted)).status !=
+      tekken3::widescreen::StageTileWedge::SelectionStatus::ok) {
     return ok("the measured block must accept this camera position");
   }
-  const Tekken3StageWedge::Result outside = Tekken3StageWedge::select(shifted, moved, wedgeWith(kRetailWedge, shifted));
-  if (outside.status != Tekken3StageWedge::SelectionStatus::cameraOutsideBlock) {
+  const tekken3::widescreen::StageTileWedge::Result outside =
+      tekken3::widescreen::StageTileWedge::select(shifted, moved, wedgeWith(kRetailWedge, shifted));
+  if (outside.status != tekken3::widescreen::StageTileWedge::SelectionStatus::cameraOutsideBlock) {
     return fails("a camera cell outside the published block must be refused",
                  "cameraOutsideBlock",
                  std::to_string(static_cast<int>(outside.status)));
@@ -575,15 +591,15 @@ bool refusesTheGuestsUndefinedInputs() {
 // camera cell's own Manhattan distance is 0 and the threshold is never negative. A completed
 // selection therefore holds only 0 and 1.
 bool cameraCoordinatesAreClampedAndTheCellMarked() {
-  const Tekken3StageWedge::Query inside = measuredQuery(2048, 0, 5);
+  const tekken3::widescreen::StageTileWedge::Query inside = measuredQuery(2048, 0, 5);
   // 3*tile-1 is the guest's high clamp and -3*tile its low, so a camera far outside the block is
   // pulled back into it rather than refused.
-  Tekken3StageWedge::Query far = inside;
+  tekken3::widescreen::StageTileWedge::Query far = inside;
   far.first = 9 * kTile;
   far.second = -9 * kTile;
-  for (const Tekken3StageWedge::Query &query : {inside, far}) {
-    const Tekken3StageWedge::Result result = selectWith(kRetailWedge, query);
-    if (result.status != Tekken3StageWedge::SelectionStatus::ok) {
+  for (const tekken3::widescreen::StageTileWedge::Query &query : {inside, far}) {
+    const tekken3::widescreen::StageTileWedge::Result result = selectWith(kRetailWedge, query);
+    if (result.status != tekken3::widescreen::StageTileWedge::SelectionStatus::ok) {
       return ok("a camera outside the block must be clamped, not refused");
     }
     for (const std::uint32_t value : result.selection.cell) {
@@ -601,7 +617,7 @@ bool cameraCoordinatesAreClampedAndTheCellMarked() {
 // --- the production path: the same owner over a Core, with the plan latched --------------------
 bool productionPathPublishesThePlanAndWritesTheGrid() {
   auto core = std::make_unique<Core>();
-  tekken3::Tekken3Widescreen widescreen(wideLatch, retailDimensions);
+  tekken3::widescreen::WidescreenProjection widescreen(wideLatch, retailDimensions);
   core->r[4] = kBootProjectionWidth;
   core->r[5] = 480;
   widescreen.publishDimensions(*core);
@@ -627,11 +643,11 @@ bool productionPathPublishesThePlanAndWritesTheGrid() {
   constexpr std::uint32_t kStack = 0x800A1000u;
   constexpr std::uint32_t kSineTable = 0x8001E8C4u;
   constexpr std::uint32_t kCosineTable = 0x8001F0C4u;
-  const Tekken3StageWedge::Query query = measuredQuery(3072, 1, 4);
+  const tekken3::widescreen::StageTileWedge::Query query = measuredQuery(3072, 1, 4);
   const std::int32_t half =
-      Tekken3StageWedge::widenWedge(kRetailWedge, kBootProjectionWidth, kWideProjectionWidth) >> 1;
+      tekken3::widescreen::StageTileWedge::widenWedge(kRetailWedge, kBootProjectionWidth, kWideProjectionWidth) >> 1;
   for (const bool positive : {false, true}) {
-    const std::int32_t index = Tekken3StageWedge::directionIndex(query.heading, half, positive);
+    const std::int32_t index = tekken3::widescreen::StageTileWedge::directionIndex(query.heading, half, positive);
     core->mem_w16(kSineTable + static_cast<std::uint32_t>(index) * 2u,
                   static_cast<std::uint16_t>(static_cast<std::int16_t>(wordAt(index, true))));
     core->mem_w16(kCosineTable + static_cast<std::uint32_t>(index) * 2u,

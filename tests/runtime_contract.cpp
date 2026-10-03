@@ -1,5 +1,5 @@
 #include "game_iface.h"
-#include "tekken3_runtime.h"
+#include "program/title_runtime.h"
 
 #include <cstdio>
 #include <filesystem>
@@ -10,8 +10,8 @@
 
 namespace {
 
-static_assert(std::is_base_of_v<GameRuntime, tekken3::Tekken3Runtime>);
-static_assert(!std::is_base_of_v<LegacyGameRuntimeAdapter, tekken3::Tekken3Runtime>);
+static_assert(std::is_base_of_v<GameRuntime, tekken3::TitleRuntime>);
+static_assert(!std::is_base_of_v<LegacyGameRuntimeAdapter, tekken3::TitleRuntime>);
 
 std::string readSource(const std::filesystem::path &path) {
   std::ifstream input(path);
@@ -47,8 +47,8 @@ bool rejectsAdapterVocabulary(const std::filesystem::path &path) {
 
 int main() {
   const std::filesystem::path root = std::filesystem::path(__FILE__).parent_path().parent_path();
-  if (!rejectsAdapterVocabulary(root / "game/core/tekken3_runtime.h") ||
-      !rejectsAdapterVocabulary(root / "game/core/tekken3_runtime.cpp")) {
+  if (!rejectsAdapterVocabulary(root / "game/program/title_runtime.h") ||
+      !rejectsAdapterVocabulary(root / "game/program/title_runtime.cpp")) {
     std::fprintf(stderr, "runtime_contract: FAIL — runtime source regained adapter/config/hooks vocabulary\n");
     return 1;
   }

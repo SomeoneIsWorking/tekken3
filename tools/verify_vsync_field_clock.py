@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """verify_vsync_field_clock.py — does the SHIPPING constant match what the image says it is?
 
-WHY THIS EXISTS. `game/core/vsync_field_clock.h` is a measured fact: 0x8009AC68 is the word Tekken's
+WHY THIS EXISTS. `game/fieldclock/field_clock.h` is a measured fact: 0x8009AC68 is the word Tekken's
 linked libetc VSync returns for a negative mode, and the whole title's timeout machinery is timed
 against it. A measured constant that ships in code and is never compared against its measurement is
 the workspace's most-repeated defect — the tool verifies itself, a static_assert verifies internal
@@ -42,7 +42,7 @@ sys.path.insert(0, str(ROOT / "external/psxport"))
 from tools.mips.decode import decode
 
 EXE_DEFAULT = ROOT / "scratch" / "bin" / "tekken3" / "SLUS_004.02"
-HEADER_DEFAULT = ROOT / "game" / "core" / "vsync_field_clock.h"
+HEADER_DEFAULT = ROOT / "game" / "fieldclock" / "field_clock.h"
 MANIFEST = ROOT / "titles" / "tekken3" / "executable.json"
 
 LOAD = 0x80010000
@@ -100,7 +100,7 @@ DECOMPILED_RESIDUAL = (
     0x8009133C,
 )
 
-FIELD_COUNTER_NAME = "kFieldCounter"
+FIELD_COUNTER_NAME = "kCounter"
 ENTRY_NAME = "kEntry"
 BODY_END_NAME = "kBodyEnd"
 
@@ -421,7 +421,7 @@ def selftest(exe: pathlib.Path) -> int:
         )
     else:
         problems = check(data, perturbed)
-        if not any("SHIPPING kFieldCounter" in p for p in problems):
+        if not any("SHIPPING kCounter" in p for p in problems):
             failures.append(
                 "a header claiming 0x8009AC6C was ACCEPTED; this tool cannot detect a "
                 "wrong shipping constant, which is the only thing it exists to detect"
@@ -446,7 +446,7 @@ def selftest(exe: pathlib.Path) -> int:
             "  ok  a header whose VSync entry reaches no call site is REJECTED as vacuous"
         )
 
-    # 3. The undeclared-constant case: a header with no kFieldCounter at all must refuse, not pass.
+    # 3. The undeclared-constant case: a header with no kCounter at all must refuse, not pass.
     stripped = re.sub(
         rf"^\s*inline constexpr std::uint32_t {FIELD_COUNTER_NAME}.*\n",
         "",

@@ -1,16 +1,4 @@
-#pragma once
-
-#include "guest_widescreen_projection.h"
-
-#include <array>
-#include <cstddef>
-#include <cstdint>
-
-class Core;
-
-namespace tekken3 {
-
-// The last horizontal culling owner: the stage-tile visibility wedge.
+// stage_tile_wedge.h — the last horizontal culling owner: the stage-tile visibility wedge.
 //
 // The title's stage owner FUN_8006D014 hands an authored horizontal wedge (600, or 780 for its
 // alternate mode) to the 6x6 stage-tile selector FUN_8006D95C, which returns one word per block
@@ -26,7 +14,21 @@ namespace tekken3 {
 // x = H*tan(theta), so the horizontal half-extent that a fixed H admits scales exactly in the
 // tangent domain. `widenWedge` applies the plan's own widening factor there, which is the unique
 // factor that preserves the cone's coverage of the frustum at every focal length.
-class Tekken3StageWedge final {
+#pragma once
+
+#include "guest_widescreen_projection.h"
+
+#include <array>
+#include <cstddef>
+#include <cstdint>
+
+class Core;
+
+namespace tekken3::widescreen {
+
+class WidescreenProjection;
+
+class StageTileWedge final {
 public:
   static constexpr std::size_t kSpan = 6;
   static constexpr std::size_t kCells = kSpan * kSpan;
@@ -97,8 +99,6 @@ public:
     Selection selection;
   };
 
-  Tekken3StageWedge() = default;
-
   void install(Core &core);
   void publishPlan(const GuestProjectionPlan &plan) const;
   void selectTiles(Core &core) const;
@@ -121,36 +121,4 @@ private:
   mutable GuestProjectionPlan plan_;
 };
 
-class Tekken3Widescreen final : public GuestWidescreenProjection {
-public:
-  using GuestBody = void (*)(Core *);
-  using ProjectionLatch = GuestProjectionPlan (*)(Core *, GuestProjectionGeometry);
-
-  Tekken3Widescreen();
-  explicit Tekken3Widescreen(ProjectionLatch latch);
-  Tekken3Widescreen(ProjectionLatch latch, GuestBody retailDimensions);
-
-  PresentationAspect presentationAspect(const Core &core) const override;
-  void install(Core &core);
-  void publishDimensions(Core &core) const;
-  void clipStagePrimitives(Core &core) const;
-  void clipEffectPrimitive(Core &core) const;
-
-  [[nodiscard]] const Tekken3StageWedge &stageWedge() const;
-
-  static GuestProjectionGeometry measuredGeometry(std::uint32_t viewWidth, std::uint32_t viewHeight);
-
-private:
-  static void publishDimensionsOverride(Core *core);
-  static void stageClipOverride(Core *core);
-  static void effectClipOverride(Core *core);
-
-  ProjectionLatch latch_;
-  GuestBody retailDimensions_ = nullptr;
-  GuestBody retailStageClip_ = nullptr;
-  GuestBody retailEffectClip_ = nullptr;
-  Tekken3StageWedge stageWedge_;
-  mutable GuestProjectionPlan plan_;
-};
-
-} // namespace tekken3
+} // namespace tekken3::widescreen

@@ -1,20 +1,9 @@
-// loader_lifecycle.h — the recovered CD-read lifecycle that holds the NAMCO PRESENTS card.
+// loader_lifecycle.h — the guest CD-read lifecycle behind the NAMCO PRESENTS card, as named constants.
 //
-// WHY THIS FILE EXISTS. The product's NAMCO PRESENTS card never leaves, and the CD completion is
-// the cause; a parked note once refuted that on the strength of a reader count that had itself
-// missed the addresses, and this file is the recovered behaviour that settles it.
-//
-// Every address, field offset and branch target below is decoded from the authenticated executable
-// with `psxport/tools/disasm.py`. Nothing here is quoted from a comment, because two records in
-// this repository's own history were wrong precisely because they were quoted from one.
-//
-// WHAT THIS IS, AND WHAT IT IS NOT. This is a READING of guest behaviour, kept as named structures
-// and constants so the next reader does not have to re-derive it, plus the exact place the port has
-// to intervene. It is NOT a decompilation that is shipped as guest behaviour and it is NOT a
-// translation of guest code into host objects: the guest's own bodies keep running on the JIT, and
-// the only thing this repository ships is a native override that delivers the callback the guest
-// already registered. The decomp filter that put this file here is: it sits on the path of not
-// reaching a fight, and it has no native owner yet.
+// Every address, field offset and branch target below is decoded from the authenticated executable.
+// This is a READING of guest behaviour, not a decompilation: the guest's own bodies keep running on
+// the dynarec, and the only thing the port ships is the native override that delivers the callback
+// the guest already registered (see cd_protocol.cpp).
 
 #ifndef TEKKEN3_LOADER_LIFECYCLE_H
 #define TEKKEN3_LOADER_LIFECYCLE_H
@@ -50,10 +39,9 @@ struct LoaderState {
 //   0x8006BEEC  bnez  $v0,0x8006BEE4
 //   0x8006BEFC  sb    $zero,7($v0)        ; clear 0x800A069F
 //
-// THE SPIN IS THE POINT, and it is why the port could not simply "finish the read". This loop has
-// no timeout and no counter: it exits only when 0x800A069E goes to zero, which happens only in the
-// sector callback. It is also an infinite loop from the executor's point of view, which is why the
-// mode call must be entered through the suspending entry rather than a per-field one.
+// The spin has no timeout and no counter: it exits only when 0x800A069E goes to zero, which happens
+// only in the sector callback. It is also an infinite loop from the executor's point of view, which
+// is why the mode call must be entered through the suspending entry rather than a per-field one.
 // ---------------------------------------------------------------------------
 inline constexpr std::uint32_t kWaitForRead = 0x8006BEA8u;
 inline constexpr std::uint32_t kWaitInnerSpin = 0x8006BEE4u; // bnez back-edge, 0x800A069E
@@ -71,8 +59,8 @@ inline constexpr std::uint32_t kIssueOneSector = 0x8006C1FCu;
 //   0x8006C1B0  addiu  $a0,$zero,0xA0
 //   0x8006C1BC  jal    0x8008F08C     ; submit to the CD chain
 //   0x8006C1C0  addiu  $a3,$s3,-15764 ; $a3 = 0x8006C26C  <- the completion callback
-// So the byte the card waits on and the callback that would clear it are set in ONE breath, by the
-// guest, with the guest's own `jal`. Nothing is missing from the guest; the port was not calling it.
+// The byte the card waits on and the callback that would clear it are set in ONE breath, by the
+// guest, with the guest's own `jal`.
 // ---------------------------------------------------------------------------
 inline constexpr std::uint32_t kStartReadSetsHeld = 0x8006C1A4u;
 inline constexpr std::uint32_t kChainSubmit = 0x8008F08Cu;
@@ -93,8 +81,7 @@ inline constexpr std::uint32_t kChainCallbackOffset = 12u;
 //   0x8006C288  jal   0x80091F38            ; install it
 //   0x8006C28C  addiu $a1,$zero,-1
 //
-// THIS IS THE HOP issue 0018 called hop 1, and it is the one the port was not making. It is a
-// class-2 completion that installs the per-sector callback; nothing about it is a clock question.
+// A class-2 completion installs the per-sector callback; nothing about it is a clock question.
 // ---------------------------------------------------------------------------
 inline constexpr std::uint32_t kChainCompletionClass = 2u;
 inline constexpr std::uint32_t kSectorCallbackEntry = 0x8007C2A0u;
@@ -123,19 +110,13 @@ inline constexpr std::uint32_t kSectorCallbackState = 0x8009B8C8u;
 // ---------------------------------------------------------------------------
 // The DISPATCH of the sector callback.
 //
-// An earlier note recorded that "no instruction in the authenticated text reads 0x8009B8D0", and
-// concluded the sector callback was installed into a slot nothing dispatches. **Both the claim and
-// the conclusion are wrong**, and the decoder check is one instruction apart:
-//
 //   0x80092048  lui   $s1,0x800A
 //   0x8009204C  addiu $s1,$s1,0xB8C8    ;  $s1 = 0x8009B8C8   <- the record base
 //   0x80092110  lw    $a3,8($s1)         ;  $a3 = *(0x8009B8D0)  THE SLOT
 //   0x80092118  beqz  $a3,0x80092150     ;  no callback -> skip
 //   0x8009213C  jalr  $a3                ;  CALL THE SECTOR CALLBACK
 //
-// The register is `$a3` (r7), not `$v1`: `0x80092110` is `0x8E270008`, and its rt field is 7.
-// A constant-propagation walk of the authenticated text finds **6 readers of 0x8009B8D0 in 295,936
-// walked words**, against the 0 the parked note reported. The `jalr $a3` is the whole hop 2.
+// The register is `$a3` (r7): `0x80092110` is `0x8E270008`, and its rt field is 7.
 // ---------------------------------------------------------------------------
 inline constexpr std::uint32_t kDispatchSectorCallback = 0x8009213Cu;
 inline constexpr std::uint32_t kDispatchLoadsSlot = 0x80092110u;
@@ -152,8 +133,8 @@ inline constexpr std::uint32_t kDispatchPerSectorHandler = 0x80092034u;
 //   0x8006C2F0  sh    $s4,0x5D8($v0)       ; 0x800AE5D8 = 1
 //
 // 0x8006C2EC is the only writer that clears 0x800A069F on this path, and it is INSIDE this
-// callback. That is the whole causal chain in one line: the card waits on 0x800A069F, and the only
-// thing in the image that clears it runs inside a callback the guest registers and nothing calls.
+// callback: the card waits on 0x800A069F, and the only thing in the image that clears it runs
+// inside a callback the guest registers.
 // ---------------------------------------------------------------------------
 inline constexpr std::uint32_t kSectorCallbackBody = 0x8006C2A0u;
 inline constexpr std::uint32_t kSectorCallbackClearsHeld = 0x8006C2ECu;

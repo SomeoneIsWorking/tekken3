@@ -1,4 +1,4 @@
-#include "decompressor_probe.h"
+#include "execution/finite_guest_call.h"
 
 #include "core.h"
 #include "native_dispatch.h"
@@ -10,7 +10,7 @@
 #include <limits>
 #include <optional>
 
-namespace tekken3 {
+namespace tekken3::execution {
 namespace {
 
 constexpr std::uint32_t kDecompressorBegin = 0x80031BFCu;
@@ -148,11 +148,11 @@ std::string imageWrapperExtent(Core &core, std::uint32_t source, std::uint32_t o
 
 } // namespace
 
-GuestCallEntry DecompressorProbe::captureEntry(const Core &core, std::uint32_t address) {
+GuestCallEntry FiniteGuestCall::captureEntry(const Core &core, std::uint32_t address) {
   return {address, core.r[31], {core.r[4], core.r[5], core.r[6], core.r[7], core.r[9]}};
 }
 
-void DecompressorProbe::callToReturn(Core &core, std::uint32_t address, std::string_view owner) {
+void FiniteGuestCall::callToReturn(Core &core, std::uint32_t address, std::string_view owner) {
   const GuestCallEntry entry = captureEntry(core, address);
   const psx::cpu::ExecutionResult result =
       psx::cpu::dispatchGuest(core, address, psx::cpu::ExecutionBudget::currentTurn(core), owner);
@@ -165,7 +165,7 @@ void DecompressorProbe::callToReturn(Core &core, std::uint32_t address, std::str
   }
 }
 
-std::string DecompressorProbe::describe(Core &core, GuestCallEntry entry, const psx::cpu::ExecutionResult &result) {
+std::string FiniteGuestCall::describe(Core &core, GuestCallEntry entry, const psx::cpu::ExecutionResult &result) {
   auto prefix = lucent::format("guest_call=0x{:08X} return=0x{:08X} entry[a0=0x{:08X} a1=0x{:08X} a2=0x{:08X} "
                                "a3=0x{:08X} t1=0x{:08X}] exit={} pc=0x{:08X} cycles={} decompressor_at_exit={}/1",
                                entry.address,
@@ -236,4 +236,4 @@ std::string DecompressorProbe::describe(Core &core, GuestCallEntry entry, const 
                                  wrapperExtent);
 }
 
-} // namespace tekken3
+} // namespace tekken3::execution

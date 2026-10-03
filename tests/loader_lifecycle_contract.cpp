@@ -18,7 +18,7 @@
 // The image is read at file offset 0x800 to `t_addr`, the PS-X EXE rule. Mapping the file from its
 // start lands every address 0xF800 bytes high, which is what produced a wrong answer in a sibling
 // repository.
-#include "loader_lifecycle.h"
+#include "cd/loader_lifecycle.h"
 
 #include <cstdint>
 #include <cstdio>

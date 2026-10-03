@@ -1,14 +1,14 @@
-#include "gpu_sync.h"
+#include "render/gpu_queue_timeout.h"
 
 #include "core.h"
-#include "decompressor_probe.h"
+#include "execution/finite_guest_call.h"
 #include "execution_exit.h"
+#include "fieldclock/field_clock.h"
 #include "native_dispatch.h"
-#include "vsync_field_clock.h"
 
 #include <lucent/log.h>
 
-namespace tekken3 {
+namespace tekken3::render {
 namespace {
 
 constexpr std::uint32_t kGpuTimeoutArm = 0x8007E8F0u;
@@ -31,12 +31,12 @@ constexpr std::uint32_t kV0 = 2u;
 constexpr std::uint32_t kA0 = 4u;
 constexpr std::uint32_t kRa = 31u;
 
-class CoreGpuSyncMachine final : public GpuSyncMachine {
+class CoreQueueMachine final : public QueueMachine {
 public:
-  explicit CoreGpuSyncMachine(Core &core) : core_(core) {}
+  explicit CoreQueueMachine(Core &core) : core_(core) {}
 
   std::uint32_t fieldCounter() const override {
-    return vsync::readFieldCounter(core_);
+    return field::readCounter(core_);
   }
 
   std::uint32_t read32(std::uint32_t address) const override {
@@ -50,7 +50,7 @@ public:
   std::uint32_t setCriticalSection(std::uint32_t enabled, std::uint32_t returnPc) override {
     core_.r[kA0] = enabled;
     core_.r[kRa] = returnPc;
-    DecompressorProbe::callToReturn(core_, kCriticalSection, "Tekken3 GPU critical-section guest call");
+    execution::FiniteGuestCall::callToReturn(core_, kCriticalSection, "Tekken3 GPU critical-section guest call");
     return core_.r[kV0];
   }
 
@@ -74,11 +74,11 @@ bool signedLess(std::uint32_t lhs, std::uint32_t rhs) {
   return static_cast<std::int32_t>(lhs) < static_cast<std::int32_t>(rhs);
 }
 
-std::uint32_t dereference(GpuSyncMachine &machine, std::uint32_t pointerAddress) {
+std::uint32_t dereference(QueueMachine &machine, std::uint32_t pointerAddress) {
   return machine.read32(machine.read32(pointerAddress));
 }
 
-void resetGpuQueue(GpuSyncMachine &machine) {
+void resetGpuQueue(QueueMachine &machine) {
   const std::uint32_t priorCritical = machine.setCriticalSection(0, 0x8007E9D0u);
   machine.write32(kQueueTail, 0);
   machine.write32(kSavedCriticalSection, priorCritical);
@@ -94,27 +94,27 @@ void resetGpuQueue(GpuSyncMachine &machine) {
 
 void gpuTimeoutArmOverride(Core *core) {
   const R3000 caller = static_cast<const R3000 &>(*core);
-  CoreGpuSyncMachine machine(*core);
-  GpuSyncProtocol::arm(machine);
+  CoreQueueMachine machine(*core);
+  armDeadline(machine);
   static_cast<R3000 &>(*core) = caller;
 }
 
 void gpuTimeoutPollOverride(Core *core) {
   const R3000 caller = static_cast<const R3000 &>(*core);
-  CoreGpuSyncMachine machine(*core);
-  const std::int32_t result = GpuSyncProtocol::poll(machine);
+  CoreQueueMachine machine(*core);
+  const std::int32_t result = pollQueue(machine);
   static_cast<R3000 &>(*core) = caller;
   core->r[kV0] = static_cast<std::uint32_t>(result);
 }
 
 } // namespace
 
-void GpuSyncProtocol::arm(GpuSyncMachine &machine) {
+void armDeadline(QueueMachine &machine) {
   machine.write32(kFieldDeadline, machine.fieldCounter() + kFieldTimeout);
   machine.write32(kPollCount, 0);
 }
 
-std::int32_t GpuSyncProtocol::poll(GpuSyncMachine &machine) {
+std::int32_t pollQueue(QueueMachine &machine) {
   bool expired = signedLess(machine.read32(kFieldDeadline), machine.fieldCounter());
   if (!expired) {
     const std::uint32_t pollCount = machine.read32(kPollCount);
@@ -133,9 +133,9 @@ std::int32_t GpuSyncProtocol::poll(GpuSyncMachine &machine) {
   return -1;
 }
 
-void installGpuSyncOverrides(Core &core) {
+void installOverrides(Core &core) {
   psx::cpu::installNativeOverride(core, kGpuTimeoutArm, "Tekken3::gpuTimeoutArm", gpuTimeoutArmOverride);
   psx::cpu::installNativeOverride(core, kGpuTimeoutPoll, "Tekken3::gpuTimeoutPoll", gpuTimeoutPollOverride);
 }
 
-} // namespace tekken3
+} // namespace tekken3::render

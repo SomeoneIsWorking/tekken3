@@ -1,9 +1,9 @@
-#include "cd_sync.h"
+#include "cd/cd_protocol.h"
 
 #include "cd_control.h"
 #include "core.h"
-#include "decompressor_probe.h"
 #include "disc.h"
+#include "execution/finite_guest_call.h"
 #include "execution_exit.h"
 #include "game.h"
 #include "native_dispatch.h"
@@ -12,7 +12,7 @@
 #include <cstdlib>
 #include <lucent/log.h>
 
-namespace tekken3 {
+namespace tekken3::cd {
 namespace {
 
 constexpr std::uint32_t kCdSync = 0x80083904u;
@@ -125,13 +125,13 @@ bool completeTocCommand(Core &core, std::uint8_t command, std::uint32_t paramete
   return true;
 }
 
-class CoreCdMachine final : public CdMachine {
+class CoreMachine final : public Machine {
 public:
-  explicit CoreCdMachine(Core &core) : core_(core) {}
+  explicit CoreMachine(Core &core) : core_(core) {}
 
   void call(std::uint32_t address, std::uint32_t returnPc) override {
     core_.r[31] = returnPc;
-    DecompressorProbe::callToReturn(core_, address, "Tekken3 CD guest call");
+    execution::FiniteGuestCall::callToReturn(core_, address, "Tekken3 CD guest call");
   }
 
   void call2(std::uint32_t address, std::uint32_t returnPc, std::uint32_t a0, std::uint32_t a1) override {
@@ -195,7 +195,7 @@ private:
   Core &core_;
 };
 
-void traceCommand(CdMachine &machine, std::uint8_t command) {
+void traceCommand(Machine &machine, std::uint8_t command) {
   if (static_cast<std::int32_t>(machine.read32(kDebugLevel)) < 2) {
     return;
   }
@@ -205,7 +205,7 @@ void traceCommand(CdMachine &machine, std::uint8_t command) {
                 machine.read32(kCommandNames + static_cast<std::uint32_t>(command) * 4u));
 }
 
-void reportMissingParameter(CdMachine &machine, std::uint8_t command) {
+void reportMissingParameter(Machine &machine, std::uint8_t command) {
   if (static_cast<std::int32_t>(machine.read32(kDebugLevel)) <= 0) {
     return;
   }
@@ -214,14 +214,7 @@ void reportMissingParameter(CdMachine &machine, std::uint8_t command) {
                 kMissingParameterFormat,
                 machine.read32(kCommandNames + static_cast<std::uint32_t>(command) * 4u));
 }
-
-std::uint32_t synchronize(CdMachine &machine, std::uint32_t mode, std::uint32_t result) {
-  machine.completeSync(mode, result);
-  machine.write8(kAckStatus, kReady);
-  return kReady;
-}
-
-void copyResponse(CdMachine &machine, std::uint32_t source, std::uint32_t result) {
+void copyResponse(Machine &machine, std::uint32_t source, std::uint32_t result) {
   if (result == 0) {
     return;
   }
@@ -230,7 +223,15 @@ void copyResponse(CdMachine &machine, std::uint32_t source, std::uint32_t result
   }
 }
 
-std::uint32_t ready(CdMachine &machine, std::uint32_t mode, std::uint32_t result) {
+} // namespace
+
+std::uint32_t synchronize(Machine &machine, std::uint32_t mode, std::uint32_t result) {
+  machine.completeSync(mode, result);
+  machine.write8(kAckStatus, kReady);
+  return kReady;
+}
+
+std::uint32_t ready(Machine &machine, std::uint32_t mode, std::uint32_t result) {
   // FUN_80083B84 checks the completion-class slot before the acknowledgement-class slot. Retail's
   // VSync calls only bound an asynchronous drain loop. The native controller has already completed
   // that operation before this poll runs, so consume the title-owned status and response buffers
@@ -252,7 +253,7 @@ std::uint32_t ready(CdMachine &machine, std::uint32_t mode, std::uint32_t result
   return 0;
 }
 
-std::uint32_t queueRead(CdMachine &machine, std::uint32_t location, std::uint32_t sectors, std::uint32_t destination) {
+std::uint32_t queueRead(Machine &machine, std::uint32_t location, std::uint32_t sectors, std::uint32_t destination) {
   if (machine.read32(kQueueBusy) == 1 || location == 0 || sectors == 0 || destination == 0) {
     return 0;
   }
@@ -271,12 +272,12 @@ std::uint32_t queueRead(CdMachine &machine, std::uint32_t location, std::uint32_
   return succeeded ? 1u : 0u;
 }
 
-std::uint32_t queueResult(CdMachine &machine) {
+std::uint32_t queueResult(Machine &machine) {
   return machine.read32(kQueueSecondArgument);
 }
 
 std::uint32_t control(
-    CdMachine &machine, std::uint8_t command, std::uint32_t parameters, std::uint32_t result, std::uint32_t asyncMode) {
+    Machine &machine, std::uint8_t command, std::uint32_t parameters, std::uint32_t result, std::uint32_t asyncMode) {
   traceCommand(machine, command);
   const std::uint32_t tableOffset = static_cast<std::uint32_t>(command) * 4u;
   const std::uint32_t parameterCount = machine.read32(kParameterCounts + tableOffset);
@@ -312,40 +313,41 @@ std::uint32_t control(
   return 0;
 }
 
+namespace {
+
 void cdSyncOverride(Core *core) {
-  CoreCdMachine machine(*core);
-  core->r[kV0] = CdProtocol::synchronize(machine, core->r[kA0], core->r[kA1]);
+  CoreMachine machine(*core);
+  core->r[kV0] = synchronize(machine, core->r[kA0], core->r[kA1]);
 }
 
 void cdReadyOverride(Core *core) {
-  CoreCdMachine machine(*core);
-  core->r[kV0] = CdProtocol::ready(machine, core->r[kA0], core->r[kA1]);
+  CoreMachine machine(*core);
+  core->r[kV0] = ready(machine, core->r[kA0], core->r[kA1]);
 }
 
 void cdControlOverride(Core *core) {
   // The guest's own return address, captured before this override clobbers r[31]. It is the
   // boundary an exception entry would restore, and it is what the completion callbacks return to.
   const std::uint32_t interruptedReturnPc = core->r[31];
-  CoreCdMachine machine(*core);
-  core->r[kV0] =
-      CdProtocol::control(machine, static_cast<std::uint8_t>(core->r[kA0]), core->r[kA1], core->r[kA2], core->r[kA3]);
-  CdProtocol::deliverCompletions(machine, interruptedReturnPc);
+  CoreMachine machine(*core);
+  core->r[kV0] = control(machine, static_cast<std::uint8_t>(core->r[kA0]), core->r[kA1], core->r[kA2], core->r[kA3]);
+  deliverCompletions(machine, interruptedReturnPc);
 }
 
 void cdCommandOverride(Core *core) {
   const std::uint32_t interruptedReturnPc = core->r[31];
   const R3000 caller = static_cast<const R3000 &>(*core);
-  CoreCdMachine machine(*core);
+  CoreMachine machine(*core);
   const std::uint32_t result =
-      CdProtocol::control(machine, static_cast<std::uint8_t>(caller.r[kA0]), caller.r[kA1], caller.r[kA2], 0);
+      control(machine, static_cast<std::uint8_t>(caller.r[kA0]), caller.r[kA1], caller.r[kA2], 0);
   static_cast<R3000 &>(*core) = caller;
   core->r[kV0] = result == 0 ? 1u : 0u;
-  CdProtocol::deliverCompletions(machine, interruptedReturnPc);
+  deliverCompletions(machine, interruptedReturnPc);
 }
 
 void dispatch(Core &core, std::uint32_t address, std::uint32_t returnPc) {
   core.r[31] = returnPc;
-  DecompressorProbe::callToReturn(core, address, "Tekken3 queued CD guest call");
+  execution::FiniteGuestCall::callToReturn(core, address, "Tekken3 queued CD guest call");
 }
 
 void cdQueueStartOverride(Core *core) {
@@ -358,25 +360,25 @@ void cdQueueStartOverride(Core *core) {
     dispatch(*core, kDefaultQueueCommand, 0x80090FE8u);
     location = core->r[kV0];
   }
-  CoreCdMachine machine(*core);
-  const std::uint32_t queued = CdProtocol::queueRead(machine, location, caller.r[kA1], caller.r[kA2]);
+  CoreMachine machine(*core);
+  const std::uint32_t queued = queueRead(machine, location, caller.r[kA1], caller.r[kA2]);
   static_cast<R3000 &>(*core) = caller;
   core->r[kV0] = queued;
-  CoreCdMachine completed(*core);
-  CdProtocol::deliverCompletions(completed, interruptedReturnPc);
+  CoreMachine completed(*core);
+  deliverCompletions(completed, interruptedReturnPc);
 }
 
 void cdQueueResultOverride(Core *core) {
   const R3000 caller = static_cast<const R3000 &>(*core);
-  CoreCdMachine machine(*core);
-  const std::uint32_t value = CdProtocol::queueResult(machine);
+  CoreMachine machine(*core);
+  const std::uint32_t value = queueResult(machine);
   static_cast<R3000 &>(*core) = caller;
   core->r[kV0] = value;
 }
 
 } // namespace
 
-std::uint32_t deliverCompletions(CdMachine &machine, std::uint32_t interruptedReturnPc) {
+std::uint32_t deliverCompletions(Machine &machine, std::uint32_t interruptedReturnPc) {
   // The loop is bounded twice, and both bounds are the guest's own words rather than a host
   // constant: by the pool depth the guest initialises (0x8008EC74) and by the live-record count it
   // publishes (0x800A3E40, bounded the same way at 0x8008EEA8). It stops early the moment a
@@ -405,33 +407,7 @@ std::uint32_t deliverCompletions(CdMachine &machine, std::uint32_t interruptedRe
   return delivered;
 }
 
-std::uint32_t CdProtocol::synchronize(CdMachine &machine, std::uint32_t mode, std::uint32_t result) {
-  return tekken3::synchronize(machine, mode, result);
-}
-
-std::uint32_t CdProtocol::deliverCompletions(CdMachine &machine, std::uint32_t interruptedReturnPc) {
-  return tekken3::deliverCompletions(machine, interruptedReturnPc);
-}
-
-std::uint32_t CdProtocol::ready(CdMachine &machine, std::uint32_t mode, std::uint32_t result) {
-  return tekken3::ready(machine, mode, result);
-}
-
-std::uint32_t
-CdProtocol::queueRead(CdMachine &machine, std::uint32_t location, std::uint32_t sectors, std::uint32_t destination) {
-  return tekken3::queueRead(machine, location, sectors, destination);
-}
-
-std::uint32_t CdProtocol::queueResult(CdMachine &machine) {
-  return tekken3::queueResult(machine);
-}
-
-std::uint32_t CdProtocol::control(
-    CdMachine &machine, std::uint8_t command, std::uint32_t parameters, std::uint32_t result, std::uint32_t asyncMode) {
-  return tekken3::control(machine, command, parameters, result, asyncMode);
-}
-
-void installCdOverrides(Core &core) {
+void installOverrides(Core &core) {
   psx::cpu::installNativeOverride(core, kCdSync, "Tekken3::cdSync", cdSyncOverride);
   psx::cpu::installNativeOverride(core, kCdReady, "Tekken3::cdReady", cdReadyOverride);
   psx::cpu::installNativeOverride(core, kCdControl, "Tekken3::cdControl", cdControlOverride);
@@ -440,4 +416,4 @@ void installCdOverrides(Core &core) {
   psx::cpu::installNativeOverride(core, kCdQueueResult, "Tekken3::cdQueueResult", cdQueueResultOverride);
 }
 
-} // namespace tekken3
+} // namespace tekken3::cd

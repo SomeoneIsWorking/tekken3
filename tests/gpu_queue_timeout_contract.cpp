@@ -1,5 +1,5 @@
-#include "gpu_sync.h"
-#include "vsync_field_clock.h"
+#include "fieldclock/field_clock.h"
+#include "render/gpu_queue_timeout.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -22,9 +22,9 @@ constexpr std::uint32_t kGpuControl = 0x1F801814u;
 constexpr std::uint32_t kDmaControl = 0x1F8010F0u;
 constexpr std::uint32_t kDmaChannel = 0x1F8010A8u;
 
-class RecordingGpuSyncMachine final : public tekken3::GpuSyncMachine {
+class RecordingQueueMachine final : public tekken3::render::QueueMachine {
 public:
-  RecordingGpuSyncMachine() {
+  RecordingQueueMachine() {
     words[kGpuDataPointer] = kGpuData;
     words[kGpuControlPointer] = kGpuControl;
     words[kDmaControlPointer] = kDmaControl;
@@ -37,11 +37,11 @@ public:
   // never-advanced host counter here: the protocol was right and the binding was not, and the test
   // could not see the difference because it never used the binding.
   std::uint32_t fieldCounter() const override {
-    return read32(tekken3::vsync::kFieldCounter);
+    return read32(tekken3::field::kCounter);
   }
 
   void setFieldCounter(std::uint32_t value) {
-    words[tekken3::vsync::kFieldCounter] = value;
+    words[tekken3::field::kCounter] = value;
   }
 
   std::uint32_t read32(std::uint32_t address) const override {
@@ -97,22 +97,22 @@ public:
 };
 
 bool guestFieldWordArmsTheDeadline() {
-  RecordingGpuSyncMachine machine;
+  RecordingQueueMachine machine;
   machine.setFieldCounter(41);
-  tekken3::GpuSyncProtocol::arm(machine);
+  tekken3::render::armDeadline(machine);
   if (machine.read32(kFieldDeadline) != 281 || machine.read32(kPollCount) != 0 ||
-      tekken3::GpuSyncProtocol::poll(machine) != 0 || machine.read32(kPollCount) != 1 || machine.timeoutReports != 0 ||
+      tekken3::render::pollQueue(machine) != 0 || machine.read32(kPollCount) != 1 || machine.timeoutReports != 0 ||
       machine.criticalCalls != 0) {
     return false;
   }
   machine.setFieldCounter(281);
-  return tekken3::GpuSyncProtocol::poll(machine) == 0 && machine.timeoutReports == 0;
+  return tekken3::render::pollQueue(machine) == 0 && machine.timeoutReports == 0;
 }
 
 bool fieldTimeoutPreservesRetailReset() {
-  RecordingGpuSyncMachine machine;
+  RecordingQueueMachine machine;
   machine.setFieldCounter(5);
-  tekken3::GpuSyncProtocol::arm(machine);
+  tekken3::render::armDeadline(machine);
   machine.words[kQueueHead] = 70;
   machine.words[kQueueTail] = 3;
   machine.words[kGpuData] = 0x11111111u;
@@ -121,23 +121,22 @@ bool fieldTimeoutPreservesRetailReset() {
   machine.words[kDmaChannel] = 0x40u;
   machine.setFieldCounter(246);
 
-  return tekken3::GpuSyncProtocol::poll(machine) == -1 && machine.timeoutReports == 1 &&
-         machine.reportedQueueDepth == 3 && machine.reportedGpuData == 0x11111111u &&
-         machine.reportedGpuControl == 0x22222222u && machine.reportedDmaControl == 0x33333333u &&
-         machine.read32(kQueueHead) == 0 && machine.read32(kQueueTail) == 0 &&
-         machine.read32(kSavedCriticalSection) == 1 && machine.read32(kGpuControl) == 0x401u &&
-         machine.read32(kDmaChannel) == 0x840u && machine.gpuDataWrites == 2 &&
+  return tekken3::render::pollQueue(machine) == -1 && machine.timeoutReports == 1 && machine.reportedQueueDepth == 3 &&
+         machine.reportedGpuData == 0x11111111u && machine.reportedGpuControl == 0x22222222u &&
+         machine.reportedDmaControl == 0x33333333u && machine.read32(kQueueHead) == 0 &&
+         machine.read32(kQueueTail) == 0 && machine.read32(kSavedCriticalSection) == 1 &&
+         machine.read32(kGpuControl) == 0x401u && machine.read32(kDmaChannel) == 0x840u && machine.gpuDataWrites == 2 &&
          machine.priorGpuDataWrite == 0x02000000u && machine.lastGpuDataWrite == 0x01000000u &&
          machine.criticalCalls == 2 && machine.firstCriticalReturnPc == 0x8007E9D0u &&
          machine.secondCriticalReturnPc == 0x8007EA4Cu && machine.critical == 1;
 }
 
 bool pollCountStillDetectsAStalledQueue() {
-  RecordingGpuSyncMachine machine;
+  RecordingQueueMachine machine;
   machine.setFieldCounter(9);
-  tekken3::GpuSyncProtocol::arm(machine);
+  tekken3::render::armDeadline(machine);
   machine.words[kPollCount] = 0xF0001u;
-  return tekken3::GpuSyncProtocol::poll(machine) == -1 && machine.timeoutReports == 1 &&
+  return tekken3::render::pollQueue(machine) == -1 && machine.timeoutReports == 1 &&
          machine.read32(kPollCount) == 0xF0002u;
 }
 
@@ -147,20 +146,20 @@ bool pollCountStillDetectsAStalledQueue() {
 // from anywhere the product does not advance reproduces exactly that hang, so the deadline is driven
 // from the guest word and the test proves the word -- not a constant -- is what moves.
 bool aFrozenGuestFieldWordNeverExpiresTheDeadline() {
-  RecordingGpuSyncMachine machine;
+  RecordingQueueMachine machine;
   machine.setFieldCounter(0);
-  tekken3::GpuSyncProtocol::arm(machine);
+  tekken3::render::armDeadline(machine);
   if (machine.read32(kFieldDeadline) != 0xF0u) {
     return false;
   }
   for (int field = 0; field < 1000; ++field) {
-    if (tekken3::GpuSyncProtocol::poll(machine) != 0) {
+    if (tekken3::render::pollQueue(machine) != 0) {
       return false;
     }
   }
   // Advancing the GUEST word is what expires it, and it expires on the retail field, not before.
   machine.setFieldCounter(240);
-  return tekken3::GpuSyncProtocol::poll(machine) == 0;
+  return tekken3::render::pollQueue(machine) == 0;
 }
 
 } // namespace

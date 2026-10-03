@@ -39,11 +39,11 @@ non-temporal guest-widescreen contract. Do not add a title-owned native renderer
 reconstruct pictures from GTE/OT/GP0 diagnostic output. Establish a faithful, measurable base before
 the widescreen enhancement.
 
-Host ownership follows this project's codemap and cohesive-owner boundary: `game/core/tekken3_runtime.*` is the one
-process-lifetime game owner, `game/core/frame_loop.*` owns the finite title frame and its measured
-service order, `game/core/tekken3_port.*` composes framework devices around them, and
-`game/core/main.cpp` is the narrow player entry point. Probe entry points only parse their inputs,
-install the same owner, and drive a separate test target. The runtime derives directly from
+Host ownership follows this project's codemap: `game/program/title_runtime.*` is the one
+process-lifetime game owner, `game/frame/finite_frame.*` owns the finite title frame and its measured
+service order, `game/entry/product_launch.*` composes framework devices around them, and
+`game/entry/main.cpp` is the narrow player entry point. `game/` is the only first-party include root.
+Probe entry points only parse their inputs, install the same owner, and drive a separate test target. The runtime derives directly from
 `GameRuntime` and owns the measured resident-text range through immutable `GuestProgramImage`;
 Tekken source must not include or instantiate `LegacyGameRuntimeAdapter`, `GameConfig`, or
 `GameHooks`.

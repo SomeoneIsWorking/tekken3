@@ -2,11 +2,10 @@
 # Lightrec executor owns every non-native guest instruction.
 add_executable(
   tekken3_port
-  game/core/main.cpp
-  game/core/tekken3_port.cpp)
+  game/entry/main.cpp
+  game/entry/product_launch.cpp)
 add_dependencies(tekken3_port gen_gpu_shaders)
 target_compile_features(tekken3_port PRIVATE cxx_std_20)
-target_include_directories(tekken3_port PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/game/core")
 target_link_libraries(tekken3_port PRIVATE tekken3_runtime)
 set_target_properties(
   tekken3_port PROPERTIES

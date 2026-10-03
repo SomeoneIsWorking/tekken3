@@ -73,8 +73,8 @@ declared host-architecture performance.
   function B(0x19) HookEntryInt; SELFTEST 11/11 includes missing-note and wrong-function refusals at
   that edge. Boundary SELFTEST 11/11, IRQ SELFTEST 2/2, and framework oracle 43/43 detect
   register/source/boundary/hardware-register/device errors.
-- where: `game/core/tekken3_runtime.*`; `game/core/decompressor_probe.*`;
-  `game/core/frame_loop.*`; historical `scratch/raw/t3-04/oracle.trace`
+- where: `game/program/title_runtime.*`; `game/execution/finite_guest_call.*`;
+  `game/frame/finite_frame.*`; historical `scratch/raw/t3-04/oracle.trace`
 - gap: The authenticated Lightrec product now completes its first title frame after six bounded
   suspensions of the 127-resource mode call (issue 0011), with 360,083 executed blocks and zero
   interpreter fallback in a natural seven-field run. It has not reached representative gameplay.
@@ -150,7 +150,7 @@ declared host-architecture performance.
   field-25,030 capture: the callback value `0x8006C26C` is present at **exactly one** address in the
   whole 2 MB, `0x800A3DD0`, and `0x8007C2A0` at **0 of 524,288** words; a 1,200-field traced run
   delivered **4,458 of 4,458** interrupts on `I_STAT&I_MASK=0x001` and **0** on the CD bit, with
-  `I_MASK` bit 2 set. Owner: `game/core/cd_sync.cpp`, whose `kCdControl` and `kCdQueueStart` overrides
+  `I_MASK` bit 2 set. Owner: `game/cd/cd_protocol.cpp`, whose `kCdControl` and `kCdQueueStart` overrides
   complete each CD operation inline and never invoke the registered callback, so
   `cd_ready_callback_pointer()` is 0 here (direct runtime, `core.cfg` null, layout not overridden) and
   the framework's own `cd_drive_stock_read` loop returns at its first line. **This supersedes T3-04's
@@ -168,7 +168,7 @@ declared host-architecture performance.
 - notes: Ghidra identifies the observed path as `FUN_800b0548 -> FUN_80055884 -> FUN_80079964/FUN_800799a8`,
   then indirect `FUN_80085bc8 -> FUN_80085d5c`. The retained run preserved that indirect dispatch
   instead of replacing it with a direct call. That result remains execution evidence rather than a shipping
-  implementation requirement. `Tekken3Runtime` owns the framework seam directly and carries the measured
+  implementation requirement. `TitleRuntime` owns the framework seam directly and carries the measured
   resident range in immutable `GuestProgramImage`; no adapter/config/hooks view remains. Its boundary-only
   policy explicitly returns `guestVramIsPicture=false`: no rendered picture exists yet, and the
   widescreen path must coordinate guest geometry, draw coverage, and final sampling rather than
@@ -182,11 +182,11 @@ declared host-architecture performance.
 - deps: T3-04
 - evidence: Static analysis of the complete hashed `SLUS_004.02` image plus Ghidra decompilation identifies all six canonical CR24/CR25/CR26 writes. `FUN_80080a40` owns the title's view dimensions; `FUN_80081148` derives the retail projection centre from those dimensions; `FUN_80080da8` publishes the centre plus the current double-buffer offsets through `SetGeomOffset` at `0x80082728`. `FUN_80063c64` clamps the title-owned focal length and publishes it through `SetGeomScreen` at `0x80082748`; `FUN_80064080` selects a six-field fight-camera pose containing that focal length and `FUN_80064170` blends between authored poses. The two resident display presets prove that title view/projection width is distinct from the active PSX display width: the boot preset owns a 384x480 view and OFX/OFY 192/240 while its active display rectangle is 368x448; the alternate preset owns 320x240 and OFX/OFY 160/120. Both initialize H=500. The first measured widescreen owner after the current `FUN_8006AB64` CD wedge is `FUN_800B0840(0)` at `0x800B0574`; it routes preset 0 through `FUN_80080848` to dimension owner `FUN_80080A40` before deriving the centre and H. The stage owner `FUN_8006D014` supplies horizontal visibility angles 600/780 to the 6x6 tile selector `FUN_8006D95C`; stage/effect primitive clippers `FUN_8006CC28` and `FUN_8006E44C` contain eleven plus one rendering-path signed `-368` right-edge comparisons. These bounds must widen with the resolved display plan; the separate player-select text-slide use remains 2D retail layout.
 - where: `titles/tekken3/executable.json`; `titles/tekken3/README.md`; Ghidra project and decompilation under gitignored `scratch/`
-- gap: Framework commit `2e840231` fixed the generic 368-mode decoder and `game/core/widescreen.*` now binds the measured dimension and clipping owners to one guest-wide plan. A real 4:3/wide visual A/B remains gated on the native/Lightrec product reaching representative gameplay. OT, GP0, and GTE output are diagnostic evidence, never producer input.
+- gap: Framework commit `2e840231` fixed the generic 368-mode decoder and `game/widescreen/*` now binds the measured dimension and clipping owners to one guest-wide plan. A real 4:3/wide visual A/B remains gated on the native/Lightrec product reaching representative gameplay. OT, GP0, and GTE output are diagnostic evidence, never producer input.
 
 ### T3-06 — Owned widescreen
 - status: re-partial
 - deps: T3-05
-- evidence: `Tekken3Widescreen` publishes the shared plan at `FUN_80080A40`, preserves vertical extent/H ownership, widens the view 384->512 at 16:9, and feeds the corresponding 492-pixel draw width to readable wide-only ports of the two measured stage/effect clippers. The 4:3 route calls each authenticated original guest body through Lightrec. `tekken3_widescreen_contract` proves both measured display/view pairs plus stage/effect primitives in the added margin.
-- where: `game/core/widescreen.*`; `tests/widescreen_contract.cpp`; shared `guest_widescreen_projection.*`
+- evidence: `widescreen::WidescreenProjection` publishes the shared plan at `FUN_80080A40`, preserves vertical extent/H ownership, widens the view 384->512 at 16:9, and feeds the corresponding 492-pixel draw width to readable wide-only ports of the two measured stage/effect clippers. The 4:3 route calls each authenticated original guest body through Lightrec. `tekken3_widescreen_contract` proves both measured display/view pairs plus stage/effect primitives in the added margin.
+- where: `game/widescreen/*`; `tests/widescreen_contract.cpp`; shared `guest_widescreen_projection.*`
 - gap: The product still has no completed frame, so final sampling, 4:3 pixel identity, and actual added scene coverage are unverified. A real A/B must also determine whether the authored 600/780 stage-tile visibility wedge culls needed wide-margin tiles; any adjustment must derive from the resolved projection. **Issue 0022 adds a second, independent reason there is no frame to widen: the 11 mode handlers at or above `0x800C0000` hold no code at this frontier. A whole-window word-for-word diff against the authenticated image measures 0 of 256 words differing at each of those 11 handlers, against 9 of 9 in-disc handlers byte-identical, and mode 0's loader writes nothing to any handler address — so the geometry a wider projection would reveal is not resident yet, independently of the CD completion.** Tekken 3 already runs at 60 fps: there remains no native renderer, fps60 mode, interpolation/lerp, or interpolation-supporting temporal pipeline in this title's target scope.

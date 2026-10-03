@@ -1,5 +1,5 @@
 #include "core.h"
-#include "widescreen.h"
+#include "widescreen/widescreen.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -29,9 +29,9 @@ void retailDimensions(Core *core) {
 }
 
 bool measuredPresetsRemainDistinct() {
-  const GuestProjectionGeometry boot = tekken3::Tekken3Widescreen::measuredGeometry(384, 480);
-  const GuestProjectionGeometry alternate = tekken3::Tekken3Widescreen::measuredGeometry(320, 240);
-  const GuestProjectionGeometry other = tekken3::Tekken3Widescreen::measuredGeometry(256, 240);
+  const GuestProjectionGeometry boot = tekken3::widescreen::WidescreenProjection::measuredGeometry(384, 480);
+  const GuestProjectionGeometry alternate = tekken3::widescreen::WidescreenProjection::measuredGeometry(320, 240);
+  const GuestProjectionGeometry other = tekken3::widescreen::WidescreenProjection::measuredGeometry(256, 240);
   return boot.extent.width == 384 && boot.extent.height == 480 && boot.drawWidth == 368 &&
          alternate.extent.width == 320 && alternate.extent.height == 240 && alternate.drawWidth == 320 &&
          other.extent.width == 256 && other.extent.height == 240 && other.drawWidth == 256;
@@ -41,7 +41,7 @@ bool publicationWidesOnlyTheHorizontalOwners() {
   auto core = std::make_unique<Core>();
   core->r[4] = 384;
   core->r[5] = 480;
-  tekken3::Tekken3Widescreen widescreen(wideLatch, retailDimensions);
+  tekken3::widescreen::WidescreenProjection widescreen(wideLatch, retailDimensions);
   widescreen.publishDimensions(*core);
 
   return observedGeometry.extent.width == 384 && observedGeometry.extent.height == 480 &&
@@ -54,7 +54,7 @@ std::uint32_t packedVertex(std::int16_t vertexX, std::int16_t vertexY) {
 
 bool wideStageAndEffectMarginsSurviveRetailClip() {
   auto core = std::make_unique<Core>();
-  tekken3::Tekken3Widescreen widescreen(wideLatch, retailDimensions);
+  tekken3::widescreen::WidescreenProjection widescreen(wideLatch, retailDimensions);
   core->r[4] = 384;
   core->r[5] = 480;
   widescreen.publishDimensions(*core);

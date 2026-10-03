@@ -17,7 +17,7 @@
 //
 // The synthetic image carries the MECHANISM, not the retail bytes: mode 2's entry at `0x8004FA60`
 // spins on a guest busy byte exactly the way `FUN_8006BEA8` spins on `0x800A069E`, and the host
-// releases it by clearing that byte. Everything under test — `FrameLoop::step`'s choice of entry,
+// releases it by clearing that byte. Everything under test — `tekken3::frame::FiniteFrame::step`'s choice of entry,
 // `psx::cpu::ResumableGuestCall`'s budget-resume, and the probe call's refusal — is the shipping code.
 //
 // ARMS, each answering a different question so a reader cannot mistake one for another:
@@ -39,9 +39,9 @@
 // only control that could have found them.
 #include "asm_fields.h"
 #include "core.h"
-#include "decompressor_probe.h"
+#include "execution/finite_guest_call.h"
 #include "execution_exit.h"
-#include "frame_loop.h"
+#include "frame/finite_frame.h"
 #include "game.h"
 #include "lightrec_executor.h"
 #include "psx_exe_image.h"
@@ -347,13 +347,13 @@ std::vector<std::uint8_t> syntheticImage() {
 
 // The shipping Core adapter with the three host services counted instead of driven, so the test
 // stays headless. Every GUEST call below goes through the shipping guest_execution.cpp entries.
-class BudgetMachine final : public tekken3::FrameMachine {
+class BudgetMachine final : public tekken3::frame::Machine {
 public:
   BudgetMachine(Core &core, psx::cpu::ResumableGuestCall &modeCall) : core_(core), modeCall_(modeCall) {}
 
   void call(std::uint32_t address, std::uint32_t returnPc) override {
     ++suspendingEntryAbuses;
-    tekken3::DecompressorProbe::callToReturn(core_, address, "mode_call_budget_resume control");
+    tekken3::execution::FiniteGuestCall::callToReturn(core_, address, "mode_call_budget_resume control");
   }
 
   void call1(std::uint32_t address, std::uint32_t returnPc, std::uint32_t a0) override {
@@ -365,7 +365,7 @@ public:
     call(address, returnPc);
   }
 
-  static bool settled(psx::cpu::CallStep step) {
+  static bool settled(const psx::cpu::CallStep &step) {
     if (step.outcome == psx::cpu::CallOutcome::Refused) {
       std::fprintf(stderr, "mode_call_budget_resume: refused: %s\n", step.detail.c_str());
       std::abort();
@@ -592,9 +592,9 @@ bool resumeArm() {
   }
   psx::cpu::ResumableGuestCall modeCall;
   BudgetMachine machine(core, modeCall);
-  tekken3::FrameStepState state;
+  tekken3::frame::StepState state;
 
-  tekken3::FrameLoop::step(machine, state);
+  tekken3::frame::FiniteFrame::step(machine, state);
   if (!state.modeCallPending || machine.boundedStarts != 1 || machine.boundedResumes != 0 || !modeCall.pending() ||
       machine.lastEntry != kModeFunction2 || machine.lastReturnPc != kModeReturnPc2) {
     std::fprintf(stderr,
@@ -617,7 +617,7 @@ bool resumeArm() {
 
   constexpr unsigned kHeldFields = 6u;
   for (unsigned field = 0; field < kHeldFields; ++field) {
-    tekken3::FrameLoop::step(machine, state);
+    tekken3::frame::FiniteFrame::step(machine, state);
     if (!state.modeCallPending || !modeCall.pending()) {
       std::fprintf(stderr, "mode_call_budget_resume: held field %u left the wait early\n", field + 2u);
       return false;
@@ -667,7 +667,7 @@ bool resumeArm() {
 
   // Release the wait the way a sector completion does, and the call must finish on its own.
   core.mem_w8(kLoaderBusy, 0);
-  tekken3::FrameLoop::step(machine, state);
+  tekken3::frame::FiniteFrame::step(machine, state);
   if (state.modeCallPending || modeCall.pending()) {
     std::fprintf(stderr, "mode_call_budget_resume: the mode call did not return after the busy byte cleared\n");
     return false;
@@ -698,7 +698,7 @@ bool controlArmAborts() {
     return false;
   }
   core.r[31] = kModeReturnPc2;
-  tekken3::DecompressorProbe::callToReturn(core, kModeFunction2, "mode_call_budget_resume control");
+  tekken3::execution::FiniteGuestCall::callToReturn(core, kModeFunction2, "mode_call_budget_resume control");
   return false; // the entry returned, which is the claim being refuted
 }
 

@@ -19,15 +19,16 @@ add_subdirectory("${PSXPORT_DIR}" psxport_build)
 
 add_library(
   tekken3_runtime STATIC
-  game/core/cd_sync.cpp
-  game/core/decompressor_probe.cpp
-  game/core/frame_loop.cpp
-  game/core/gpu_sync.cpp
-  game/core/tekken3_runtime.cpp
-  game/core/sync_native.cpp
-  game/core/vsync_field_clock.cpp
-  game/core/widescreen.cpp)
-target_include_directories(tekken3_runtime PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/game/core")
+  game/cd/cd_protocol.cpp
+  game/execution/finite_guest_call.cpp
+  game/fieldclock/field_clock.cpp
+  game/frame/finite_frame.cpp
+  game/program/platform_hle_plan.cpp
+  game/program/title_runtime.cpp
+  game/render/gpu_queue_timeout.cpp
+  game/widescreen/stage_tile_wedge.cpp
+  game/widescreen/widescreen.cpp)
+target_include_directories(tekken3_runtime PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/game")
 target_compile_features(tekken3_runtime PUBLIC cxx_std_20)
 target_link_libraries(tekken3_runtime PUBLIC psxport)
 
@@ -55,13 +56,13 @@ add_custom_target(
   USES_TERMINAL
   VERBATIM)
 
-add_executable(tekken3_frame_loop_contract tests/frame_loop_contract.cpp)
-target_link_libraries(tekken3_frame_loop_contract PRIVATE tekken3_runtime)
-add_test(NAME tekken3_frame_loop_contract COMMAND tekken3_frame_loop_contract)
+add_executable(tekken3_finite_frame_contract tests/finite_frame_contract.cpp)
+target_link_libraries(tekken3_finite_frame_contract PRIVATE tekken3_runtime)
+add_test(NAME tekken3_finite_frame_contract COMMAND tekken3_finite_frame_contract)
 add_custom_target(
-  tekken3_frame_loop_contract_check
-  COMMAND "$<TARGET_FILE:tekken3_frame_loop_contract>"
-  DEPENDS tekken3_frame_loop_contract
+  tekken3_finite_frame_contract_check
+  COMMAND "$<TARGET_FILE:tekken3_finite_frame_contract>"
+  DEPENDS tekken3_finite_frame_contract
   USES_TERMINAL
   VERBATIM)
 
@@ -98,13 +99,13 @@ add_custom_target(
   USES_TERMINAL
   VERBATIM)
 
-add_executable(tekken3_decompressor_probe_contract tests/decompressor_probe_contract.cpp)
-target_link_libraries(tekken3_decompressor_probe_contract PRIVATE tekken3_runtime)
-add_test(NAME tekken3_decompressor_probe_contract COMMAND tekken3_decompressor_probe_contract)
+add_executable(tekken3_finite_guest_call_contract tests/finite_guest_call_contract.cpp)
+target_link_libraries(tekken3_finite_guest_call_contract PRIVATE tekken3_runtime)
+add_test(NAME tekken3_finite_guest_call_contract COMMAND tekken3_finite_guest_call_contract)
 add_custom_target(
-  tekken3_decompressor_probe_contract_check
-  COMMAND "$<TARGET_FILE:tekken3_decompressor_probe_contract>"
-  DEPENDS tekken3_decompressor_probe_contract
+  tekken3_finite_guest_call_contract_check
+  COMMAND "$<TARGET_FILE:tekken3_finite_guest_call_contract>"
+  DEPENDS tekken3_finite_guest_call_contract
   USES_TERMINAL
   VERBATIM)
 
@@ -118,13 +119,13 @@ add_custom_target(
   USES_TERMINAL
   VERBATIM)
 
-add_executable(tekken3_gpu_sync_contract tests/gpu_sync_contract.cpp)
-target_link_libraries(tekken3_gpu_sync_contract PRIVATE tekken3_runtime)
-add_test(NAME tekken3_gpu_sync_contract COMMAND tekken3_gpu_sync_contract)
+add_executable(tekken3_gpu_queue_timeout_contract tests/gpu_queue_timeout_contract.cpp)
+target_link_libraries(tekken3_gpu_queue_timeout_contract PRIVATE tekken3_runtime)
+add_test(NAME tekken3_gpu_queue_timeout_contract COMMAND tekken3_gpu_queue_timeout_contract)
 add_custom_target(
-  tekken3_gpu_sync_contract_check
-  COMMAND "$<TARGET_FILE:tekken3_gpu_sync_contract>"
-  DEPENDS tekken3_gpu_sync_contract
+  tekken3_gpu_queue_timeout_contract_check
+  COMMAND "$<TARGET_FILE:tekken3_gpu_queue_timeout_contract>"
+  DEPENDS tekken3_gpu_queue_timeout_contract
   USES_TERMINAL
   VERBATIM)
 
@@ -208,10 +209,10 @@ add_custom_target(
   DEPENDS
     cpp_policy
     tekken3_cd_protocol_contract_check
-    tekken3_decompressor_probe_contract_check
-    tekken3_frame_loop_contract_check
+    tekken3_finite_guest_call_contract_check
+    tekken3_finite_frame_contract_check
     tekken3_bounded_guest_call_check
-    tekken3_gpu_sync_contract_check
+    tekken3_gpu_queue_timeout_contract_check
     tekken3_vsync_field_clock_contract_check
     tekken3_runtime_contract_check
     tekken3_runtime_seam_check

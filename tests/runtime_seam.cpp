@@ -1,8 +1,8 @@
 #include "core.h"
+#include "fieldclock/field_clock.h"
 #include "game.h"
 #include "platform_hle.h"
-#include "tekken3_runtime.h"
-#include "vsync_field_clock.h"
+#include "program/title_runtime.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -18,7 +18,7 @@ constexpr tekken3::ResidentProgramRange kFixtureRange{0x00001000u, 0x00002000u};
 int main() {
   bool invalidRangeRefused = false;
   try {
-    tekken3::Tekken3Runtime invalid{{0x00010000u, 0x00010000u}};
+    tekken3::TitleRuntime invalid{{0x00010000u, 0x00010000u}};
   } catch (const std::invalid_argument &) {
     invalidRangeRefused = true;
   }
@@ -27,7 +27,7 @@ int main() {
     return 1;
   }
 
-  static tekken3::Tekken3Runtime runtime{kFixtureRange};
+  tekken3::TitleRuntime runtime{kFixtureRange};
   psxport_install_game(runtime);
 
   const RenderCapabilities capabilities = runtime.renderCapabilities();
@@ -54,15 +54,15 @@ int main() {
   }
 
   const PlatformHlePlan *const hle = runtime.platformHlePlan();
-  if (!hle || hle->vsyncAddress != tekken3::vsync::kEntry || hle->bindingCount != 0 ||
-      hle->windowLo[0] != tekken3::vsync::kEntry || hle->windowHi[0] != tekken3::vsync::kBodyEnd) {
+  if (!hle || hle->vsyncAddress != tekken3::field::kEntry || hle->bindingCount != 0 ||
+      hle->windowLo[0] != tekken3::field::kEntry || hle->windowHi[0] != tekken3::field::kBodyEnd) {
     std::fprintf(stderr,
                  "runtime_seam: FAIL — Tekken did not declare protected VSync ownership at the "
                  "measured address\n");
     return 1;
   }
   // Without this the framework refuses every one of the 21 negative VSync queries the guest makes.
-  if (hle->vsyncQueryCounterAddress != tekken3::vsync::kFieldCounter) {
+  if (hle->vsyncQueryCounterAddress != tekken3::field::kCounter) {
     std::fprintf(stderr,
                  "runtime_seam: FAIL — Tekken did not declare the measured field count its own VSync "
                  "leaf returns for a negative mode\n");

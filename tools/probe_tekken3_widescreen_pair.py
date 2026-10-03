@@ -59,7 +59,7 @@ sys.path.insert(0, str(FRAMEWORK / "tools" / "port"))
 
 # The measured Tekken view extent, used ONLY to size the sink. The title's 368-pixel GP1 display mode
 # is decoded generically by the framework and bound to the shared projection plan by
-# `Tekken3Widescreen`, whose hermetic contract covers the wide 384 -> 512 projection, so the evidence
+# `tekken3::widescreen::WidescreenProjection`, whose hermetic contract covers the wide 384 -> 512 projection, so the evidence
 # quoted below is the product's own render_width and never this constant.
 NATIVE_WIDTH = 384
 SINK_HEIGHT = 720

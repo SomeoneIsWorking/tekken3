@@ -1,5 +1,5 @@
 #include "core.h"
-#include "decompressor_probe.h"
+#include "execution/finite_guest_call.h"
 
 #include <cstdio>
 #include <memory>
@@ -21,7 +21,7 @@ int main() {
   core->r[6] = 4u;
   core->r[7] = 0x800FF800u;
   core->r[9] = 0x800FFE00u;
-  auto entry = tekken3::DecompressorProbe::captureEntry(*core, 0x80052CC4u);
+  auto entry = tekken3::execution::FiniteGuestCall::captureEntry(*core, 0x80052CC4u);
 
   core->r[4] = 0x80011234u;
   core->r[5] = 0x80100040u;
@@ -30,7 +30,7 @@ int main() {
   core->r[9] = 0x80100000u;
   core->r[3] = 5u;
   core->r[31] = 0x8004C71Cu;
-  auto reached = tekken3::DecompressorProbe::describe(
+  auto reached = tekken3::execution::FiniteGuestCall::describe(
       *core, entry, {psx::cpu::ExecutionExitReason::BudgetExhausted, 0x80031C78u, 564482u, "cycle budget exhausted"});
   if (!contains(reached, "guest_call=0x80052CC4 return=0x80028C9C") ||
       !contains(reached, "entry[a0=0x80011000 a1=0x80100000 a2=0x00000004") ||
@@ -45,7 +45,7 @@ int main() {
     return 1;
   }
 
-  auto unreached = tekken3::DecompressorProbe::describe(
+  auto unreached = tekken3::execution::FiniteGuestCall::describe(
       *core, entry, {psx::cpu::ExecutionExitReason::BudgetExhausted, 0x80052D00u, 32u, "cycle budget exhausted"});
   if (!contains(unreached, "decompressor_at_exit=0/1") || !contains(unreached, "live_lz=unreached-at-exit") ||
       !contains(unreached, "wrapper_entry=unreached") || contains(unreached, "output_progress=")) {
@@ -59,7 +59,7 @@ int main() {
   core->r[7] = 0x1F801801u;
   core->r[9] = 0x80100000u;
   core->r[3] = 41u;
-  auto invalid = tekken3::DecompressorProbe::describe(
+  auto invalid = tekken3::execution::FiniteGuestCall::describe(
       *core, entry, {psx::cpu::ExecutionExitReason::BudgetExhausted, 0x80031C78u, 64u, "cycle budget exhausted"});
   if (!contains(invalid, "decompressor_at_exit=1/1") || !contains(invalid, "a0/source=0x1F801800(unmapped-main-RAM)") ||
       !contains(invalid, "output_progress=unknown") ||
@@ -94,7 +94,7 @@ int main() {
   core->r[9] = 0x80100000u;
   core->r[3] = 0u;
   core->r[31] = 0x8004CA9Cu;
-  auto wrapper = tekken3::DecompressorProbe::describe(
+  auto wrapper = tekken3::execution::FiniteGuestCall::describe(
       *core, entry, {psx::cpu::ExecutionExitReason::BudgetExhausted, 0x80031C78u, 64u, "cycle budget exhausted"});
   if (!contains(wrapper, "wrapper_entry=0x80080100(RAM+0x080100)") ||
       !contains(wrapper, "entry_index=0/1 source_consumed=3/4 parsed_output=4 expected_output_from_RAM=4/33344") ||
@@ -104,7 +104,7 @@ int main() {
   }
 
   core->ram[0x4CA9Fu] = 0u;
-  auto wrongInstruction = tekken3::DecompressorProbe::describe(
+  auto wrongInstruction = tekken3::execution::FiniteGuestCall::describe(
       *core, entry, {psx::cpu::ExecutionExitReason::BudgetExhausted, 0x80031C78u, 64u, "cycle budget exhausted"});
   if (!contains(wrongInstruction, "wrapper_entry=unresolved") ||
       !contains(wrongInstruction, "limit_instruction=0x00038240 scan=not-run scanned=0")) {
@@ -121,7 +121,7 @@ int main() {
     core->ram[offset] = 1u;
   }
   core->r[4] = 0x801FFFFDu;
-  auto unterminated = tekken3::DecompressorProbe::describe(
+  auto unterminated = tekken3::execution::FiniteGuestCall::describe(
       *core, entry, {psx::cpu::ExecutionExitReason::BudgetExhausted, 0x80031C78u, 64u, "cycle budget exhausted"});
   if (!contains(unterminated, "source_consumed=1/4 parsed_output=0 expected_output_from_RAM=unknown/33344") ||
       !contains(unterminated, "scan=missing-terminator-within-mapped-RAM consistent=0")) {
@@ -130,7 +130,7 @@ int main() {
   }
 
   core->r[16] = 1u;
-  auto missingEntry = tekken3::DecompressorProbe::describe(
+  auto missingEntry = tekken3::execution::FiniteGuestCall::describe(
       *core, entry, {psx::cpu::ExecutionExitReason::BudgetExhausted, 0x80031C78u, 64u, "cycle budget exhausted"});
   if (!contains(missingEntry, "wrapper_entry=unresolved") || contains(missingEntry, "expected_output_from_RAM=4")) {
     std::fprintf(stderr, "decompressor_probe_contract: FAIL — invalid wrapper table reported an entry\n");

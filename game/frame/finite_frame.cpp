@@ -1,7 +1,7 @@
-#include "frame_loop.h"
+#include "frame/finite_frame.h"
 
 #include "core.h"
-#include "decompressor_probe.h"
+#include "execution/finite_guest_call.h"
 #include "execution_control.h"
 #include "execution_services.h"
 #include "game.h"
@@ -12,7 +12,7 @@
 #include <cstdlib>
 #include <lucent/log.h>
 
-namespace tekken3 {
+namespace tekken3::frame {
 namespace {
 
 constexpr std::uint32_t kFirstInitializer = 0x80079D10u;
@@ -66,14 +66,14 @@ constexpr std::array<std::uint32_t, 20> kModeFunctions{
     0x800F0458u, 0x800F18E8u, 0x800501C0u, 0x800C2434u, 0x8004FF74u, 0x800FF0C4u,
 };
 
-class CoreFrameMachine final : public FrameMachine {
+class CoreMachine final : public Machine {
 public:
-  CoreFrameMachine(Game &game, Core &core, psx::cpu::ResumableGuestCall &modeCall)
+  CoreMachine(Game &game, Core &core, psx::cpu::ResumableGuestCall &modeCall)
       : game_(game), core_(core), modeCall_(modeCall) {}
 
   void call(std::uint32_t address, std::uint32_t returnPc) override {
     core_.r[31] = returnPc;
-    DecompressorProbe::callToReturn(core_, address, "Tekken3 frame guest call");
+    execution::FiniteGuestCall::callToReturn(core_, address, "Tekken3 frame guest call");
   }
 
   void call1(std::uint32_t address, std::uint32_t returnPc, std::uint32_t a0) override {
@@ -101,7 +101,7 @@ public:
   // A mode body may legitimately outlive display fields: mode 0 decompresses the resident resource
   // table and mode 2 waits for a sector completion that arrives on a later field. The frame state
   // machine bounds how many fields it will wait, so the call itself states no turn cap.
-  bool settled(psx::cpu::CallStep step) {
+  bool settled(const psx::cpu::CallStep &step) {
     if (step.outcome == psx::cpu::CallOutcome::Refused) {
       lucent::error("tekken3-guest",
                     "Tekken3 frame mode call refused after {} host turn(s) and {} cycles at 0x{:08X}: {}",
@@ -176,7 +176,7 @@ private:
   psx::cpu::ResumableGuestCall &modeCall_;
 };
 
-void finishFrame(FrameMachine &machine, std::uint32_t buffer) {
+void finishFrame(Machine &machine, std::uint32_t buffer) {
   machine.writeRegister(kV0, 0x800B0000u);
   const std::uint32_t bufferPacketBase = machine.read32(buffer + 4u);
   const std::uint32_t mainOtRoot = machine.read32(kMainOtRoot);
@@ -190,7 +190,7 @@ void finishFrame(FrameMachine &machine, std::uint32_t buffer) {
 
 } // namespace
 
-void FrameLoop::runFiniteMain(FrameMachine &machine) {
+void FiniteFrame::runBootPrefix(Machine &machine) {
   // Exact non-returning 0x80028BA0 prologue. This frame remains resident for every host-driven
   // iteration, just as it does around the retail loop back-edge.
   const std::uint32_t stack = machine.readRegister(kSp) - 32u;
@@ -210,7 +210,7 @@ void FrameLoop::runFiniteMain(FrameMachine &machine) {
   machine.tick(3);
 }
 
-bool FrameLoop::runFrameBarrier(FrameMachine &machine) {
+bool FiniteFrame::runBarrier(Machine &machine) {
   const std::uint32_t stack = machine.readRegister(kSp) - 32u;
   machine.writeRegister(kSp, stack);
   machine.write32(stack + 24u, machine.readRegister(kRa));
@@ -259,7 +259,7 @@ bool FrameLoop::runFrameBarrier(FrameMachine &machine) {
   return released;
 }
 
-void FrameLoop::runDisplayInit(FrameMachine &machine) {
+void FiniteFrame::runDisplayInit(Machine &machine) {
   const std::uint32_t stack = machine.readRegister(kSp) - 24u;
   machine.writeRegister(kSp, stack);
   machine.write32(stack + 16u, machine.readRegister(kRa));
@@ -284,7 +284,7 @@ void FrameLoop::runDisplayInit(FrameMachine &machine) {
   machine.tick(7);
 }
 
-void FrameLoop::step(FrameMachine &machine, FrameStepState &state) {
+void FiniteFrame::step(Machine &machine, StepState &state) {
   if (state.modeCallPending) {
     // The guest has not reached the next frame barrier. The display repeats its held image and
     // the audio sink advances for this field, while the guest CPU resumes the same call state.
@@ -337,18 +337,13 @@ void FrameLoop::step(FrameMachine &machine, FrameStepState &state) {
     machine.tick(2);
     const auto address = kModeFunctions[static_cast<std::size_t>(mode)];
     const auto returnPc = 0x80028C9Cu + static_cast<std::uint32_t>(mode) * 0x10u;
-    // EVERY mode body is one guest call that may legitimately outlive a display field, and only
-    // some of them were being given the entry that admits it. Mode 0 decompresses the resident
-    // resource table and needs several fields; mode 2 (0x8004FA60) runs the loader and sits in
-    // `FUN_8006BEA8`'s untimed spin on the loader busy byte 0x800A069E, which is cleared only by a
-    // sector completion that arrives on a later field. `ExecutionBudget::currentTurn` is one field
-    // by construction, and psxport states that exceeding it is an ORDINARY bounded exit the host
-    // commits, reports and then resumes deliberately — so a body that needs more than one field
-    // must be entered through `startModeCall` (`psx::cpu::ResumableGuestCall`). The
-    // non-suspending `call` above is for the small, per-field guest calls only; dispatching a
-    // spanning call through it turned the mode-2 loader wait into a budget exhaustion reported as
-    // `guest_call=0x8004FA60 exit=budget-exhausted` and a fatal refusal. The mode-0-only
-    // condition is what made the same defect invisible until the loader card.
+    // EVERY mode body is one guest call that may legitimately outlive a display field, so all of
+    // them are entered through `startModeCall` (`psx::cpu::ResumableGuestCall`) rather than the
+    // per-field `call` above. Mode 0 decompresses the resident resource table; mode 2 (0x8004FA60)
+    // runs the loader and sits in `FUN_8006BEA8`'s untimed spin on the loader busy byte 0x800A069E,
+    // which is cleared only by a sector completion arriving on a later field. `currentTurn` is one
+    // field by construction, and psxport treats exceeding it as an ORDINARY bounded exit the host
+    // commits, reports and then resumes deliberately — so a spanning body must be resumable.
     state.buffer = buffer;
     if (!machine.startModeCall(address, returnPc)) {
       state.modeCallPending = true;
@@ -362,14 +357,14 @@ void FrameLoop::step(FrameMachine &machine, FrameStepState &state) {
   finishFrame(machine, buffer);
 }
 
-Tekken3FrameDriver::Tekken3FrameDriver(Game &game) : game_(game) {}
+FrameDriver::FrameDriver(Game &game) : game_(game) {}
 
-Tekken3FrameDriver &Tekken3FrameDriver::from(Core &core) {
+FrameDriver &FrameDriver::from(Core &core) {
   if (!core.game || !core.game->frameDriver) {
     lucent::error("frame", "Tekken 3 frame callback ran without its title FrameDriver");
     std::abort();
   }
-  auto *const driver = dynamic_cast<Tekken3FrameDriver *>(core.game->frameDriver.get());
+  auto *const driver = dynamic_cast<FrameDriver *>(core.game->frameDriver.get());
   if (!driver) {
     lucent::error("frame", "Tekken 3 frame callback reached another title's FrameDriver");
     std::abort();
@@ -377,22 +372,22 @@ Tekken3FrameDriver &Tekken3FrameDriver::from(Core &core) {
   return *driver;
 }
 
-void Tekken3FrameDriver::mainOverride(Core *core) {
-  Tekken3FrameDriver &driver = from(*core);
+void FrameDriver::mainOverride(Core *core) {
+  FrameDriver &driver = from(*core);
   if (!driver.bootStarted_ || driver.bootComplete_) {
     lucent::error("boot", "Tekken 3 finite main reached outside its one boot dispatch");
     std::abort();
   }
-  CoreFrameMachine machine(driver.game_, *core, driver.modeCall_);
-  FrameLoop::runFiniteMain(machine);
+  CoreMachine machine(driver.game_, *core, driver.modeCall_);
+  FiniteFrame::runBootPrefix(machine);
   driver.bootComplete_ = true;
   psx::cpu::requestExecutionExit(*core, psx::cpu::ExecutionExitReason::HostService);
 }
 
-void Tekken3FrameDriver::frameBarrierOverride(Core *core) {
-  Tekken3FrameDriver &driver = from(*core);
-  CoreFrameMachine machine(driver.game_, *core, driver.modeCall_);
-  if (!FrameLoop::runFrameBarrier(machine)) {
+void FrameDriver::barrierOverride(Core *core) {
+  FrameDriver &driver = from(*core);
+  CoreMachine machine(driver.game_, *core, driver.modeCall_);
+  if (!FiniteFrame::runBarrier(machine)) {
     lucent::error("frame",
                   "Tekken 3 RCntCNT2 event class 0x{:08X} spec 0x{:08X} did not release the frame barrier",
                   kFrameTimerEventClass,
@@ -401,19 +396,19 @@ void Tekken3FrameDriver::frameBarrierOverride(Core *core) {
   }
 }
 
-void Tekken3FrameDriver::displayInitOverride(Core *core) {
-  Tekken3FrameDriver &driver = from(*core);
-  CoreFrameMachine machine(driver.game_, *core, driver.modeCall_);
-  FrameLoop::runDisplayInit(machine);
+void FrameDriver::displayInitOverride(Core *core) {
+  FrameDriver &driver = from(*core);
+  CoreMachine machine(driver.game_, *core, driver.modeCall_);
+  FiniteFrame::runDisplayInit(machine);
 }
 
-void Tekken3FrameDriver::installOverrides() {
-  psx::cpu::installNativeOverride(game_.core, FrameLoop::kMain, "Tekken3::finiteMain", mainOverride);
-  psx::cpu::installNativeOverride(game_.core, FrameLoop::kFrameBarrier, "Tekken3::frameBarrier", frameBarrierOverride);
-  psx::cpu::installNativeOverride(game_.core, FrameLoop::kDisplayInit, "Tekken3::displayInit", displayInitOverride);
+void FrameDriver::installOverrides() {
+  psx::cpu::installNativeOverride(game_.core, FiniteFrame::kMain, "Tekken3::finiteMain", mainOverride);
+  psx::cpu::installNativeOverride(game_.core, FiniteFrame::kFrameBarrier, "Tekken3::frameBarrier", barrierOverride);
+  psx::cpu::installNativeOverride(game_.core, FiniteFrame::kDisplayInit, "Tekken3::displayInit", displayInitOverride);
 }
 
-void Tekken3FrameDriver::runBootPrefix(Core &core, std::uint32_t programEntry) {
+void FrameDriver::runBootPrefix(Core &core, std::uint32_t programEntry) {
   if (bootStarted_) {
     lucent::error("boot", "Tekken 3 finite boot prefix was requested more than once");
     std::abort();
@@ -431,27 +426,27 @@ void Tekken3FrameDriver::runBootPrefix(Core &core, std::uint32_t programEntry) {
     lucent::error("boot",
                   "Tekken 3 retail entry 0x{:08X} returned without reaching finite main 0x{:08X}",
                   programEntry,
-                  FrameLoop::kMain);
+                  FiniteFrame::kMain);
     std::abort();
   }
   lucent::info("boot", "Tekken 3 finite main prefix complete; native driver owns loop 0x80028BCC");
 }
 
-void Tekken3FrameDriver::stepFrame(Core &core, std::uint32_t frame) {
+void FrameDriver::stepFrame(Core &core, std::uint32_t frame) {
   if (!bootComplete_) {
     lucent::error("frame", "Tekken 3 frame {} ran before its finite boot prefix", frame);
     std::abort();
   }
-  if (frameStep_.modeCallPending != modeCall_.pending()) {
+  if (stepState_.modeCallPending != modeCall_.pending()) {
     lucent::error("frame", "Tekken 3 mode call and frame continuation disagree at field {}", frame);
     std::abort();
   }
-  if (!frameStep_.modeCallPending) {
+  if (!stepState_.modeCallPending) {
     game_.timing.logicFrame = frame;
     game_.core.rsub.otAttr.beginLogicFrame(frame);
   }
-  CoreFrameMachine machine(game_, core, modeCall_);
-  FrameLoop::step(machine, frameStep_);
+  CoreMachine machine(game_, core, modeCall_);
+  FiniteFrame::step(machine, stepState_);
 }
 
-} // namespace tekken3
+} // namespace tekken3::frame

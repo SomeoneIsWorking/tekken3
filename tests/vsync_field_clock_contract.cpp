@@ -10,8 +10,8 @@
 // retail leaf subtracts from (0x80099B38) are all plausible neighbouring words, and a reader that
 // resolved to any of them passes a test that only checked the happy path.
 #include "core.h"
-#include "sync_native.h"
-#include "vsync_field_clock.h"
+#include "fieldclock/field_clock.h"
+#include "program/platform_hle_plan.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -19,10 +19,10 @@
 
 namespace {
 
-constexpr std::uint32_t kMeasured = tekken3::vsync::kFieldCounter;
+constexpr std::uint32_t kMeasured = tekken3::field::kCounter;
 // Neighbours of the measured word, and the saved-count word FUN_800859A8 itself subtracts from.
-constexpr std::uint32_t kDecoyBefore = tekken3::vsync::kFieldCounter - 4u;
-constexpr std::uint32_t kDecoyAfter = tekken3::vsync::kFieldCounter + 4u;
+constexpr std::uint32_t kDecoyBefore = tekken3::field::kCounter - 4u;
+constexpr std::uint32_t kDecoyAfter = tekken3::field::kCounter + 4u;
 constexpr std::uint32_t kDecoySaved = 0x80099B38u;
 
 constexpr std::uint32_t kMeasuredValue = 0x01234567u;
@@ -39,7 +39,7 @@ int main() {
   core->mem_w32(kDecoyAfter, kDecoyValue);
   core->mem_w32(kDecoySaved, kDecoyValue);
 
-  const std::uint32_t read = tekken3::vsync::readFieldCounter(*core);
+  const std::uint32_t read = tekken3::field::readCounter(*core);
   if (read != kMeasuredValue) {
     std::fprintf(stderr,
                  "vsync_field_clock_contract: FAIL — the production reader returned 0x%08X for the "
@@ -64,7 +64,7 @@ int main() {
   // A zero word is a legitimate field count (the library init zeroes it), so the reader must return
   // it rather than treat it as a refusal. A counter that has not run yet is not an error.
   core->mem_w32(kMeasured, 0u);
-  if (tekken3::vsync::readFieldCounter(*core) != 0u) {
+  if (tekken3::field::readCounter(*core) != 0u) {
     std::fprintf(stderr, "vsync_field_clock_contract: FAIL — a field count of zero was not returned as zero\n");
     return 1;
   }
@@ -73,26 +73,26 @@ int main() {
   // PlatformHlePlan::vsyncQueryCounterAddress; this title's GPU-queue timeout owner reads the word
   // above. If those two ever name different words, the guest's own deadline and the port's answer
   // stop being the same clock, and neither of the two tests above would notice.
-  const PlatformHlePlan &plan = tekken3::platformHlePlan();
-  if (plan.vsyncQueryCounterAddress != tekken3::vsync::kFieldCounter) {
+  const PlatformHlePlan &plan = tekken3::hle::plan();
+  if (plan.vsyncQueryCounterAddress != tekken3::field::kCounter) {
     std::fprintf(stderr,
                  "vsync_field_clock_contract: FAIL — the plan answers negative VSync queries from "
                  "0x%08X while the GPU timeout owner reads 0x%08X; the framework's answer and the "
                  "guest's own answer must be the same word\n",
                  plan.vsyncQueryCounterAddress,
-                 tekken3::vsync::kFieldCounter);
+                 tekken3::field::kCounter);
     return 1;
   }
-  if (plan.vsyncAddress != tekken3::vsync::kEntry || plan.windowLo[0] != tekken3::vsync::kEntry ||
-      plan.windowHi[0] != tekken3::vsync::kBodyEnd) {
+  if (plan.vsyncAddress != tekken3::field::kEntry || plan.windowLo[0] != tekken3::field::kEntry ||
+      plan.windowHi[0] != tekken3::field::kBodyEnd) {
     std::fprintf(stderr,
                  "vsync_field_clock_contract: FAIL — the plan's VSync entry 0x%08X / window "
                  "[0x%08X, 0x%08X) does not match the measured entry 0x%08X and body end 0x%08X\n",
                  plan.vsyncAddress,
                  plan.windowLo[0],
                  plan.windowHi[0],
-                 tekken3::vsync::kEntry,
-                 tekken3::vsync::kBodyEnd);
+                 tekken3::field::kEntry,
+                 tekken3::field::kBodyEnd);
     return 1;
   }
   // The window must still admit exactly the one library leaf. A widened window would let the
@@ -109,7 +109,7 @@ int main() {
               "returned as zero, the read leaves guest RAM unchanged, the plan answers negative VSync "
               "queries from that same word, its entry/window match the measured leaf, and no second "
               "window or engine binding was added\n",
-              tekken3::vsync::kFieldCounter);
+              tekken3::field::kCounter);
   std::printf("vsync_field_clock_contract: NOT covered — whether the guest's own vblank callback "
               "advances this word in a real run; that is a product measurement, not a unit fact\n");
   return 0;

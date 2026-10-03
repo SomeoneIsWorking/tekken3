@@ -35,7 +35,7 @@ title contract, and inspects the linked execution boundary:
 uv run --frozen python tools/verify.py
 ```
 
-`game/core/tekken3_runtime.*` owns framework-facing game behavior. Its temporary legacy adapter view
+`game/program/title_runtime.*` owns framework-facing game behavior. Its temporary legacy adapter view
 has been removed: it derives directly from `GameRuntime`, returns an immutable `GuestProgramImage`
 for measured resident text, and exposes null legacy config/hooks/context views.
 

@@ -1,4 +1,4 @@
-#include "cd_sync.h"
+#include "cd/cd_protocol.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -39,7 +39,7 @@ struct Call {
   std::uint32_t a1;
 };
 
-class RecordingCdMachine final : public tekken3::CdMachine {
+class RecordingCdMachine final : public tekken3::cd::Machine {
 public:
   void call(std::uint32_t address, std::uint32_t returnPc) override {
     calls.push_back({address, returnPc, 0, 0});
@@ -154,9 +154,8 @@ bool syncCompletesNatively() {
   for (std::uint32_t offset = 0; offset < 8; ++offset) {
     machine.bytes[result + offset] = 0xA5u;
   }
-  if (tekken3::CdProtocol::synchronize(machine, 1, result) != 2 || machine.syncCompletions != 1 ||
-      machine.syncMode != 1 || machine.syncResult != result || machine.read8(kAckStatus) != 2 ||
-      machine.called(kVsync)) {
+  if (tekken3::cd::synchronize(machine, 1, result) != 2 || machine.syncCompletions != 1 || machine.syncMode != 1 ||
+      machine.syncResult != result || machine.read8(kAckStatus) != 2 || machine.called(kVsync)) {
     return false;
   }
   for (std::uint32_t offset = 0; offset < 8; ++offset) {
@@ -171,7 +170,7 @@ bool missingParametersAreRefused() {
   RecordingCdMachine machine;
   constexpr std::uint8_t command = 2;
   machine.write32(kParameterCounts + command * 4u, 4);
-  return tekken3::CdProtocol::control(machine, command, 0, 0, 0) == static_cast<std::uint32_t>(-2) &&
+  return tekken3::cd::control(machine, command, 0, 0, 0) == static_cast<std::uint32_t>(-2) &&
          machine.syncCompletions == 0 && machine.commandCompletions == 0 && !machine.called(kVsync);
 }
 
@@ -189,7 +188,7 @@ bool controlPreservesTitleStateAndUsesNativeController() {
     machine.bytes[result + offset] = 0xA5u;
   }
 
-  if (tekken3::CdProtocol::control(machine, command, parameters, result, 0) != 0 || machine.syncCompletions != 1 ||
+  if (tekken3::cd::control(machine, command, parameters, result, 0) != 0 || machine.syncCompletions != 1 ||
       machine.commandCompletions != 1 || machine.completedCommand != command ||
       machine.completedParameters != parameters || machine.commandResult != result || machine.read8(kAckStatus) != 2 ||
       machine.read8(kCompleteStatus) != 2 || machine.read8(kCurrentCommand) != command || machine.called(kVsync)) {
@@ -211,7 +210,7 @@ bool controlPreservesTitleStateAndUsesNativeController() {
 bool asynchronousWrapperStillCompletesWithoutAWait() {
   RecordingCdMachine machine;
   constexpr std::uint8_t command = 1;
-  return tekken3::CdProtocol::control(machine, command, 0, 0, 1) == 0 && machine.syncCompletions == 1 &&
+  return tekken3::cd::control(machine, command, 0, 0, 1) == 0 && machine.syncCompletions == 1 &&
          machine.commandCompletions == 1 && machine.read8(kAckStatus) == 2 && !machine.called(kVsync);
 }
 
@@ -222,8 +221,7 @@ bool readyConsumesNativeResponsesWithoutAWait() {
   for (std::uint32_t offset = 0; offset < 8; ++offset) {
     machine.bytes[kAckResponse + offset] = static_cast<std::uint8_t>(0x20u + offset);
   }
-  if (tekken3::CdProtocol::ready(machine, 1, result) != 3 || machine.read8(kCompleteStatus) != 0 ||
-      machine.called(kVsync)) {
+  if (tekken3::cd::ready(machine, 1, result) != 3 || machine.read8(kCompleteStatus) != 0 || machine.called(kVsync)) {
     return false;
   }
   for (std::uint32_t offset = 0; offset < 8; ++offset) {
@@ -237,7 +235,7 @@ bool readyConsumesNativeResponsesWithoutAWait() {
   for (std::uint32_t offset = 0; offset < 8; ++offset) {
     machine.bytes[kCompleteResponse + offset] = static_cast<std::uint8_t>(0x40u + offset);
   }
-  if (tekken3::CdProtocol::ready(machine, 0, result) != 5 || machine.read8(kReadyCompleteStatus) != 0 ||
+  if (tekken3::cd::ready(machine, 0, result) != 5 || machine.read8(kReadyCompleteStatus) != 0 ||
       machine.read8(kCompleteStatus) != 3 || machine.called(kVsync)) {
     return false;
   }
@@ -254,23 +252,23 @@ bool queueReadIsSynchronousAndPublishesItsResult() {
   constexpr std::uint32_t location = 0x80005000u;
   constexpr std::uint32_t sectors = 3;
   constexpr std::uint32_t destination = 0x80006000u;
-  if (tekken3::CdProtocol::queueRead(machine, location, sectors, destination) != 1 || machine.sectorReads != 1 ||
+  if (tekken3::cd::queueRead(machine, location, sectors, destination) != 1 || machine.sectorReads != 1 ||
       machine.readLocation != location || machine.readSectorCount != sectors ||
       machine.readDestination != destination || machine.read32(kQueueFlags) != 0x200u ||
       machine.read32(kQueueThirdArgument) != destination || machine.read32(kQueueSecondArgument) != 0 ||
-      machine.read32(kQueueBusy) != 0 || tekken3::CdProtocol::queueResult(machine) != 0 || machine.called(kVsync)) {
+      machine.read32(kQueueBusy) != 0 || tekken3::cd::queueResult(machine) != 0 || machine.called(kVsync)) {
     return false;
   }
 
   machine.sectorReadSucceeds = false;
-  if (tekken3::CdProtocol::queueRead(machine, location, sectors, destination) != 0 || machine.sectorReads != 2 ||
+  if (tekken3::cd::queueRead(machine, location, sectors, destination) != 0 || machine.sectorReads != 2 ||
       machine.read32(kQueueSecondArgument) != static_cast<std::uint32_t>(-1) ||
-      tekken3::CdProtocol::queueResult(machine) != static_cast<std::uint32_t>(-1) || machine.called(kVsync)) {
+      tekken3::cd::queueResult(machine) != static_cast<std::uint32_t>(-1) || machine.called(kVsync)) {
     return false;
   }
 
   machine.write32(kQueueBusy, 1);
-  return tekken3::CdProtocol::queueRead(machine, location, sectors, destination) == 0 && machine.sectorReads == 2 &&
+  return tekken3::cd::queueRead(machine, location, sectors, destination) == 0 && machine.sectorReads == 2 &&
          !machine.called(kVsync);
 }
 
@@ -292,7 +290,7 @@ bool completionsAreDrainedAndRefusedWhenTheChainCannotServe() {
   RecordingCdMachine draining;
   draining.write32(kChainLive, 2);
   draining.write32(kChainCursor, 0);
-  if (tekken3::CdProtocol::deliverCompletions(draining, kInterruptedReturnPc) != 2 || draining.guestEvents != 2 ||
+  if (tekken3::cd::deliverCompletions(draining, kInterruptedReturnPc) != 2 || draining.guestEvents != 2 ||
       draining.calls.size() != 2) {
     return false;
   }
@@ -310,7 +308,7 @@ bool completionsAreDrainedAndRefusedWhenTheChainCannotServe() {
   // guest's event entry against a chain the guest would not consume.
   RecordingCdMachine empty;
   empty.write32(kChainLive, 0);
-  if (tekken3::CdProtocol::deliverCompletions(empty, kInterruptedReturnPc) != 0 || empty.guestEvents != 0) {
+  if (tekken3::cd::deliverCompletions(empty, kInterruptedReturnPc) != 0 || empty.guestEvents != 0) {
     return false;
   }
 
@@ -319,7 +317,7 @@ bool completionsAreDrainedAndRefusedWhenTheChainCannotServe() {
   RecordingCdMachine overfull;
   overfull.write32(kChainLive, kChainDepth + 1u);
   overfull.write32(kChainCursor, 0);
-  if (tekken3::CdProtocol::deliverCompletions(overfull, kInterruptedReturnPc) != 0 || overfull.guestEvents != 0) {
+  if (tekken3::cd::deliverCompletions(overfull, kInterruptedReturnPc) != 0 || overfull.guestEvents != 0) {
     return false;
   }
 
@@ -327,7 +325,7 @@ bool completionsAreDrainedAndRefusedWhenTheChainCannotServe() {
   RecordingCdMachine outside;
   outside.write32(kChainLive, 1);
   outside.write32(kChainCursor, kChainDepth);
-  if (tekken3::CdProtocol::deliverCompletions(outside, kInterruptedReturnPc) != 0 || outside.guestEvents != 0) {
+  if (tekken3::cd::deliverCompletions(outside, kInterruptedReturnPc) != 0 || outside.guestEvents != 0) {
     return false;
   }
 
@@ -338,7 +336,7 @@ bool completionsAreDrainedAndRefusedWhenTheChainCannotServe() {
   wedged.guestEventAdvancesTheChain = false;
   wedged.write32(kChainLive, kChainDepth);
   wedged.write32(kChainCursor, 0);
-  if (tekken3::CdProtocol::deliverCompletions(wedged, kInterruptedReturnPc) != 0 || wedged.guestEvents != 1) {
+  if (tekken3::cd::deliverCompletions(wedged, kInterruptedReturnPc) != 0 || wedged.guestEvents != 1) {
     return false;
   }
   return true;

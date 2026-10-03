@@ -1,3 +1,5 @@
+// finite_frame.h — the one title-owned field turn: boot prefix, frame barrier, display init and the
+// per-field step, plus the driver psxport calls once per field.
 #pragma once
 
 #include "game_runtime.h"
@@ -7,13 +9,13 @@
 
 class Game;
 
-namespace tekken3 {
+namespace tekken3::frame {
 
 // Injectable machine boundary used by both the shipping Core adapter and focused sequence tests.
 // Every operation below is a real part of the title-owned finite boot/frame implementation.
-class FrameMachine {
+class Machine {
 public:
-  virtual ~FrameMachine() = default;
+  virtual ~Machine() = default;
 
   virtual void call(std::uint32_t address, std::uint32_t returnPc) = 0;
   virtual void call1(std::uint32_t address, std::uint32_t returnPc, std::uint32_t a0) = 0;
@@ -38,42 +40,47 @@ public:
   virtual void servicePad() = 0;
 };
 
-struct FrameStepState {
+// What the frame step must remember across fields: a mode body that outlived the field it started on.
+struct StepState {
   bool modeCallPending = false;
   std::uint32_t buffer = 0;
 };
 
-class FrameLoop {
+// The finite frame itself, reproduced instruction for instruction from the guest bodies it replaces.
+// The three overridden entries and one field step, in the order the field turn runs them.
+class FiniteFrame {
 public:
   static constexpr std::uint32_t kMain = 0x80028BA0u;
   static constexpr std::uint32_t kFrameBarrier = 0x800296C4u;
   static constexpr std::uint32_t kDisplayInit = 0x800B0954u;
 
-  static void runFiniteMain(FrameMachine &machine);
-  [[nodiscard]] static bool runFrameBarrier(FrameMachine &machine);
-  static void runDisplayInit(FrameMachine &machine);
-  static void step(FrameMachine &machine, FrameStepState &state);
+  static void runBootPrefix(Machine &machine);
+  [[nodiscard]] static bool runBarrier(Machine &machine);
+  static void runDisplayInit(Machine &machine);
+  static void step(Machine &machine, StepState &state);
 };
 
-class Tekken3FrameDriver final : public FrameDriver {
+// The title's FrameDriver: the one object psxport asks for a field, and the one that registers the
+// three native frame entries plus the finite boot dispatch.
+class FrameDriver final : public ::FrameDriver {
 public:
-  explicit Tekken3FrameDriver(Game &game);
+  explicit FrameDriver(Game &game);
 
   void installOverrides();
   void runBootPrefix(Core &core, std::uint32_t programEntry);
   void stepFrame(Core &core, std::uint32_t frame) override;
 
 private:
-  static Tekken3FrameDriver &from(Core &core);
+  static FrameDriver &from(Core &core);
   static void mainOverride(Core *core);
-  static void frameBarrierOverride(Core *core);
+  static void barrierOverride(Core *core);
   static void displayInitOverride(Core *core);
 
   Game &game_;
-  FrameStepState frameStep_;
+  StepState stepState_;
   psx::cpu::ResumableGuestCall modeCall_;
   bool bootStarted_ = false;
   bool bootComplete_ = false;
 };
 
-} // namespace tekken3
+} // namespace tekken3::frame

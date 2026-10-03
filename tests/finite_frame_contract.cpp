@@ -1,4 +1,4 @@
-#include "frame_loop.h"
+#include "frame/finite_frame.h"
 
 #include <array>
 #include <cstdint>
@@ -19,7 +19,7 @@ struct Operation {
   std::uint32_t a2 = 0;
 };
 
-class RecordingMachine final : public tekken3::FrameMachine {
+class RecordingMachine final : public tekken3::frame::Machine {
 public:
   void call(std::uint32_t address, std::uint32_t returnPc) override {
     operations.push_back({"call", address, returnPc});
@@ -131,7 +131,7 @@ bool finiteBootIsOrdered() {
   machine.registers[18] = 0x18181818u;
   machine.registers[29] = 0x00010000u;
   machine.registers[31] = 0x31313131u;
-  tekken3::FrameLoop::runFiniteMain(machine);
+  tekken3::frame::FiniteFrame::runBootPrefix(machine);
   return machine.operations.size() == 6 && operationIs(machine.operations[4], "call", 0x80079D10u, 0x80028BB8u) &&
          operationIs(machine.operations[5], "call", 0x800B0548u, 0x80028BC0u) && machine.registers[29] == 0x0000FFE0u &&
          machine.memory[0x0000FFFCu] == 0x31313131u && machine.memory[0x0000FFF8u] == 0x18181818u &&
@@ -144,7 +144,7 @@ bool displayInitOmitsOnlyVsync() {
   RecordingMachine machine;
   machine.registers[29] = 0x00010000u;
   machine.registers[31] = 0x31313131u;
-  tekken3::FrameLoop::runDisplayInit(machine);
+  tekken3::frame::FiniteFrame::runDisplayInit(machine);
   if (machine.operations.size() != 7 || !operationIs(machine.operations[1], "call1", 0x8007AED8u, 0x800B096Cu) ||
       machine.operations[1].a0 != 0 || !operationIs(machine.operations[2], "call", 0x8007AF44u, 0x800B0974u) ||
       !operationIs(machine.operations[3], "call", 0x80079E08u, 0x800B097Cu) ||
@@ -169,7 +169,7 @@ bool frameBarrierKeepsBothConditionalAnswers() {
   enabled.registers[17] = 0x17171717u;
   enabled.registers[29] = 0x00010000u;
   enabled.registers[31] = 0x31313131u;
-  const bool enabledReleased = tekken3::FrameLoop::runFrameBarrier(enabled);
+  const bool enabledReleased = tekken3::frame::FiniteFrame::runBarrier(enabled);
   if (enabled.operations.size() != 13 || !operationIs(enabled.operations[4], "call1", 0x80029924u, 0x800296E4u) ||
       enabled.operations[4].a0 != 1 || !operationIs(enabled.operations[5], "call", 0x80029A28u, 0x80029700u) ||
       !operationIs(enabled.operations[8], "call", 0x8004CE54u, 0x80029728u) || enabled.operations[10].kind != "pad" ||
@@ -186,7 +186,7 @@ bool frameBarrierKeepsBothConditionalAnswers() {
   disabled.registers[29] = 0x00010000u;
   disabled.memory[0x8009542Cu] = 0;
   disabled.memory[0x8009BC60u] = 0x12345678u;
-  const bool disabledReleased = tekken3::FrameLoop::runFrameBarrier(disabled);
+  const bool disabledReleased = tekken3::frame::FiniteFrame::runBarrier(disabled);
   for (const Operation &operation : disabled.operations) {
     if (operation.address == 0x80029A28u) {
       return false;
@@ -199,7 +199,7 @@ bool frameBarrierKeepsBothConditionalAnswers() {
   RecordingMachine missingEvent;
   missingEvent.registers[29] = 0x00010000u;
   missingEvent.releaseFrameEvent = false;
-  return !tekken3::FrameLoop::runFrameBarrier(missingEvent);
+  return !tekken3::frame::FiniteFrame::runBarrier(missingEvent);
 }
 
 bool frameStepKeepsServiceAndRenderOrder() {
@@ -213,8 +213,8 @@ bool frameStepKeepsServiceAndRenderOrder() {
   machine.memory[0x800ADD54u] = 0x80063000u;
   machine.callResults[0x80029628u] = 0;
   machine.callResults[0x80080D98u] = 1;
-  tekken3::FrameStepState state;
-  tekken3::FrameLoop::step(machine, state);
+  tekken3::frame::StepState state;
+  tekken3::frame::FiniteFrame::step(machine, state);
 
   if (machine.operations.size() != 15 || !operationIs(machine.operations[0], "call", 0x800296C4u, 0x80028BD4u) ||
       machine.operations[1].kind != "present" || machine.operations[2].kind != "audio" ||
@@ -249,7 +249,7 @@ bool frameStepKeepsServiceAndRenderOrder() {
 
 bool modeCallSuspensionPreservesFieldOrder() {
   RecordingMachine machine;
-  tekken3::FrameStepState state;
+  tekken3::frame::StepState state;
   machine.memory[0x800ADEFCu] = 0;
   machine.memory[0x800AE204u] = 0;
   machine.memory[0x800A8594u] = 0x80070000u;
@@ -258,8 +258,8 @@ bool modeCallSuspensionPreservesFieldOrder() {
   machine.callResults[0x80029628u] = 1;
 
   RecordingMachine immediate = machine;
-  tekken3::FrameStepState immediateState;
-  tekken3::FrameLoop::step(immediate, immediateState);
+  tekken3::frame::StepState immediateState;
+  tekken3::frame::FiniteFrame::step(immediate, immediateState);
   if (immediateState.modeCallPending || immediate.boundedStarts != 1 || immediate.boundedResumes != 0 ||
       immediate.operations.size() != 13 || !operationIs(immediate.operations[11], "call3", 0x8007BAB0u, 0x80028DECu) ||
       !operationIs(immediate.operations[12], "call3", 0x8007BAB0u, 0x80028E0Cu)) {
@@ -268,20 +268,20 @@ bool modeCallSuspensionPreservesFieldOrder() {
 
   machine.boundedStartReturns = false;
   machine.boundedResumeReturns = false;
-  tekken3::FrameLoop::step(machine, state);
+  tekken3::frame::FiniteFrame::step(machine, state);
   if (!state.modeCallPending || machine.boundedStarts != 1 || machine.boundedResumes != 0 ||
       machine.operations.size() != 11 || !operationIs(machine.operations.back(), "call", 0x800B0708u, 0x80028C9Cu)) {
     return false;
   }
   const auto ticksAtSuspend = machine.guestTicks;
-  tekken3::FrameLoop::step(machine, state);
+  tekken3::frame::FiniteFrame::step(machine, state);
   if (!state.modeCallPending || machine.operations.size() != 15 || machine.operations[11].kind != "pad" ||
       machine.operations[12].kind != "present" || machine.operations[13].kind != "audio" ||
       machine.operations[14].kind != "resume" || machine.guestTicks != ticksAtSuspend) {
     return false;
   }
   machine.boundedResumeReturns = true;
-  tekken3::FrameLoop::step(machine, state);
+  tekken3::frame::FiniteFrame::step(machine, state);
   return !state.modeCallPending && machine.boundedStarts == 1 && machine.boundedResumes == 2 &&
          machine.operations.size() == 21 && machine.operations[15].kind == "pad" &&
          machine.operations[16].kind == "present" && machine.operations[17].kind == "audio" &&
