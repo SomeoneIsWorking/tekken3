@@ -7,6 +7,7 @@
 #include "core.h"
 #include "frame_loop_shell.h"
 #include "game.h"
+#include "gpu_vk.h" // gpu_vk_windowed — the windowed/headless discriminator
 #include "render_mode.h"
 #include "tekken3_runtime.h"
 
@@ -69,7 +70,7 @@ int runPort(Tekken3Runtime &runtime, int argc, char **argv) {
 
   const int requestedFrames = cfg_int("PSXPORT_NATIVE_FRAMES", 0);
   std::uint32_t frameLimit = requestedFrames > 0 ? static_cast<std::uint32_t>(requestedFrames) : 0u;
-  if (frameLimit == 0 && !gpu_windowed()) {
+  if (frameLimit == 0 && !gpu_vk_windowed()) {
     frameLimit = 120;
   }
   // Attach the live control endpoint BEFORE choosing the cap. This title composes its OWN finite
