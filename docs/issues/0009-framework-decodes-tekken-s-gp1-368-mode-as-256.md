@@ -9,7 +9,7 @@ updated: 2026-08-27
 ---
 
 **Binary fact:** Tekken's preset-0 `PutDispEnv` emits GP1(08) horizontal-resolution bit 6 for the
-368-pixel mode. The framework's `gpu_native.cpp` documented bit 6 but derived `s_disp_w` only from
+368-pixel mode. The framework's `runtime/psx/gpu/gpu_native.cpp` documented bit 6 but derived `s_disp_w` only from
 bits 0-1, so the `0x40` mode fell through to 256 and fed presentation and guest-widescreen extent
 resolution with wrong state. Fixed generically at framework commit `2e840231`: `HRES2` bit 6 selects
 368 independently of the low two bits.

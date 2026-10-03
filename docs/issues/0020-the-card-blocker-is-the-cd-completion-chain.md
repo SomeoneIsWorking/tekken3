@@ -15,7 +15,7 @@ updated: 2026-09-29
 authenticated executable, `0x800A069F` has 4 readers and 5 writers and the sector-callback slot
 `0x8009B8D0` has 6 readers and 1 writer. The card is not waiting on the controller port.
 
-`game/core/loader_lifecycle.h` is the recovery and `tests/loader_lifecycle_contract.cpp` pins 15 of
+`game/cd/loader_lifecycle.h` is the recovery and `tests/loader_lifecycle_contract.cpp` pins 15 of
 15 of its instructions against the image words. The causal chain, in order:
 
 ```c

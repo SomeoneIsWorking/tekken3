@@ -10,19 +10,30 @@ behind every value, and it distinguishes "the controller never raised it" from "
 guest masked it" from "it was raised and already acknowledged" — three different bugs that look
 identical from the loader's side.
 
-Addresses come from the framework's own CDC model (runtime/psx/cdc_native.cpp's register map) and
+Addresses come from the framework's own CDC model (runtime/psx/cd/cdc_native.cpp's register map) and
 from the recovered title CD state machine (FUN_8008FB08 / FUN_8008FCC0 / FUN_80092034).
 
 Usage: probe_cd_completion.py [port]
 Starts nothing; the product must already be running with PSXPORT_DEBUG_SERVER set.
+
+The wire protocol comes from the framework's own client (external/psxport/tools/dbgclient.py): a
+second copy of the handshake and the `rw` reply parse is free to disagree about when a reply has
+arrived, which is exactly the class of wrong answer this tool must not give.
 """
 from __future__ import annotations
 
-import socket
+import os
+import pathlib
 import sys
 import time
 
-TERMINATOR = "---END---\n"
+PSXPORT = pathlib.Path(os.environ.get("PSXPORT_DIR",
+                                       pathlib.Path(__file__).resolve().parents[1] / "external" / "psxport"))
+sys.path.insert(0, str(PSXPORT / "tools"))
+try:
+    from dbgclient import LiveClient
+except ImportError as error:
+    raise SystemExit(f"REFUSED: cannot import psxport's live endpoint client from {PSXPORT}: {error}")
 
 # (label, address, note)
 WATCH = [
@@ -59,71 +70,64 @@ SPIN_DISPLACEMENT = 4
 SPIN_BIT = 0x0002
 
 
+def wait_for_endpoint(port: int, seconds: float) -> tuple[LiveClient | None, object]:
+    """Connect once the endpoint is SERVING, not merely listening.
+
+    The listener opens during boot, before the product services a command, so a connection alone is
+    not readiness: the first `frame` is the probe that says the run is far enough along to be
+    measured.
+    """
+    deadline = time.time() + seconds
+    error: object = "never attempted"
+    while time.time() < deadline:
+        client = None
+        try:
+            client = LiveClient(port=port, timeout=5.0)
+            client.send("frame")
+            return client, None
+        except (OSError, RuntimeError) as problem:
+            error = problem
+            if client is not None:
+                client.close()
+            time.sleep(0.5)
+    return None, error
+
+
 def main() -> int:
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 5959
-    deadline = time.time() + 120.0
-    while True:
-        try:
-            sock = socket.create_connection(("127.0.0.1", port), timeout=5.0)
-            break
-        except OSError as error:
-            if time.time() > deadline:
-                print(f"probe: no debug endpoint on 127.0.0.1:{port} ({error})")
-                return 1
-            time.sleep(0.5)
-    stream = sock.makefile("rwb")
-
-    def command(text: str) -> str:
-        stream.write((text + "\n").encode())
-        stream.flush()
-        collected = []
-        while True:
-            line = stream.readline()
-            if not line:
-                return "<endpoint closed>"
-            decoded = line.decode(errors="replace")
-            if decoded == TERMINATOR:
-                return "".join(collected).rstrip("\n")
-            collected.append(decoded)
+    client, error = wait_for_endpoint(port, 120.0)
+    if client is None:
+        print(f"probe: no debug endpoint on 127.0.0.1:{port} ({error})")
+        return 1
 
     def read_word(address: int) -> int:
-        # `rw ADDR N` replies "ADDR: WW WW ..." — a colon, then N 32-bit words. The FIRST token is
-        # the address, so parsing the leading token silently reads the ADDRESS back as if it were the
-        # value, which is how an earlier version of this probe reported every word as -1 and then
-        # printed a confident verdict built on those -1s.
-        reply = command(f"rw {address:X} 1").strip()
-        if ":" not in reply:
-            return -1
-        tail = reply.split(":", 1)[1].split()
-        if not tail:
-            return -1
+        # An unreadable register is NOT a zero register: the verdict below refuses on -1 rather than
+        # reading it as "zero".
         try:
-            return int(tail[0], 16)
-        except ValueError:
+            return client.word(address)
+        except (OSError, RuntimeError):
             return -1
 
-    def field_number() -> str:
-        return command("frame").strip()
-
-    print(f"probe: {field_number()}, reading {len(WATCH)} word(s)")
+    print(f"probe: {client.send('frame').strip()}, reading {len(WATCH)} word(s)")
     for sample in range(6):
-        row = [f"{field_number():>34}"]
+        row = [f"{client.send('frame').strip():>34}"]
         for label, address, _ in WATCH:
             row.append(f"{label}={read_word(address):08X}")
         print("  " + "  ".join(row))
         time.sleep(0.4)
 
     def read_half(address: int) -> int:
-        # `r ADDR N` replies "ADDR: BB BB ..." — bytes, little-endian as the guest sees them.
-        reply = command(f"r {address:X} 2").strip()
-        if ":" not in reply:
-            return -1
-        tail = reply.split(":", 1)[1].split()
-        if len(tail) < 2:
-            return -1
+        # `r ADDR 2` replies "ADDR: BB BB ..." — bytes, little-endian as the guest sees them. The
+        # shared client exposes word reads only, and this poll is on a HARDWARE register (the SIO
+        # data port), where the word read does not answer; an unreadable port must stay -1, because
+        # "the bit is clear" and "the port could not be read" are different bugs.
         try:
+            reply = client.send(f"r {address:X} 2").strip()
+            tail = reply.rsplit(":", 1)[-1].split()
+            if len(tail) < 2:
+                return -1
             return int(tail[0], 16) | (int(tail[1], 16) << 8)
-        except ValueError:
+        except (OSError, RuntimeError, ValueError, IndexError):
             return -1
 
     stat, mask = read_word(0x1F801070), read_word(0x1F801074)
@@ -136,7 +140,7 @@ def main() -> int:
     if outstanding == -1 or chain == -1:
         print("  REFUSED: a required word could not be read, so no verdict is offered. "
               "An unreadable register is not a zero register.")
-        sock.close()
+        client.close()
         return 2
     if outstanding == 0 and chain != 2:
         print("  NO COMMAND IS IN FLIGHT (0x8009B774 == 0 and the chain is not 2): the loader has not"
@@ -164,7 +168,7 @@ def main() -> int:
         print(f"  THE SPIN: *{SPIN_SLOT:#010x} read as 0x{block:08X}, which is not a guest pointer, so"
               " the poll is on a NULL-derived address. Report that as an uninitialised slot, NOT as"
               " 'the status bit is clear' — the two are different bugs.")
-    sock.close()
+    client.close()
     return 0
 
 

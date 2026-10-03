@@ -33,7 +33,7 @@ separate test target -> independent oracle (never linked or selectable by the ga
 | Symbol | Kind | Responsibility |
 |---|---|---|
 | `game/entry/main.cpp` | `main()` | Parse `--help`, construct the title runtime on the stack, hand it to the launcher. Prints usage on stdout before any runtime or disc discovery. |
-| `tekken3::launchProduct` | free function (`product_launch.h`) | Install the runtime, build `Game`, `watchdog_init` + `load_exe`, compose `psx::Machine` (bind devices, render path, `prepare`), run the finite boot prefix, attach the control channel, run the field loop. |
+| `tekken3::launchProduct` | free function (`game/entry/product_launch.h`) | Install the runtime, build `Game`, `watchdog_init` + `load_exe`, compose `psx::Machine` (bind devices, render path, `prepare`), run the finite boot prefix, attach the control channel, run the field loop. |
 | `tekken3::kUnattendedFieldCap` | `constexpr` | The field cap an unattended headless run gets when no bound was requested and no window exists. |
 
 ## game/program — executable facts and framework-facing title policy
@@ -43,7 +43,7 @@ separate test target -> independent oracle (never linked or selectable by the ga
 | `tekken3::program::kEntry`, `kResidentPhysicalLo`, `kResidentPhysicalHi` | `inline constexpr` | Authenticated `SLUS_004.02` mapping facts: retail entry and resident physical text extent. Data, never generated guest code. |
 | `tekken3::ResidentProgramRange` | struct | The measured resident text extent handed to the runtime by the boundary harness. |
 | `tekken3::TitleRuntime` | class (`GameRuntime`) | Process-lifetime title policy: render capabilities (`RenderCapabilities::widescreenOnly()`), the pad-buffer layout, the widescreen projection, the immutable `GuestProgramImage`, override registration, boot dispatch, and creation of the title frame driver. Owns the `widescreen::WidescreenProjection`. |
-| `tekken3::hle::plan()` | free function (`platform_hle_plan.h`) | The one immutable `PlatformHlePlan` this title declares: the measured linked-libetc VSync entry, the guest field word a negative query answers from, and the single admitted body window. Data only — never a handler. |
+| `tekken3::hle::plan()` | free function (`game/program/platform_hle_plan.h`) | The one immutable `PlatformHlePlan` this title declares: the measured linked-libetc VSync entry, the guest field word a negative query answers from, and the single admitted body window. Data only — never a handler. |
 
 ## game/frame — the finite boot prefix and the one title frame
 
@@ -59,8 +59,9 @@ separate test target -> independent oracle (never linked or selectable by the ga
 | Symbol | Kind | Responsibility |
 |---|---|---|
 | `tekken3::execution::GuestCallEntry` | struct | Register snapshot at a guest-call boundary: address, return PC, `a0`-`a3` and `t1`. |
-| `tekken3::execution::FiniteGuestCall::callToReturn` | static | The single finite guest call this title makes: one display field through the product dispatcher, required to return, refused with the full account when it does not. |
-| `tekken3::execution::FiniteGuestCall::describe` / `captureEntry` | static | Turn a non-returning exit into one log line: where the guest stopped, how far the LZ decompressor had read and written, and the image-wrapper entry it belongs to. |
+| `tekken3::execution::FiniteGuestCall` | class (static) | The one finite guest call this title makes, and the only account of one that did not return. |
+| `…::FiniteGuestCall::callToReturn` | static | One display field through the product dispatcher, required to return, refused with the full account when it does not. |
+| `…::FiniteGuestCall::describe`, `…::captureEntry` | static | Turn a non-returning exit into one log line: where the guest stopped, how far the LZ decompressor had read and written, and the image-wrapper entry it belongs to. |
 
 ## game/cd — the linked-libcd command and completion lifecycle
 
@@ -70,7 +71,7 @@ separate test target -> independent oracle (never linked or selectable by the ga
 | `tekken3::cd::synchronize` / `ready` / `control` / `queueRead` / `queueResult` | free functions | Tekken's linked-library state transitions: acknowledgement/completion status words, response copies, the queued sector read, and the queued result. |
 | `tekken3::cd::deliverCompletions` | free function | Drain the guest's registered CD completions in the order retail's controller interrupt invoked them, bounded by the guest's own pool depth and live-record count. **This is the hop the loader card waits on**: completing an operation without delivering its callback deletes the guest's per-sector loop. |
 | `tekken3::cd::installOverrides` | free function | Install the six native CD entries (`cdSync`, `cdReady`, `cdControl`, `cdCommand`, `cdQueueStart`, `cdQueueResult`). |
-| `tekken3::loader::*` | `inline constexpr` facts (`loader_lifecycle.h`) | The decoded guest CD-read lifecycle: loader state block, the untimed wait the card sits in, the chain record and its callback slot, the dispatch of that slot, and the sector callback that clears the wait byte. |
+| `tekken3::loader::*` | `inline constexpr` facts (`game/cd/loader_lifecycle.h`) | The decoded guest CD-read lifecycle: loader state block, the untimed wait the card sits in, the chain record and its callback slot, the dispatch of that slot, and the sector callback that clears the wait byte. |
 
 ## game/render — the linked-libgpu queue timeout
 
@@ -103,6 +104,7 @@ separate test target -> independent oracle (never linked or selectable by the ga
 | `run.sh`, `bootstrap.py`, `tools/run.py`, `pyproject.toml`, `uv.lock` | The player's zero-argument path: provision and identity-check the USA executable, build, launch. |
 | `tools/psxport_fetch.py` | Establish `external/psxport` (workspace symlink, else a shallow clone of `main`). |
 | `tools/provision_executable.py` | Extract and identity-check `SLUS_004.02` into gitignored `scratch/`. |
+| `external/psxport/tools/port/launch_environment.py`, `external/psxport/tools/dbgclient.py`, `external/psxport/tools/formats/psx_exe.py` | The shared launch policy, live-endpoint client and PS-X EXE reader every title tool imports. A tool that re-implements one of these owns a copy that can disagree with the product it measures. |
 | `tools/verify.py` | The asset-free product gate: configure, build, run every title contract, check the linked execution boundary. |
 | `tools/ghidra_query.py`, `tools/probe_loader_state.py`, `tools/probe_cd_completion.py`, `tools/probe_tekken3_widescreen_pair.py` | Maintainer RE tools used by the open issues; none is a gate. |
 | `tools/verify_vsync_field_clock.py`, `tools/test_*.py` | Gates: the field word the product ships vs. what the executable measures, and the launcher/product help contracts. |

@@ -16,7 +16,7 @@ command path", and the working hypothesis was therefore a missing CD-command ove
 measured false**, and the real cause is on the SIO controller port, not the CD.
 
 Measured on the shipping product (headless, silent, unpaced, live control endpoint, `tools/probe_loader_state.py`
-and `tools/probe_cd_completion.py`, log `scratch/probe_logs/cdcomp4.log` and `loader_b.probe.txt`):
+and `tools/probe_cd_completion.py`, log `scratch/probe_logs/cdcomp4.log` and the loader-state sample beside it):
 
 | guest word | value across fields 98..6865 | what it establishes |
 |---|---|---|
@@ -78,7 +78,7 @@ never latched, so a CD command that *is* issued can never complete.
 
 `FUN_80093478` is a function **entry** in the authenticated resident text (`0x80010000..0x80131000`),
 reached by `jal` from four sites (`0x800941C8`, `0x800941E0`, `0x800942A0`, `0x8009432C`), so it is a
-legitimate image-scoped override target for this title — unlike the port `pad_input.cpp` documents,
+legitimate image-scoped override target for this title — unlike the port `runtime/psx/input/pad_input.cpp` documents,
 where `FUN_80003A4C` lives in a low-text image that is never loaded and so cannot be overridden.
 `Pad::overridesInit()` here only calls `init()`; it installs no override.
 
@@ -132,7 +132,7 @@ known instructions before it reports anything.
 `psxport_boot()`, which is the only caller of `dbg_server.start()` and `service()`. No listener, no
 `guest` denominator, no way to read a guest word from a running product. `DbgServer::attach` is
 documented as "the one call a title-owned spine needs before its loop" and is now called from
-`game/core/tekken3_port.cpp`, with the per-frame `honourPause`/`service` pair in the same order the
+`game/entry/product_launch.cpp`, with the per-frame `honourPause`/`service` pair in the same order the
 framework's own spine uses. This is a title composition defect, not a framework one; it is also what
 made every measurement in this section possible.
 

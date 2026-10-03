@@ -17,5 +17,5 @@ never a clock question. Issue 0020 supersedes this issue's frontier table.
 `FUN_8008F08C` a completion callback in one breath (`0x8006C1A4: sb v0,7(s1)`, delay slot
 `addiu a3,s3,-15764` giving `$a3 = 0x8006C26C`), and `FUN_8006C26C`'s class-2 branch at `0x8006C288`
 installs the sector callback `FUN_8007C2A0`, whose `0x8006C2EC` is the only writer of `0x800A069F` to
-zero on this path. Owner: `game/core/cd_sync.cpp`, whose `kCdControl` and `kCdQueueStart` overrides
+zero on this path. Owner: `game/cd/cd_protocol.cpp`, whose `cdControl` and `cdQueueStart` overrides
 complete each operation inline and never invoke the registered callback.

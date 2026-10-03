@@ -106,7 +106,7 @@ exactly 20,100, which is `282244 mod 65536` — every executed instruction, acco
 **The `retail` arm's single segment is what the product actually does, not a fixture artefact.**
 `segmentCycleBudget` is normally also capped by `hostTurnTicksUntilDue`, but `registerHostTurn` is
 called by **no port in this workspace** — a grep across all ten titles' `game/` trees and the whole
-psxport tree returns nothing outside `host_turn.cpp` itself. With no registered core,
+psxport tree returns nothing outside `runtime/psx/boot/host_turn.cpp` itself. With no registered core,
 `hostTurnTicksUntilDue` returns "no bound at all", so a segment runs the whole per-turn budget. That
 is checked here rather than assumed, because if a port did register a host turn the segment would be
 capped at one display field — still far longer than a guest's pad countdown, but a different number
@@ -114,7 +114,7 @@ to quote.
 
 ## The fix is in the framework, and its shape is a design decision, not a bound
 
-`psxport/AGENTS.md` is explicit that an override is owned behaviour and never a repair for a missing
+`external/psxport/AGENTS.md` is explicit that an override is owned behaviour and never a repair for a missing
 semantic, and the executor contract already says the right thing:
 
 > Before a native override, HLE/device callback, interrupt/exception handoff, frame/VSync boundary,
@@ -134,7 +134,7 @@ equivalent, so the choice is named here rather than taken unilaterally:
 
 **The units question is the blocker for (b), and it is the operator's call, not mine.** The
 framework's clock is in *instructions*: `accountGuestInstructions` is fed
-`executedInstructionCount` (`executed_instructions + fallback_instructions`), and `timing.h` says so
+`executedInstructionCount` (`executed_instructions + fallback_instructions`), and `runtime/psx/frame/timing.h` says so
 out loud — "neither counter is yet a cycle-accurate R3000 model (issue 0007)". The only live counter
 Lightrec exposes is `lightrec_current_cycle_count`, which is in *cycles*, and the executor resets it
 to 0 at every segment start. Measured on this very call: 564,492 cycles for 282,244 instructions,
@@ -157,7 +157,7 @@ and correct, the counter is delivered and correct, and an override would have re
 whose only defect is that it is reading a clock the framework stops giving it.
 
 It **does not** say the card is fixed, and it does not contradict the retained
-`loader_b.probe.txt` readings. Issue 0016's live samples — mode 2, phase 8, `0x800A069F == 1` for
+`scratch/probe_logs/loader_b.probe.txt` readings. Issue 0016's live samples — mode 2, phase 8, `0x800A069F == 1` for
 fields 98..6865 — are consistent with this and with the product being in the pad loop, because the
 pad poll runs in the VBlank handler and the CD completion path is blocked behind the same
 `in_irq` wedge issue 0011 measured. **Whether releasing the pad loop is sufficient to let a CD
@@ -183,7 +183,7 @@ completion be delivered is not established here and is the next run.**
 ## Next
 
 1. **Decide the clock's unit** and implement (b) in psxport, in the Lightrec integration. Owner:
-   `runtime/cpu/lightrec_executor.cpp` (accounting boundary) with `runtime/psx/timing.*` (the clock).
+   `runtime/cpu/lightrec_executor.cpp` (accounting boundary) with `runtime/psx/frame/timing.*` (the clock).
 2. **Then re-run this tool.** Its `segmented` arm is the forward-looking check: if (b) works, the
    `retail` arm should stop exhausting in the loop, and this tool **refuses** rather than reporting a
    pass, because "the loop exits" is a real change that needs the rest of the port re-verified
@@ -192,7 +192,8 @@ completion be delivered is not established here and is the next run.**
    - `0x800AE228` and `0x800A8680` together with RCnt2, over **several** fields — a single sample is
      not a measurement of a per-field question, and this port submits ~1,600 primitives on odd
      frames and **zero** on even ones, so a one-field capture can miss a per-field overlay entirely.
-     `tools/shot.py` exists to bump an even frame and says so.
+     The endpoint's `shot` command (driven through the framework's `dbgclient.LiveClient`) is what bumps
+     a chosen even frame.
    - `0x800A069F` falling to 0 with `0x8009B8E8` nonzero: the sector callback fired. That is the
      answer to whether the card is reachable, and it is the same probe.
    - `0x800AE204` leaving 2. Success is **mode 3 reached**, not mode 2 phase 9.

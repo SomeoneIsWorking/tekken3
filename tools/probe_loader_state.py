@@ -38,15 +38,26 @@ installed cdControl override. So:
 
 Usage: probe_loader_state.py [port] [first-frame-to-sample]
 It starts nothing: the product must already be running with PSXPORT_DEBUG_SERVER
-set. It samples every 10 frames from the requested frame and prints a table, so a
-value that never changes across many fields is visibly a stuck value rather than a
-single sample.
+set. It samples repeatedly from the requested frame and prints a table, so a value
+that never changes across many fields is visibly a stuck value rather than a single
+sample.
+
+The wire protocol comes from the framework's own client (external/psxport/tools/dbgclient.py): a
+second copy of the handshake is free to disagree about when a reply has arrived, and this tool's
+whole answer is "did that value change".
 """
-import socket
+import os
+import pathlib
 import sys
 import time
 
-TERMINATOR = "---END---\n"
+PSXPORT = pathlib.Path(os.environ.get("PSXPORT_DIR",
+                                       pathlib.Path(__file__).resolve().parents[1] / "external" / "psxport"))
+sys.path.insert(0, str(PSXPORT / "tools"))
+try:
+    from dbgclient import LiveClient
+except ImportError as error:
+    raise SystemExit(f"REFUSED: cannot import psxport's live endpoint client from {PSXPORT}: {error}")
 
 # (label, kind, address) with kind "r" = bytes, "rw" = words.
 WATCH = [
@@ -78,45 +89,45 @@ WATCH = [
 ]
 
 
+def wait_for_endpoint(port: int, seconds: float) -> tuple["LiveClient | None", object]:
+    """Connect once the endpoint is SERVING, not merely listening.
+
+    The listener opens during boot, before the product services a command, so a connection alone is
+    not readiness: the first `frame` is the probe that says the run is far enough along to be
+    measured.
+    """
+    deadline = time.time() + seconds
+    error: object = "never attempted"
+    while time.time() < deadline:
+        client = None
+        try:
+            client = LiveClient(port=port, timeout=5.0)
+            client.send("frame")
+            return client, None
+        except (OSError, RuntimeError) as problem:
+            error = problem
+            if client is not None:
+                client.close()
+            time.sleep(0.5)
+    return None, error
+
+
 def main() -> int:
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 5959
     first = int(sys.argv[2]) if len(sys.argv) > 2 else 50
-    deadline = time.time() + 300.0
-    while True:
-        try:
-            sock = socket.create_connection(("127.0.0.1", port), timeout=5.0)
-            break
-        except OSError as error:
-            if time.time() > deadline:
-                print(f"probe: no debug endpoint on 127.0.0.1:{port} ({error})")
-                return 1
-            time.sleep(0.5)
-    stream = sock.makefile("rwb")
-
-    def command(text: str) -> str:
-        stream.write((text + "\n").encode())
-        stream.flush()
-        collected = []
-        while True:
-            line = stream.readline()
-            if not line:
-                return "<endpoint closed>"
-            decoded = line.decode(errors="replace")
-            if decoded == TERMINATOR:
-                return "".join(collected).rstrip("\n")
-            collected.append(decoded)
+    client, error = wait_for_endpoint(port, 300.0)
+    if client is None:
+        print(f"probe: no debug endpoint on 127.0.0.1:{port} ({error})")
+        return 1
 
     def frame_number() -> int:
-        reply = command("frame")
-        for token in reply.replace("=", " ").split():
-            if token.isdigit():
-                return int(token)
-        return -1
+        try:
+            return client.frame()
+        except (OSError, RuntimeError):
+            return -1
 
-    while True:
-        number = frame_number()
-        if number >= first or time.time() > deadline:
-            break
+    deadline = time.time() + 300.0
+    while frame_number() < first and time.time() < deadline:
         time.sleep(0.2)
 
     print(f"probe: sampling from field {frame_number()}")
@@ -129,7 +140,7 @@ def main() -> int:
         values = []
         for _, kind, address in WATCH:
             count = 8 if kind == "r" else 2
-            reply = command(f"{kind} {address:X} {count}").strip()
+            reply = client.send(f"{kind} {address:X} {count}").strip()
             values.append(reply)
             row.append(reply)
         line = " | ".join(row)
@@ -144,8 +155,8 @@ def main() -> int:
         time.sleep(0.4)
 
     print("\nprobe: guest execution denominators")
-    print(command("guest"))
-    sock.close()
+    print(client.send("guest"))
+    client.close()
     return 0
 
 

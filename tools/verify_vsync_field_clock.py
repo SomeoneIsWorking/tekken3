@@ -30,6 +30,7 @@ image is refused by identity. Nothing is edited in the live tree.
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import pathlib
@@ -39,19 +40,18 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "external/psxport"))
 
+from tools.formats import psx_exe
 from tools.mips.decode import decode
 
 EXE_DEFAULT = ROOT / "scratch" / "bin" / "tekken3" / "SLUS_004.02"
 HEADER_DEFAULT = ROOT / "game" / "fieldclock" / "field_clock.h"
 MANIFEST = ROOT / "titles" / "tekken3" / "executable.json"
 
-LOAD = 0x80010000
 # The PS-X EXE carries a 0x800-byte header in front of the text. Omitting it shifts EVERY decoded
-# address while the census still returns confident non-zero counts, so two known instructions are
-# reproduced before anything is reported.
-HEADER = 0x800
-TEXT_SIZE = 0x121000
-TEXT_END = LOAD + TEXT_SIZE
+# address while the census still returns confident non-zero counts, so the reader comes from the
+# framework (the same one tools/provision_executable.py uses), the load address and text size are
+# READ from the image rather than repeated here, and two known instructions are reproduced before
+# anything is reported.
 
 # Three instructions copied out of the Ghidra disassembly, not out of this file's own reasoning, and
 # deliberately three rather than one: they use two different base registers and three different rt
@@ -109,36 +109,44 @@ class Refusal(Exception):
     """A refusal is not an empty result; it is reported as one and exits non-zero."""
 
 
-def load_image(path: pathlib.Path) -> bytes:
+def load_image(path: pathlib.Path) -> PsxExe:
     if not path.is_file():
         raise Refusal(
             f"no authenticated executable at {path}. Provision it first; this tool "
             "measures the image and will not answer from a remembered number."
         )
-    data = path.read_bytes()
-    if len(data) != HEADER + TEXT_SIZE:
+    try:
+        image = psx_exe.load(path)
+    except (OSError, ValueError) as error:
         raise Refusal(
-            f"{path} is {len(data)} byte(s); the authenticated executable is "
-            f"{HEADER + TEXT_SIZE}. NOT MEASURED — this is a refusal, not an empty result."
-        )
-    return data
+            f"{path} is not a readable PS-X EXE: {error}. NOT MEASURED — this is a "
+            "refusal, not an empty result."
+        ) from error
+    if MANIFEST.is_file():
+        recorded = json.loads(MANIFEST.read_text()).get("file_size")
+        if recorded is not None and path.stat().st_size != recorded:
+            raise Refusal(
+                f"{path} is {path.stat().st_size} byte(s); the manifest records "
+                f"{recorded}. NOT MEASURED — this is a refusal, not an empty result."
+            )
+    return image
 
 
-def word(data: bytes, addr: int) -> int:
-    off = HEADER + addr - LOAD
-    if off < 0 or off + 4 > len(data):
-        raise Refusal(f"0x{addr:08X} is outside the authenticated text")
-    return int.from_bytes(data[off : off + 4], "little")
+def word(image: psx_exe.PsxExe, addr: int) -> int:
+    try:
+        return image.word(addr)
+    except IndexError:
+        raise Refusal(f"0x{addr:08X} is outside the authenticated text") from None
 
 
-def decode_at(data: bytes, addr: int):
-    return decode(addr, word(data, addr))
+def decode_at(image: psx_exe.PsxExe, addr: int):
+    return decode(addr, word(image, addr))
 
 
-def offset_problems(data: bytes) -> list[str]:
+def offset_problems(image: psx_exe.PsxExe) -> list[str]:
     problems = []
     for addr, expected in sorted(GROUND_TRUTH.items()):
-        actual = word(data, addr)
+        actual = word(image, addr)
         if actual != expected:
             problems.append(
                 f"0x{addr:08X}: expected 0x{expected:08X}, read 0x{actual:08X}"
@@ -146,15 +154,15 @@ def offset_problems(data: bytes) -> list[str]:
     return problems
 
 
-def measure_field_counter(data: bytes) -> int:
+def measure_field_counter(image: psx_exe.PsxExe) -> int:
     """The word a negative VSync mode returns, computed from the instruction that reads it."""
-    ins = decode_at(data, VSYNC_FIELD_LOAD)
+    ins = decode_at(image, VSYNC_FIELD_LOAD)
     if ins.kind != "load" or ins.op != "lw":
         raise Refusal(
             f"0x{VSYNC_FIELD_LOAD:08X} is {ins.kind}/{ins.op}, not the expected lw; the "
             "negative-mode read was not found where the disassembly says it is"
         )
-    lui = decode_at(data, VSYNC_FIELD_LOAD - 4)
+    lui = decode_at(image, VSYNC_FIELD_LOAD - 4)
     if lui.kind != "lui":
         raise Refusal(
             f"0x{VSYNC_FIELD_LOAD - 4:08X} is {lui.kind}, not the expected lui base"
@@ -163,7 +171,7 @@ def measure_field_counter(data: bytes) -> int:
     return (base + ins.simm) & 0xFFFFFFFF
 
 
-def measure_negative_arm_shape(data: bytes) -> list[str]:
+def measure_negative_arm_shape(image: psx_exe.PsxExe) -> list[str]:
     """Prove the field read IS the negative arm's return, not merely some load in the body.
 
     The claim being made is a five-instruction shape: a signed test on a0 sends every nonnegative
@@ -172,7 +180,7 @@ def measure_negative_arm_shape(data: bytes) -> list[str]:
     the lw would leave "VSync(-1) returns this word" resting on an instruction shape nobody verified.
     """
     problems = []
-    branch = decode_at(data, VSYNC_NEGATIVE_BRANCH)
+    branch = decode_at(image, VSYNC_NEGATIVE_BRANCH)
     if branch.kind != "branch" or branch.op != "bgez" or branch.rs != 4:
         problems.append(
             f"0x{VSYNC_NEGATIVE_BRANCH:08X} is {branch.kind}/{branch.op} on r{branch.rs}, "
@@ -183,13 +191,13 @@ def measure_negative_arm_shape(data: bytes) -> list[str]:
             f"0x{VSYNC_NEGATIVE_BRANCH:08X} branches backwards (imm={branch.imm}); the "
             "query arm is the fall-through, not a loop"
         )
-    delay = decode_at(data, VSYNC_BRANCH_DELAY)
+    delay = decode_at(image, VSYNC_BRANCH_DELAY)
     if delay.kind != "alu_rri" or delay.op != "andi" or delay.imm != 0xFFFF:
         problems.append(
             f"0x{VSYNC_BRANCH_DELAY:08X} is {delay.kind}/{delay.op} imm={delay.imm}, not "
             "the andi 0xFFFF that forms the waiting modes' return value"
         )
-    arm_delay = decode_at(data, VSYNC_FIELD_LOAD_DELAY)
+    arm_delay = decode_at(image, VSYNC_FIELD_LOAD_DELAY)
     if arm_delay.kind != "jump" or arm_delay.op != "j":
         problems.append(
             f"0x{VSYNC_FIELD_LOAD_DELAY:08X} is {arm_delay.kind}/{arm_delay.op}, not the "
@@ -198,16 +206,16 @@ def measure_negative_arm_shape(data: bytes) -> list[str]:
     return problems
 
 
-def measure_writers(data: bytes) -> list[tuple[int, int]]:
+def measure_writers(image: psx_exe.PsxExe) -> list[tuple[int, int]]:
     """Every lui-base/lw-or-sw pair in the two known writers, decoded to the address it touches."""
     found = []
     for entry in (VSYNC_INIT_FIELD_STORE, VSYNC_CALLBACK_FIELD_STORE):
-        store = decode_at(data, entry)
+        store = decode_at(image, entry)
         if store.kind != "store":
             raise Refusal(
                 f"0x{entry:08X} is {store.kind}/{store.op}, not the expected store"
             )
-        base_ins = decode_at(data, entry - 4)
+        base_ins = decode_at(image, entry - 4)
         if base_ins.kind != "lui":
             raise Refusal(
                 f"0x{entry - 4:08X} is {base_ins.kind}, not the lui base for the store"
@@ -235,7 +243,7 @@ def writes_a0(ins) -> bool:
     return False
 
 
-def census_vsync_calls(data: bytes, entry: int) -> tuple[list[dict], int]:
+def census_vsync_calls(image: psx_exe.PsxExe, entry: int) -> tuple[list[dict], int]:
     """Every direct jal to the VSync entry, classified by the mode it passes in a0.
 
     A mode is NAMED only from evidence the tool actually holds: the call's own delay slot, or a
@@ -247,8 +255,8 @@ def census_vsync_calls(data: bytes, entry: int) -> tuple[list[dict], int]:
     """
     sites = []
     scanned = 0
-    for addr in range(LOAD, TEXT_END, 4):
-        raw = word(data, addr)
+    for addr in range(image.load, image.text_end, 4):
+        raw = word(image, addr)
         scanned += 1
         if (raw >> 26) != 3:  # jal
             continue
@@ -257,20 +265,20 @@ def census_vsync_calls(data: bytes, entry: int) -> tuple[list[dict], int]:
             continue
         mode = None
         evidence = ""
-        delay = decode_at(data, addr + 4)
+        delay = decode_at(image, addr + 4)
         mode = literal_mode(delay)
         evidence = f"delay slot {delay.op} r{delay.rs},r{delay.rt},{delay.simm}"
         if mode is None and delay.op not in ("sw", "sh", "sb"):
-            mode, evidence = resolve_by_walk(data, addr, 12)
+            mode, evidence = resolve_by_walk(image, addr, 12)
         sites.append({"addr": addr, "mode": mode, "evidence": evidence})
     return sites, scanned
 
 
-def resolve_by_walk(data: bytes, call: int, limit: int) -> tuple[int | None, str]:
+def resolve_by_walk(image: psx_exe.PsxExe, call: int, limit: int) -> tuple[int | None, str]:
     for back in range(4, 4 * (limit + 1), 4):
         addr = call - back
         try:
-            ins = decode_at(data, addr)
+            ins = decode_at(image, addr)
         except Refusal:
             return None, f"walked out of the text at 0x{addr:08X}"
         if ins.kind in ("branch", "jump", "jumpr", "syscall", "break_"):
@@ -299,9 +307,9 @@ def parse_header(text: str) -> dict[str, int]:
     return values
 
 
-def check(data: bytes, header_text: str) -> list[str]:
+def check(image: psx_exe.PsxExe, header_text: str) -> list[str]:
     """THE SHIPPING PATH. Everything this tool asserts goes through here."""
-    problems = offset_problems(data)
+    problems = offset_problems(image)
     if problems:
         # A REFUSAL, not a problem list: nothing below ran, so reporting a diff would be reporting a
         # comparison that never happened. This is the guard that caught a wrong ground-truth constant
@@ -311,23 +319,23 @@ def check(data: bytes, header_text: str) -> list[str]:
             "wrong: " + "; ".join(problems) + " — NOTHING WAS MEASURED"
         )
 
-    measured_field = measure_field_counter(data)
-    writers = measure_writers(data)
+    measured_field = measure_field_counter(image)
+    writers = measure_writers(image)
     shipping = parse_header(header_text)
 
-    problems = measure_negative_arm_shape(data)
+    problems = measure_negative_arm_shape(image)
     for entry, touched in writers:
         if touched != measured_field:
             problems.append(
                 f"the writer at 0x{entry:08X} touches 0x{touched:08X}, not the measured "
                 f"field word 0x{measured_field:08X}"
             )
-    sites, scanned = census_vsync_calls(data, shipping[ENTRY_NAME])
+    sites, scanned = census_vsync_calls(image, shipping[ENTRY_NAME])
     queries = [s for s in sites if s["mode"] is not None and s["mode"] < 0]
     waits = [s for s in sites if s["mode"] is not None and s["mode"] >= 0]
     unresolved = [s for s in sites if s["mode"] is None]
     print(
-        f"  scanned {scanned} word(s) in [0x{LOAD:08X}, 0x{TEXT_END:08X}); {len(sites)} direct jal "
+        f"  scanned {scanned} word(s) in [0x{image.load:08X}, 0x{image.text_end:08X}); {len(sites)} direct jal "
         f"to 0x{shipping[ENTRY_NAME]:08X}"
     )
     print(
@@ -471,10 +479,11 @@ def selftest(exe: pathlib.Path) -> int:
 
     # 4. Identity: a byte-perturbed image must refuse before it measures anything. The perturbation
     #    is applied in memory to a copy, so the provisioned image is never touched.
-    mutated = bytearray(data)
-    mutated[HEADER + (VSYNC_FIELD_LOAD - LOAD)] ^= 0x01
+    offset = VSYNC_FIELD_LOAD - data.load
+    mutated = bytearray(data.text)
+    mutated[offset] ^= 0x01
     try:
-        check(bytes(mutated), header_text)
+        check(dataclasses.replace(data, text=bytes(mutated)), header_text)
         failures.append(
             "a byte-perturbed image was measured instead of refused; the file offset is "
             "not actually pinned, so every reported address could be shifted"
@@ -525,10 +534,10 @@ def parse_args(argv: list[str]) -> tuple[pathlib.Path, pathlib.Path]:
 def main() -> int:
     try:
         exe, header = parse_args(sys.argv[1:])
-        data = load_image(exe)
+        image = load_image(exe)
         if MANIFEST.is_file():
             expected = json.loads(MANIFEST.read_text()).get("sha256")
-            actual = hashlib.sha256(data).hexdigest()
+            actual = hashlib.sha256(exe.read_bytes()).hexdigest()
             if expected and actual != expected:
                 raise Refusal(
                     f"{exe} hashes to {actual}; titles/tekken3/executable.json records "
@@ -550,7 +559,7 @@ def main() -> int:
                 f"no shipping header at {header}. This tool compares what the product SHIPS against "
                 "what it measures, so a missing header is a refusal, not a pass."
             )
-        problems = check(data, header.read_text())
+        problems = check(image, header.read_text())
     except Refusal as refusal:
         print(f"REFUSED: {refusal}")
         return 2

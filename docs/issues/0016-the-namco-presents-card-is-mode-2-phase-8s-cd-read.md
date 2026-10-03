@@ -264,7 +264,7 @@ address for exactly that.
 ## What a run would settle, and what it would not
 
 **No product run was performed.** The machine's single product slot was held by another agent for a
-Spyro capture until 2026-09-29T12:00 (`coord/claims/product-slot/claim.md`), and two instances are
+Spyro capture until 2026-09-29T12:00 (a workspace product-slot claim held by the other repo), and two instances are
 never run at once here. Every claim above is static or is quoted from a run another agent already
 made and whose log is retained. A run would settle, in order:
 

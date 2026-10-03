@@ -41,7 +41,7 @@ re-projected card would be wider than 133 px, and this one is not by a single pi
 Measured twice and independently: by `external/psxport/tools/port/widescreen_pair.py`, and by a
 separate per-row/per-column scan of the same capture. The two agree exactly.
 
-`widescreen_pair.py`, 62-column margins on the 492-wide capture:
+`external/psxport/tools/port/widescreen_pair.py`, 62-column margins on the 492-wide capture:
 
     predicted offset for a pure widening : +62
     best translation                     :     0.00 at dx=+62

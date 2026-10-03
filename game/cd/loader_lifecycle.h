@@ -16,16 +16,11 @@ namespace tekken3::loader {
 // The loader's state block, which lives at 0x800A0698 and is addressed as a base
 // register plus a byte displacement throughout the loader. Decoded:
 //   0x8006BEB4  addiu $s0,$v0,0x698   over `lui $v0,0x800A`  ->  $s0 = 0x800A0698
-// Every access below is `N($s0)`, so the block is a struct, not a set of unrelated globals.
+// Every access below is `N($s0)`, so the block is one record, not unrelated globals. Its fields the
+// rest of the port needs are named here: +6 busy (0x800A069E, set by the request and cleared on
+// completion), +7 held (0x800A069F, "a read is in flight" — the wait byte), +4 phase (0x800A069C).
 // ---------------------------------------------------------------------------
 inline constexpr std::uint32_t kLoaderBase = 0x800A0698u;
-
-struct LoaderState {
-  std::uint8_t &busy;   // +6 = 0x800A069E. Set by the read request, cleared on completion.
-  std::uint8_t &held;   // +7 = 0x800A069F. "a read is in flight"; the wait byte.
-  std::uint16_t &phase; // +4 = 0x800A069C
-  std::uint32_t &link;  // +0 = 0x800A0698, the next record in the loader's chain
-};
 
 // ---------------------------------------------------------------------------
 // FUN_8006BEA8 — the wait the card is sitting in. Decoded in full:
@@ -105,7 +100,6 @@ inline constexpr std::uint32_t kSectorCallbackRecord = 0x8009B8C8u;
 inline constexpr std::uint32_t kSectorCallbackSlot = 0x8009B8D0u;     // +8 into the record
 inline constexpr std::uint32_t kSectorCallbackArgument = 0x8009B8D8u; // +16
 inline constexpr std::uint32_t kSectorCallbackFlag = 0x8009B8E8u;
-inline constexpr std::uint32_t kSectorCallbackState = 0x8009B8C8u;
 
 // ---------------------------------------------------------------------------
 // The DISPATCH of the sector callback.

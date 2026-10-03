@@ -55,7 +55,7 @@ Those table entries are the **`jal` STUB addresses**, not the handlers. A mode's
 
 **11 of 20 — exactly the number issue 0016 recorded, confirming the runtime-written handler
 window is real.** The gap was one level of indirection: the table holds the stubs, and the handler is
-a `jal` further on. `frame_loop.cpp`'s `kModeFunctions` and its `0x80028C9C + mode*0x10` return-PC
+a `jal` further on. `game/frame/finite_frame.cpp`'s `kModeFunctions` and its `0x80028C9C + mode*0x10` return-PC
 formula are the *stub* arithmetic, which is why the port's own dispatch never named a window address.
 
 **The generalisable error, and it is the same shape as the ten dead taps:** a table read as the thing
