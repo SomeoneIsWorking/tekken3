@@ -1,0 +1,314 @@
+{
+  "title": "Tekken 3",
+  "region": "USA",
+  "serial": "SLUS-00402",
+  "disc_executable": "TEKKEN3/SLUS_004.02",
+  "output_name": "SLUS_004.02",
+  "file_size": 1185792,
+  "sha256": "fbda8b68e5799dbef4af39a161783bc670c15b0aa0e87dce65e210717da19b8c",
+  "header": {
+    "entry": "0x80079C70",
+    "gp": "0x00000000",
+    "text_address": "0x80010000",
+    "text_size": "0x00121000",
+    "stack_address": "0x801FFFF0",
+    "stack_offset": "0x00000000"
+  },
+  "projection": {
+    "control_writers": [
+      {"address": "0x80081C9C", "source_register": 8, "control_register": 26},
+      {"address": "0x80081CBC", "source_register": 0, "control_register": 24},
+      {"address": "0x80081CC0", "source_register": 0, "control_register": 25},
+      {"address": "0x80082730", "source_register": 4, "control_register": 24},
+      {"address": "0x80082734", "source_register": 5, "control_register": 25},
+      {"address": "0x80082748", "source_register": 4, "control_register": 26}
+    ],
+    "set_geom_offset": {
+      "address": "0x80082728",
+      "call_sites": ["0x80080E84", "0x80081B3C", "0x800B08AC"]
+    },
+    "set_geom_screen": {
+      "address": "0x80082748",
+      "call_sites": ["0x80081240"]
+    },
+    "display_presets": {
+      "address": "0x800B0CC8",
+      "entries": [
+        {
+          "active_rect": [0, 20, 368, 448],
+          "view_extent": [384, 480],
+          "graph_flags": 5,
+          "second_buffer_y": 0,
+          "initial_projection_center": [192, 240],
+          "initial_h": 500
+        },
+        {
+          "active_rect": [0, 10, 320, 224],
+          "view_extent": [320, 240],
+          "graph_flags": 5,
+          "second_buffer_y": 240,
+          "initial_projection_center": [160, 120],
+          "initial_h": 500
+        }
+      ]
+    },
+    "boot_preset_call": {
+      "address": "0x800B0574",
+      "target": "0x800B0840",
+      "preset_index": 0
+    },
+    "post_cd_owner_chain": [
+      {"label": "current CD-init wedge", "address": "0x800B0564", "target": "0x8006AB64"},
+      {"label": "intervening non-projection initializer", "address": "0x800B056C", "target": "0x800B0788"},
+      {"label": "first reachable projection preset owner", "address": "0x800B0574", "target": "0x800B0840"},
+      {"label": "preset to view configuration", "address": "0x800B086C", "target": "0x80080848"},
+      {"label": "view configuration to dimension owner", "address": "0x80080890", "target": "0x80080A40"}
+    ],
+    "initial_h_call": {
+      "address": "0x800B0928",
+      "target": "0x80081238",
+      "delay_slot_word": "0x240401F4"
+    },
+    "stage_visibility": {
+      "owner": "0x8006D014",
+      "selector": "0x8006D95C",
+      "calls": [
+        {
+          "address": "0x8006D1EC",
+          "angle_load_address": "0x8006D1C4",
+          "retail_angle": 600
+        },
+        {
+          "address": "0x8006D274",
+          "angle_load_address": "0x8006D24C",
+          "retail_angle": 780
+        }
+      ]
+    },
+    "retail_right_bound": {
+      "value": 368,
+      "render_sites": [
+        "0x8006CD40", "0x8006CD48", "0x8006CD50", "0x8006CD58",
+        "0x8006CE40", "0x8006CE48", "0x8006CE50",
+        "0x8006CF80", "0x8006CF88", "0x8006CF90", "0x8006CF98",
+        "0x8006E478"
+      ],
+      "retail_2d_site": "0x80054CB4"
+    }
+  },
+  "startup": {
+    "shape": "direct_main",
+    "entry_call": {
+      "address": "0x80079D04",
+      "target": "0x80028BA0",
+      "delay_slot": "nop",
+      "return_guard_address": "0x80079D0C",
+      "return_guard": "break"
+    },
+    "main_first_call": {
+      "address": "0x80028BB0",
+      "target": "0x80079D10",
+      "delay_slot_word": "0xAFB00010"
+    },
+    "first_initializer": {
+      "end_address": "0x80079D80",
+      "return_address": "0x80079D78",
+      "return_delay_slot_word": "0x00000000"
+    },
+    "main_next_call": {
+      "address": "0x80028BB8",
+      "target": "0x800B0548",
+      "delay_slot_word": "0x3C11800B"
+    },
+    "hardware_frontier": {
+      "boundary": "0x80085D98",
+      "hardware_register": "0x1F801074",
+      "interrupt_reset": {
+        "mask_write_address": "0x80085D94",
+        "mask_write_word": "0xA4400000",
+        "mask_read_address": "0x80085D98",
+        "mask_read_word": "0x94420000",
+        "mask_merge_address": "0x80085D9C",
+        "mask_merge_word": "0x34A53333",
+        "status_write_address": "0x80085DA0",
+        "status_write_word": "0xA4620000",
+        "boundary": "0x80085DA4"
+      },
+      "dma_control_write": {
+        "address": "0x80085DB0",
+        "word": "0xAC450000",
+        "register": "0x1F8010F0",
+        "value": "0x33333333",
+        "boundary": "0x80085DB4"
+      },
+      "bios_call": {
+        "call_address": "0x80085DE4",
+        "call_word": "0x0C0218B2",
+        "return_address": "0x80085DEC",
+        "wrapper": "0x800862C8",
+        "wrapper_end": "0x800862D4",
+        "delay_address": "0x800862D0",
+        "delay_word": "0x24090019",
+        "vector": "0x000000B0",
+        "function": "0x19"
+      },
+      "zero_memory": {
+        "start": "0x80086264",
+        "end": "0x80086288"
+      },
+      "interrupt_context_save": {
+        "start": "0x800862D8",
+        "end": "0x80086314",
+        "caller_base_load": "0x80085D64",
+        "caller_base_add": "0x80085D68",
+        "buffer": "0x80099BD8",
+        "call_address": "0x80085DBC",
+        "call_delay_word": "0x26040038",
+        "resume_address": "0x80085DC4",
+        "resume_word": "0x10400003",
+        "resume_branch_target": "0x80085DD4"
+      },
+      "second_initializer_prefix_end": "0x800B0564",
+      "arena_initializer": {
+        "start": "0x80055884",
+        "end": "0x800561A0"
+      },
+      "arena_size_selector": {
+        "start": "0x80079964",
+        "end": "0x800799A8"
+      },
+      "arena_layout_builder": {
+        "start": "0x800799A8",
+        "end": "0x80079AF4"
+      },
+      "hardware_entry": {
+        "start": "0x80085BC8",
+        "end": "0x80085BF8"
+      },
+      "interrupt_initializer_prefix": {
+        "start": "0x80085D5C",
+        "end": "0x80085D98"
+      }
+    },
+    "main_loop": {
+      "back_edge_address": "0x80028E0C",
+      "back_edge_target": "0x80028BCC"
+    },
+    "ghidra": {
+      "program": "ram_boot.bin",
+      "entry_function": "FUN_80079c70",
+      "main_function": "FUN_80028ba0",
+      "finding": "entry calls FUN_80028ba0 and then traps; FUN_80028ba0 performs initialization followed by a non-returning game loop"
+    }
+  },
+  "title_flow": {
+    "mode_dispatch": {
+      "read_site": "0x80028C64",
+      "read_address": "0x800AE204",
+      "bound": 20,
+      "table_base": "0x80010000",
+      "card_mode": 2,
+      "targets": [
+        "0x800B0708",
+        "0x80052CC4",
+        "0x8004FA60",
+        "0x800DB1B8",
+        "0x800DB5B4",
+        "0x800DDE64",
+        "0x800D3228",
+        "0x80050318",
+        "0x80050428",
+        "0x8010FF4C",
+        "0x80055590",
+        "0x80052520",
+        "0x800EEE8C",
+        "0x800EF92C",
+        "0x800F0458",
+        "0x800F18E8",
+        "0x800501C0",
+        "0x800C2434",
+        "0x8004FF74",
+        "0x800FF0C4"
+      ]
+    },
+    "mode0": {
+      "entry": "0x800B0708",
+      "loader_call": "0x800B0744",
+      "loader_target": "0x8004CA40",
+      "output_base": "0x8012867C",
+      "resource_table": "0x800B8D58",
+      "resource_entries": 127,
+      "switch_call": "0x800B076C",
+      "switch_target": "0x8004F8F8",
+      "switch_argument": 3
+    },
+    "mode_switch": {
+      "switcher": "0x8004F8F8",
+      "return_mode_store": "0x8004FA28",
+      "previous_mode_store": "0x8004FA44",
+      "mode_word_store": "0x8004FA38",
+      "phase_word_store": "0x8004FA40",
+      "installed_mode": 2
+    },
+    "mode2_phase_dispatch": {
+      "read_site": "0x8004FAE0",
+      "read_address": "0x800AE224",
+      "bound": 13,
+      "table_base": "0x8002242C",
+      "wait_phase": 8,
+      "wait_phase_block": "0x8004FD9C",
+      "wait_holds_at": "0x8004FDF0",
+      "exit_phase": 12,
+      "exit_phase_block": "0x8004FED0"
+    },
+    "wait_predicate": {
+      "call_site": "0x8004FDAC",
+      "predicate": "0x80052A70",
+      "leaf": "0x8006C23C",
+      "leaf_call": "0x80052A78",
+      "load_site": "0x8006C244",
+      "load_op": "lbu",
+      "base": "0x800A0698",
+      "displacement": 7,
+      "wait_byte": "0x800A069F",
+      "busy_branch": "0x80052A80"
+    },
+    "card": {
+      "tail_call_site": "0x8004FEF8",
+      "renderer": "0x8004F750",
+      "text_engine_call": "0x8004F824",
+      "string": "0x8002240C",
+      "format_string": "%c%f%H%VNAMCO %cPRESENTS.",
+      "x": 117,
+      "y": 240,
+      "scale": 6,
+      "drawn_for_param_1": [0, 1, 2]
+    },
+    "exit": {
+      "block": "0x8004FED0",
+      "function_start": "0x8004FA60",
+      "phase_zero_store": "0x8004FEE4",
+      "mode_store": "0x8004FEF0",
+      "mode_word": "0x800AE204",
+      "phase_word": "0x800AE224",
+      "return_mode_byte": "0x80097F38",
+      "return_mode_load_site": "0x8004FEE8",
+      "controller_reads_on_path": [],
+      "instructions_scanned": 294
+    },
+    "resident_code": {
+      "code_window": "0x80010000-0x800B0000",
+      "non_code_window": "0x800C0000-0x80131000",
+      "code_window_jr_ra": 1499,
+      "non_code_window_jr_ra": 0,
+      "targets_total": 20,
+      "targets_above_0x800C0000": 11
+    },
+    "timer_arm": {
+      "arm": "0x800951B8",
+      "call_sites": 7,
+      "fingerprint": "0x190",
+      "fingerprint_sites": ["0x800934EC"]
+    }
+  }
+}
