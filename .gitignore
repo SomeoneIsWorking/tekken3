@@ -1,0 +1,16 @@
+build/
+scratch/
+__pycache__/
+.env
+*.bin
+*.chd
+*.cue
+*.iso
+*.img
+*.pbp
+
+# Framework symlink or clone, managed by tools/psxport_fetch.py.
+/external/psxport
+
+# Ad-hoc gdb scripts; breakpoints perturb the wall-clock-driven field clock.
+tools/probe_*.gdb

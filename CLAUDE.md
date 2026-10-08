@@ -1,0 +1,60 @@
+# Tekken 3 port
+
+Read `external/psxport/CLAUDE.md` and `external/psxport/docs/workspace/PROTOCOL.md` before work.
+`docs/project-goals.md` holds the epic intent, `docs/project-state.md` the capability inventory and
+current focus, `docs/codemap.md` ownership, `docs/issues/` the open bugs, and
+`docs/re-frontier.md` what has and has not been reverse-engineered.
+Never commit discs, extracted executables,
+runtime JIT caches, `.env`, or machine-specific paths. Run artifacts go under `scratch/`, never
+`/tmp`; builds go under `build/`.
+
+## Product execution contract
+
+Tekken 3 (`SLUS_004.02`) ships as one native/Lightrec psxport product. The authenticated executable
+is runtime data. Image-and-address-keyed native overrides own selected verified functions; a pinned
+Lightrec integration dynamically executes every remaining guest instruction. A native override's
+original call suppresses only that override for one call and executes the guest body by address
+through Lightrec. psxport owns machine-state synchronization, HLE/device callbacks, override
+invalidation, executable-memory invalidation, and bounded exits; Lightrec owns its code cache and
+executable memory.
+
+Guest execution always enters through the Lightrec owner and the dynarec is the gameplay default.
+Lightrec may automatically interpret only a bounded block that it refuses to compile because the
+block is unsupported, unsafe to fetch, self-modifying, or failed compilation. That fallback is a
+backend detail, never a player mode: every reason and instruction is counted, a release threshold
+must fail loudly, and forced interpretation remains diagnostic/test-only. Provisioning validates
+runtime data and never emits executable code.
+
+The first implementation discriminator is `NAMCO PRESENTS` within 1,200 frames with nonzero
+Lightrec execution and all 14 address-based original calls routed through the shipping dispatcher.
+Next, drive representative interactive gameplay and verify rendering, input, audio, timing,
+relevant invalidation, and released-host performance.
+
+## Product and enhancement boundaries
+
+Tekken 3 already runs at 60 fps. Its rendering-enhancement scope is widescreen only: do not add an
+fps60 mode, interpolation/lerp, or temporal state maintained solely for interpolation. Widescreen
+work remains RE-driven; bind the measured guest camera/projection/culling owners through the shared
+non-temporal guest-widescreen contract. Do not add a title-owned native renderer, and never
+reconstruct pictures from GTE/OT/GP0 diagnostic output. Establish a faithful, measurable base before
+the widescreen enhancement.
+
+Host ownership follows this project's codemap: `game/program/title_runtime.*` is the one
+process-lifetime game owner, `game/frame/finite_frame.*` owns the finite title frame and its measured
+service order, `game/entry/product_launch.*` composes framework devices around them, and
+`game/entry/main.cpp` is the narrow player entry point. `game/` is the only first-party include root.
+Probe entry points only parse their inputs, install the same owner, and drive a separate test target. The runtime derives directly from
+`GameRuntime` and owns the measured resident-text range through immutable `GuestProgramImage`;
+Tekken source must not include or instantiate `LegacyGameRuntimeAdapter`, `GameConfig`, or
+`GameHooks`.
+
+`external/psxport` is a relative symlink to the workspace's live framework checkout when one exists, or
+a clone of its main where there is none. `tools/psxport_fetch.py --auto` establishes whichever applies;
+there is no framework pin, so a framework edit is immediately this game's framework.
+Framework edits happen in the workspace's `psxport`, never here.
+
+`./run.sh` is the shipping zero-argument player contract: a slim `uv run --frozen` shim into
+`bootstrap.py` and `tools/run.py`. The Python initializer provisions and identity-checks the user's
+disc executable, builds `tekken3_port`, and launches only the native/Lightrec product. It must not
+run tests, probes, or diagnostics. CMake owns compiler discovery;
+the launcher must not add compiler-identity allowlists, denylists, or forced compiler selections.
