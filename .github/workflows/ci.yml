@@ -1,0 +1,56 @@
+name: Asset-free Linux product contract
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tekken3-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-x86_64:
+    name: Linux x86-64 native/Lightrec product
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
+    env:
+      CC: clang
+      CXX: clang++
+      CMAKE_BUILD_PARALLEL_LEVEL: "2"
+    steps:
+      - name: Check out Tekken 3 with full history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Select Python 3.13
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.13.15"
+
+      - name: Install locked uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.10.12"
+          enable-cache: false
+
+      - name: Install the locked Python environment
+        run: uv sync --locked
+
+      - name: Resolve the framework
+        run: uv run --frozen python tools/psxport_fetch.py --auto
+
+      - name: Provision the shared pinned Linux build inputs
+        uses: ./external/psxport/.github/actions/setup-linux
+        with:
+          framework-directory: external/psxport
+          dependency-directory: build/deps
+
+      - name: Run the canonical asset-free verifier
+        run: uv run --frozen python tools/verify.py
