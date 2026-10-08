@@ -1,0 +1,131 @@
+#include "core.h"
+#include "fieldclock/field_clock.h"
+#include "game.h"
+#include "guest_widescreen_projection.h"
+#include "platform_hle.h"
+#include "program/title_runtime.h"
+
+#include <cstdint>
+#include <cstdio>
+#include <memory>
+#include <stdexcept>
+
+namespace {
+
+constexpr tekken3::ResidentProgramRange kFixtureRange{0x00001000u, 0x00002000u};
+
+} // namespace
+
+int main() {
+  bool invalidRangeRefused = false;
+  try {
+    tekken3::TitleRuntime invalid{{0x00010000u, 0x00010000u}};
+  } catch (const std::invalid_argument &) {
+    invalidRangeRefused = true;
+  }
+  if (!invalidRangeRefused) {
+    std::fprintf(stderr, "runtime_seam: FAIL — an empty resident program range was accepted\n");
+    return 1;
+  }
+
+  tekken3::TitleRuntime runtime{kFixtureRange};
+  psxport_install_game(runtime);
+
+  const RenderCapabilities capabilities = runtime.renderCapabilities();
+  if (capabilities.defaultPath != RenderPath::Record || capabilities.nativeRenderPath ||
+      capabilities.temporalInterpolation) {
+    std::fprintf(stderr, "runtime_seam: FAIL — Tekken did not declare the record path without interpolation\n");
+    return 1;
+  }
+  if (!capabilities.supports(RenderPath::Record) || !capabilities.supports(RenderPath::Gte) ||
+      !capabilities.supports(RenderPath::Device) || capabilities.supports(RenderPath::Native) ||
+      capabilities.playerSelectable(RenderPath::Native)) {
+    std::fprintf(stderr, "runtime_seam: FAIL — Tekken render-path support does not match its scope\n");
+    return 1;
+  }
+  if (render_path_resolve(RenderPath::Native, capabilities) != RenderPath::Record ||
+      render_path_resolve(RenderPath::Record, capabilities) != RenderPath::Record) {
+    std::fprintf(stderr, "runtime_seam: FAIL — shared path resolution ignored Tekken capabilities\n");
+    return 1;
+  }
+  // The 368-wide display gets a 62-column margin per side at 16:9 and none at 4:3.
+  const auto recordPlan = [&](PresentationAspect aspect) {
+    return guest_projection_plan({
+        .path = capabilities.defaultPath,
+        .requested = aspect,
+        .nativePresentation = {368, 480},
+        .nativeProjection = {.extent = {368, 480}, .drawWidth = 368},
+        .sink = {1920, 1080},
+        .vramWidth = 1024,
+    });
+  };
+  const GuestProjectionPlan wide = recordPlan(PresentationAspect::Wide16x9);
+  const GuestProjectionPlan standard = recordPlan(PresentationAspect::Standard4x3);
+  if (!wide.widescreen() || wide.presentationExtent.width != 492 || wide.presentationHorizontalMargin != 62 ||
+      standard.widescreen() || standard.presentationHorizontalMargin != 0) {
+    std::fprintf(stderr, "runtime_seam: FAIL — the record path does not widen Tekken's display by the aspect\n");
+    return 1;
+  }
+
+  const PlatformHlePlan *const hle = runtime.platformHlePlan();
+  if (!hle || hle->vsyncAddress != tekken3::field::kEntry || hle->bindingCount != 0 ||
+      hle->windowLo[0] != tekken3::field::kEntry || hle->windowHi[0] != tekken3::field::kBodyEnd) {
+    std::fprintf(stderr,
+                 "runtime_seam: FAIL — Tekken did not declare protected VSync ownership at the "
+                 "measured address\n");
+    return 1;
+  }
+  // The framework refuses the guest's negative VSync queries without this.
+  if (hle->vsyncQueryCounterAddress != tekken3::field::kCounter) {
+    std::fprintf(stderr,
+                 "runtime_seam: FAIL — Tekken did not declare the measured field count its own VSync "
+                 "leaf returns for a negative mode\n");
+    return 1;
+  }
+
+  const GuestPadBufferLayout *const pad = runtime.guestPadBufferLayout();
+  if (!pad || pad->slot0Buffer != 0x800A9132u || pad->slot1Buffer != 0x800A915Cu || pad->slotPointerTable != 0 ||
+      pad->slotPointerStride != 4) {
+    std::fprintf(stderr,
+                 "runtime_seam: FAIL — Tekken did not declare the two measured Sony libpad "
+                 "receive buffers\n");
+    return 1;
+  }
+  if (!runtime.guestWidescreenProjection()) {
+    std::fprintf(stderr, "runtime_seam: FAIL — Tekken did not publish its measured guest projection owner\n");
+    return 1;
+  }
+
+  const auto policyGame = std::make_unique<Game>();
+  if (game_guest_vram_is_picture(*policyGame)) {
+    std::fprintf(stderr, "runtime_seam: FAIL — boundary-only Tekken runtime treated guest VRAM as a picture\n");
+    return 1;
+  }
+
+  // Core is heap-resident (2 MiB RAM), as in production.
+  auto core = std::make_unique<Core>();
+  if (core->runtime != &runtime) {
+    std::fprintf(stderr, "runtime_seam: FAIL — Core did not snapshot the derived Tekken runtime\n");
+    return 1;
+  }
+  if (!core->guestProgramImage || core->guestProgramImage->residentText.begin != kFixtureRange.lo ||
+      core->guestProgramImage->residentText.end != kFixtureRange.hi) {
+    std::fprintf(stderr, "runtime_seam: FAIL — resident program facts did not reach GuestProgramImage\n");
+    return 1;
+  }
+  if (core->cfg != nullptr || core->hooks != nullptr || core->gameCtx != nullptr) {
+    std::fprintf(stderr, "runtime_seam: FAIL — direct runtime exposed legacy config, hooks, or context\n");
+    return 1;
+  }
+
+  std::printf("runtime_seam: PASS — Core owns the direct runtime, 2/2 resident-range facts reach "
+              "GuestProgramImage, 3/3 legacy views are null, 1/1 invalid range is refused, "
+              "10/10 render-capability facts select the record path without temporal interpolation, "
+              "the record display widens 368->492 at 16:9 and not at 4:3, "
+              "6/6 platform-HLE facts declare protected VSync ownership including the measured "
+              "negative-mode field count, 4/4 pad-layout facts reach "
+              "the shared host service, the guest projection owner is present, and guest VRAM picture "
+              "ownership is false\n");
+  std::printf("runtime_seam: NOT covered — gameplay dynarec, devices, frames, or gameplay\n");
+  return 0;
+}
