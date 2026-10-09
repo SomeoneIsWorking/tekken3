@@ -26,7 +26,7 @@ separate test target -> independent oracle (never linked or selectable by the ga
 ```
 
 `game/` is the only first-party include root, so a header is reached by its subsystem path
-(`#include "frame/finite_frame.h"`, `#include "cd/cd_protocol.h"`).
+(`#include "frame/finite_frame.h"`, `#include "cd/loader_lifecycle.h"`).
 
 ## game/entry — process entry and product composition
 
@@ -50,9 +50,9 @@ separate test target -> independent oracle (never linked or selectable by the ga
 | Symbol | Kind | Responsibility |
 |---|---|---|
 | `tekken3::frame::Machine` | abstract class | The injectable machine boundary: guest calls, registers, memory, ticks, event delivery, and the three per-field services (`commitPresentation`, `serviceAudioSink`, `servicePad`). Implemented by the shipping `CoreMachine` adapter and by the contract tests' recorders. |
-| `tekken3::frame::StepState` | struct | What a field must remember across fields: whether a mode body is still running, and which buffer it was building. |
-| `tekken3::frame::FiniteFrame` | class (static) | The finite frame itself, reproduced from the guest bodies it replaces: `runBootPrefix` (non-returning `0x80028BA0`), `runBarrier` (`0x800296C4`, one RCntCNT2 delivery, pad publication), `runDisplayInit` (`0x800B0954` without its VSync wait), and `step` (the field). |
-| `tekken3::frame::FrameDriver` | class (`::FrameDriver`) | The title driver psxport calls once per field. Registers the three native frame entries (`installOverrides`), runs the finite boot dispatch once (`runBootPrefix`), and advances the field (`stepFrame`). Holds the `psx::cpu::ResumableGuestCall` that spans a mode body across fields. |
+| `tekken3::frame::StepState`, `tekken3::frame::Stage` | struct, enum | What a field must remember across fields: the boot stage (first initializer, second initializer, running), whether a spanning guest call (initializer or mode body) is still running, and which buffer it was building. |
+| `tekken3::frame::FiniteFrame` | class (static) | The finite frame itself, reproduced from the guest bodies it replaces: `runBootPrefix` (the non-returning `0x80028BA0` prologue), `stepBoot` (the two retail initializers `0x80079D10` and `0x800B0548` as spanning calls), `runBarrier` (`0x800296C4`, one RCntCNT2 delivery, pad publication), `runDisplayInit` (`0x800B0954` without its VSync wait), and `step` (the field). |
+| `tekken3::frame::FrameDriver` | class (`::FrameDriver`) | The title driver psxport calls once per field. Registers the three native frame entries (`installOverrides`), runs the finite boot dispatch once (`runBootPrefix`), and advances the field (`stepFrame`). Holds the `psx::cpu::ResumableGuestCall` that spans an initializer or mode body across fields; each host turn gets `FiniteFrame::kFieldTurnCycles` (one NTSC field of emulated time), because a half-field turn puts a CD deadline on the VBlank that flushes it. |
 
 ## game/execution — the finite guest call
 
@@ -63,15 +63,17 @@ separate test target -> independent oracle (never linked or selectable by the ga
 | `…::FiniteGuestCall::callToReturn` | static | One display field through the product dispatcher, required to return, refused with the full account when it does not. |
 | `…::FiniteGuestCall::describe`, `…::captureEntry` | static | Turn a non-returning exit into one log line: where the guest stopped, how far the LZ decompressor had read and written, and the image-wrapper entry it belongs to. |
 
-## game/cd — the linked-libcd command and completion lifecycle
+## game/cd — the decoded loader lifecycle
+
+The guest's own linked libcd runs the whole command, interrupt and completion chain. CD reads are
+instant, so the module's one behaviour is `sector_ready_order`, which restores the order the guest's
+libcd assumes (class-2 completion before the first sector's INT1) without any drive timing. The rest
+is facts about the chain.
 
 | Symbol | Kind | Responsibility |
 |---|---|---|
-| `tekken3::cd::Machine` | abstract class | The narrow CD boundary: guest calls, memory, and the three things this module must not do itself — complete a sync, complete a command, and read sectors. |
-| `tekken3::cd::synchronize` / `ready` / `control` / `queueRead` / `queueResult` | free functions | Tekken's linked-library state transitions: acknowledgement/completion status words, response copies, the queued sector read, and the queued result. |
-| `tekken3::cd::deliverCompletions` | free function | Drain the guest's registered CD completions in the order retail's controller interrupt invoked them, bounded by the guest's own pool depth and live-record count. **This is the hop the loader card waits on**: completing an operation without delivering its callback deletes the guest's per-sector loop. |
-| `tekken3::cd::installOverrides` | free function | Install the six native CD entries (`cdSync`, `cdReady`, `cdControl`, `cdCommand`, `cdQueueStart`, `cdQueueResult`). |
-| `tekken3::loader::*` | `inline constexpr` facts (`game/cd/loader_lifecycle.h`) | The decoded guest CD-read lifecycle: loader state block, the untimed wait the card sits in, the chain record and its callback slot, the dispatch of that slot, and the sector callback that clears the wait byte. |
+| `tekken3::loader::*` | `inline constexpr` facts (`game/cd/loader_lifecycle.h`) | The decoded guest CD-read lifecycle: loader state block, the untimed wait the card sits in, the chain record and its callback slot, the dispatch of that slot, and the sector callback that clears the wait byte. Pinned against the executable by `tests/loader_lifecycle_contract.cpp`. |
+| `tekken3::cd::completeReadBeforeSector`, `serviceInterruptsBeforeFlush`, `chainCompletionApplies`, `installOverrides` | functions over `cd::Machine` (`game/cd/sector_ready_order.{h,cpp}`) | Native overrides of the ready hook `FUN_8008F850`, the INT flush `FUN_800842E0` and the class-2 completion `FUN_8006C26C`: deliver the pending class-2 completion before a sector is handed to the callback slot, run the CD ISR before the flush discards a pending INT1, and drop a late class-2 completion once the load is idle. Tested by `tests/sector_ready_order_contract.cpp`. |
 
 ## game/render — the linked-libgpu queue timeout
 
@@ -182,15 +184,23 @@ over and asks for a host transfer. There is no second boot path.
 ### CD and streaming
 
 1. The guest's loader issues a read: `FUN_8006C084` sets the wait byte `0x800A069F` and registers
-   the completion callback in the same breath (`tekken3::loader::*` names both).
-2. The read enters a native override: `tekken3::cd::installOverrides` installed
-   `cdQueueStart`/`cdQueueResult`, so `tekken3::cd::queueRead` performs the read synchronously
-   through the framework's stock-libcd owners and publishes the guest's own result word.
-3. `tekken3::cd::deliverCompletions` then calls the guest's own CD-event entry until its ring stops
-   moving, which is what runs `FUN_8006C26C` and installs the sector callback at `0x8009B8D0`.
-4. The guest's dispatch at `0x8009213C` calls that callback, whose only writer of the wait byte is
-   `0x8006C2EC` — so the guest's untimed spin at `FUN_8006BEA8` exits on its own signal.
-   Issue 0020 tracks the remaining gap.
+   the completion callback `FUN_8006C26C` (`tekken3::loader::*` names both).
+2. The guest's own libcd queues Setloc/Setmode/ReadN and writes the controller
+   (`psx::cdc_native`, `runtime/psx/cd/cdc_native.cpp`). Reads are instant: ReadN's INT3 and the
+   first sector's INT1 are pending before the guest's VBlank timer callback (`FUN_8008FDE8` ->
+   `FUN_8008E928`) can deliver the class-2 completion, so `game/cd/sector_ready_order.cpp` delivers
+   that completion itself before the sector reaches the ready hook, and runs the ISR before the
+   command writer's flush (`FUN_8008FCC0` -> `FUN_800842E0`) can discard the INT1.
+3. That completion (`FUN_8006C26C`, class 2) installs the sector callback `FUN_8006C2A0` through
+   `FUN_80091F38`. The guest's CD ISR (`FUN_80084A30`) is reached through the libapi interrupt
+   dispatcher; for each INT1 it calls the ready hook `FUN_8008F850` -> `FUN_80092034`, which calls the
+   sector callback.
+4. The sector callback reads the data FIFO by DMA3 (`FUN_80084838`, a polled burst), advances the
+   record's destination and remaining bytes, and when the record is done clears the wait byte at
+   `0x8006C2EC`, so the guest's untimed spin at `FUN_8006BEA8` exits on its own signal.
+5. Interrupts are delivered only at guest function entries outside native overrides
+   (`psx::Hle::irqPoll`), so every guest call that waits on the CD runs as a spanning call:
+   `FrameDriver` runs both retail initializers and every mode body through `ResumableGuestCall`.
 
 ### Audio
 

@@ -29,7 +29,7 @@ inline constexpr std::uint32_t kChainCallbackOffset = 12u;
 
 // FUN_8006C26C: a class-2 completion installs the per-sector callback via FUN_80091F38.
 inline constexpr std::uint32_t kChainCompletionClass = 2u;
-inline constexpr std::uint32_t kSectorCallbackEntry = 0x8007C2A0u;
+inline constexpr std::uint32_t kSectorCallbackEntry = 0x8006C2A0u;
 inline constexpr std::uint32_t kInstallSectorCallback = 0x80091F38u;
 
 // FUN_80091F38 fills this record; the callback field is +8.
@@ -42,6 +42,14 @@ inline constexpr std::uint32_t kSectorCallbackFlag = 0x8009B8E8u;
 inline constexpr std::uint32_t kDispatchSectorCallback = 0x8009213Cu;
 inline constexpr std::uint32_t kDispatchLoadsSlot = 0x80092110u;
 inline constexpr std::uint32_t kDispatchPerSectorHandler = 0x80092034u;
+
+// FUN_8008F850: the libcd ready hook the ISR calls for each data-ready INT; it forwards to the per-sector handler.
+inline constexpr std::uint32_t kReadyHook = 0x8008F850u;
+inline constexpr std::uint32_t kReadyHookTail = 0x8008F8F4u;
+// FUN_800842E0 discards pending controller INT flags; FUN_80084A30 is the ISR that would have serviced them.
+inline constexpr std::uint32_t kFlushInterrupts = 0x800842E0u;
+inline constexpr std::uint32_t kCdIsr = 0x80084A30u;
+inline constexpr std::uint32_t kHeldByte = 0x800A069Fu;
 
 // FUN_8006C2A0: the class-1 sector callback; 0x8006C2EC is the only clear of 0x800A069F on this path.
 inline constexpr std::uint32_t kSectorCallbackBody = 0x8006C2A0u;

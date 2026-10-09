@@ -1,5 +1,8 @@
 #include "frame/finite_frame.h"
 
+#include "emulated_time.h"
+#include "segment_clock.h"
+
 #include <array>
 #include <cstdint>
 #include <cstdio>
@@ -37,13 +40,13 @@ public:
     result = callResults[address];
   }
 
-  bool startModeCall(std::uint32_t address, std::uint32_t returnPc) override {
+  bool beginSpanningCall(std::uint32_t address, std::uint32_t returnPc) override {
     ++boundedStarts;
     call(address, returnPc);
     return boundedStartReturns;
   }
 
-  bool resumeModeCall() override {
+  bool resumeSpanningCall() override {
     ++boundedResumes;
     operations.push_back({"resume"});
     return boundedResumeReturns;
@@ -132,12 +135,37 @@ bool finiteBootIsOrdered() {
   machine.registers[29] = 0x00010000u;
   machine.registers[31] = 0x31313131u;
   tekken3::frame::FiniteFrame::runBootPrefix(machine);
-  return machine.operations.size() == 6 && operationIs(machine.operations[4], "call", 0x80079D10u, 0x80028BB8u) &&
-         operationIs(machine.operations[5], "call", 0x800B0548u, 0x80028BC0u) && machine.registers[29] == 0x0000FFE0u &&
+  return machine.operations.size() == 4 && machine.registers[29] == 0x0000FFE0u &&
          machine.memory[0x0000FFFCu] == 0x31313131u && machine.memory[0x0000FFF8u] == 0x18181818u &&
-         machine.memory[0x0000FFF4u] == 0x17171717u && machine.memory[0x0000FFF0u] == 0x16161616u &&
-         machine.registers[16] == 0x800B0000u && machine.registers[17] == 0x800B0000u &&
-         machine.registers[18] == 0x800AE040u && machine.registers[2] == 0x800B0000u && machine.guestTicks == 11;
+         machine.memory[0x0000FFF4u] == 0x17171717u && machine.memory[0x0000FFF0u] == 0x16161616u;
+}
+
+// Each initializer is a spanning call: a suspended one holds the stage and presents no second call.
+bool bootInitializersSpanFields() {
+  RecordingMachine machine;
+  machine.boundedStartReturns = false;
+  machine.boundedResumeReturns = false;
+  tekken3::frame::StepState state;
+  tekken3::frame::FiniteFrame::step(machine, state);
+  if (state.stage != tekken3::frame::Stage::FirstInitializer || !state.callPending || machine.boundedStarts != 1 ||
+      !operationIs(machine.operations.back(), "call", 0x80079D10u, 0x80028BB8u)) {
+    return false;
+  }
+  tekken3::frame::FiniteFrame::step(machine, state);
+  if (state.stage != tekken3::frame::Stage::FirstInitializer || !state.callPending || machine.boundedResumes != 1) {
+    return false;
+  }
+  machine.boundedResumeReturns = true;
+  machine.boundedStartReturns = false;
+  tekken3::frame::FiniteFrame::step(machine, state);
+  if (state.stage != tekken3::frame::Stage::SecondInitializer || !state.callPending || machine.boundedStarts != 2 ||
+      machine.registers[17] != 0x800B0000u ||
+      !operationIs(machine.operations.back(), "call", 0x800B0548u, 0x80028BC0u)) {
+    return false;
+  }
+  tekken3::frame::FiniteFrame::step(machine, state);
+  return state.stage == tekken3::frame::Stage::Running && !state.callPending && machine.registers[16] == 0x800B0000u &&
+         machine.registers[2] == 0x800B0000u && machine.registers[18] == 0x800AE040u && machine.guestTicks == 5;
 }
 
 bool displayInitOmitsOnlyVsync() {
@@ -214,6 +242,7 @@ bool frameStepKeepsServiceAndRenderOrder() {
   machine.callResults[0x80029628u] = 0;
   machine.callResults[0x80080D98u] = 1;
   tekken3::frame::StepState state;
+  state.stage = tekken3::frame::Stage::Running;
   tekken3::frame::FiniteFrame::step(machine, state);
 
   if (machine.operations.size() != 15 || !operationIs(machine.operations[0], "call", 0x800296C4u, 0x80028BD4u) ||
@@ -235,7 +264,7 @@ bool frameStepKeepsServiceAndRenderOrder() {
     return false;
   }
   // Every mode enters through the suspending entry; boundedStartReturns defaults true.
-  return !state.modeCallPending && machine.boundedStarts == 1 && machine.boundedResumes == 0 &&
+  return !state.callPending && machine.boundedStarts == 1 && machine.boundedResumes == 0 &&
          machine.memory[0x800AFA4Cu] == 10 && machine.memory[0x800A8C54u] == 0x800A85A4u &&
          machine.registers[2] == 0x800B0000u && machine.guestTicks == 71;
 }
@@ -243,6 +272,7 @@ bool frameStepKeepsServiceAndRenderOrder() {
 bool modeCallSuspensionPreservesFieldOrder() {
   RecordingMachine machine;
   tekken3::frame::StepState state;
+  state.stage = tekken3::frame::Stage::Running;
   machine.memory[0x800ADEFCu] = 0;
   machine.memory[0x800AE204u] = 0;
   machine.memory[0x800A8594u] = 0x80070000u;
@@ -252,8 +282,9 @@ bool modeCallSuspensionPreservesFieldOrder() {
 
   RecordingMachine immediate = machine;
   tekken3::frame::StepState immediateState;
+  immediateState.stage = tekken3::frame::Stage::Running;
   tekken3::frame::FiniteFrame::step(immediate, immediateState);
-  if (immediateState.modeCallPending || immediate.boundedStarts != 1 || immediate.boundedResumes != 0 ||
+  if (immediateState.callPending || immediate.boundedStarts != 1 || immediate.boundedResumes != 0 ||
       immediate.operations.size() != 13 || !operationIs(immediate.operations[11], "call3", 0x8007BAB0u, 0x80028DECu) ||
       !operationIs(immediate.operations[12], "call3", 0x8007BAB0u, 0x80028E0Cu)) {
     return false;
@@ -262,20 +293,20 @@ bool modeCallSuspensionPreservesFieldOrder() {
   machine.boundedStartReturns = false;
   machine.boundedResumeReturns = false;
   tekken3::frame::FiniteFrame::step(machine, state);
-  if (!state.modeCallPending || machine.boundedStarts != 1 || machine.boundedResumes != 0 ||
+  if (!state.callPending || machine.boundedStarts != 1 || machine.boundedResumes != 0 ||
       machine.operations.size() != 11 || !operationIs(machine.operations.back(), "call", 0x800B0708u, 0x80028C9Cu)) {
     return false;
   }
   const auto ticksAtSuspend = machine.guestTicks;
   tekken3::frame::FiniteFrame::step(machine, state);
-  if (!state.modeCallPending || machine.operations.size() != 15 || machine.operations[11].kind != "pad" ||
+  if (!state.callPending || machine.operations.size() != 15 || machine.operations[11].kind != "pad" ||
       machine.operations[12].kind != "present" || machine.operations[13].kind != "audio" ||
       machine.operations[14].kind != "resume" || machine.guestTicks != ticksAtSuspend) {
     return false;
   }
   machine.boundedResumeReturns = true;
   tekken3::frame::FiniteFrame::step(machine, state);
-  return !state.modeCallPending && machine.boundedStarts == 1 && machine.boundedResumes == 2 &&
+  return !state.callPending && machine.boundedStarts == 1 && machine.boundedResumes == 2 &&
          machine.operations.size() == 21 && machine.operations[15].kind == "pad" &&
          machine.operations[16].kind == "present" && machine.operations[17].kind == "audio" &&
          machine.operations[18].kind == "resume" &&
@@ -284,17 +315,25 @@ bool modeCallSuspensionPreservesFieldOrder() {
          machine.guestTicks == ticksAtSuspend + 19u;
 }
 
+// The spanning-call turn must cover a whole field of emulated time, not half of it.
+bool turnBudgetCoversAField() {
+  const std::uint64_t fieldTicks = psx::frame::displayFieldCpuTicks(1, 1, 59'940u);
+  return tekken3::frame::FiniteFrame::kFieldTurnCycles >= fieldTicks * psx::cpu::kLightrecCyclesPerInstruction;
+}
+
 } // namespace
 
 int main() {
-  if (!finiteBootIsOrdered() || !displayInitOmitsOnlyVsync() || !frameBarrierKeepsBothConditionalAnswers() ||
+  if (!turnBudgetCoversAField() || !finiteBootIsOrdered() || !bootInitializersSpanFields() ||
+      !displayInitOmitsOnlyVsync() || !frameBarrierKeepsBothConditionalAnswers() ||
       !frameStepKeepsServiceAndRenderOrder() || !modeCallSuspensionPreservesFieldOrder()) {
     std::fprintf(stderr,
                  "frame_loop_contract: FAIL — finite boot/frame sequence diverged from the "
                  "measured title contract\n");
     return 1;
   }
-  std::printf("frame_loop_contract: PASS — finite boot 2/2, display init 6/6, frame barrier "
-              "enabled+disabled, ordered presentation/audio/pad/CD/render, and 3-field bounded continuation hold\n");
+  std::printf(
+      "frame_loop_contract: PASS — finite boot prologue and spanning initializers, display init 6/6, frame barrier "
+      "enabled+disabled, ordered presentation/audio/pad/CD/render, and 3-field bounded continuation hold\n");
   return 0;
 }

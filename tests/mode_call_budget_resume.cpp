@@ -300,7 +300,7 @@ public:
     return step.outcome == psx::cpu::CallOutcome::Returned;
   }
 
-  bool startModeCall(std::uint32_t address, std::uint32_t returnPc) override {
+  bool beginSpanningCall(std::uint32_t address, std::uint32_t returnPc) override {
     ++boundedStarts;
     lastEntry = address;
     lastReturnPc = returnPc;
@@ -308,7 +308,7 @@ public:
     return settled(modeCall_.advance(std::nullopt, psx::cpu::ExecutionBudget::fromCycles(kFieldCycles)));
   }
 
-  bool resumeModeCall() override {
+  bool resumeSpanningCall() override {
     ++boundedResumes;
     return settled(modeCall_.advance(std::nullopt, psx::cpu::ExecutionBudget::fromCycles(kFieldCycles)));
   }
@@ -500,9 +500,10 @@ bool resumeArm() {
   psx::cpu::ResumableGuestCall modeCall;
   BudgetMachine machine(core, modeCall);
   tekken3::frame::StepState state;
+  state.stage = tekken3::frame::Stage::Running;
 
   tekken3::frame::FiniteFrame::step(machine, state);
-  if (!state.modeCallPending || machine.boundedStarts != 1 || machine.boundedResumes != 0 || !modeCall.pending() ||
+  if (!state.callPending || machine.boundedStarts != 1 || machine.boundedResumes != 0 || !modeCall.pending() ||
       machine.lastEntry != kModeFunction2 || machine.lastReturnPc != kModeReturnPc2) {
     std::fprintf(stderr,
                  "mode_call_budget_resume: field 1 — mode 2 did not suspend through the bounded "
@@ -525,7 +526,7 @@ bool resumeArm() {
   constexpr unsigned kHeldFields = 6u;
   for (unsigned field = 0; field < kHeldFields; ++field) {
     tekken3::frame::FiniteFrame::step(machine, state);
-    if (!state.modeCallPending || !modeCall.pending()) {
+    if (!state.callPending || !modeCall.pending()) {
       std::fprintf(stderr, "mode_call_budget_resume: held field %u left the wait early\n", field + 2u);
       return false;
     }
@@ -572,7 +573,7 @@ bool resumeArm() {
   // Release the wait as a sector completion does.
   core.mem_w8(kLoaderBusy, 0);
   tekken3::frame::FiniteFrame::step(machine, state);
-  if (state.modeCallPending || modeCall.pending()) {
+  if (state.callPending || modeCall.pending()) {
     std::fprintf(stderr, "mode_call_budget_resume: the mode call did not return after the busy byte cleared\n");
     return false;
   }

@@ -1,13 +1,34 @@
 ---
 id: 20
 title: The card's blocker is the CD completion chain, and the sector dispatch is armed but never runs
-status: open
+status: fixed
 symptom: the product presents the NAMCO PRESENTS card indefinitely; `0x800A069F` stays 1 in every run while mode is 2 and phase is 8
 state_items: S003
 tags: tekken3,cd-completion,blocker,sector-callback-dispatch
 created: 2026-09-29
-updated: 2026-09-29
+updated: 2026-10-09
 ---
+
+## Resolution
+
+The card clears and the product now runs the attract loop, the title menu, character select and a fight
+(40,065 presented fields, `recordcheck` mismatched=0 and scale=1 on all of them). Four blockers stood in the way, each
+traced to one owner.
+
+| # | observed | cause | fix | test |
+|---|---|---|---|---|
+| 1 | card stays up: `0x800A069F` = 1, mode 2, phase 8 | `game/cd/cd_protocol.cpp:cdControlOverride` (with `cdSync`, `cdReady`, `cdCommand`, `cdQueueStart`, `cdQueueResult`) completed libcd commands inline, so the guest's controller command, INT, ISR (`FUN_80084A30`) and class-2 completion (`FUN_8006C26C`) never ran and the sector callback `0x8006C2A0` was never installed | deleted `game/cd/cd_protocol.{cpp,h}` and its contract; the guest's libcd runs. Three seams then had to hold: both retail initializers run as spanning calls (`game/frame/finite_frame.cpp:FiniteFrame::stepBoot`) because a native override cannot take an IRQ; each host turn is a full field (`FiniteFrame::kFieldTurnCycles`) because a half-field turn put the CD deadline on the VBlank that flushes it; and the ISR's nested dispatch stops at `Hle::kInterruptReturnSentinel` (psxport `runtime/psx/hle/hle_interrupt.cpp:Hle::enterExceptionStack`) because the interrupted `$ra` is a PC the ISR can legitimately reach | `bootInitializersSpanFields`, `turnBudgetCoversAField` (`tests/finite_frame_contract.cpp`); `exception_stack_ra_is_a_sentinel_not_guest_code` (psxport `tests/test_bios_interrupt.cpp`) |
+| 2 | Lightrec fault at `0x80037B5C` about 3,350 fields into the intro; `FUN_80037B28` loops on a mesh whose count word is 0 | `psxport runtime/psx/platform/dma_linked_list.cpp:syncMode` read the DMA sync mode from BCR bits 0-1; the last sector of a 355-sector file is a 98-word block (`BCR 0x00010062`, low bits `10`), so it was walked as a chain and the file tail (`0x801BCE40`) stayed zero | sync mode is CHCR bits 9-10 (`runtime/psx/core/mem.cpp` passes CHCR) | `a_block_size_ending_in_binary_10_is_not_a_chain` (psxport `tests/test_dma_sync_mode.cpp`) |
+| 3 | mode 1 black forever: ReadN to LBA 251,471 delivers its first sector, no DMA3 follows, `0x800A06A0` record never advances | `FUN_8008FCC0` (the libcd command writer) calls `FUN_800842E0`, which ack-loops and discards the first ReadN sector's INT1 before the guest's VBlank-timer class-2 completion (`FUN_8006C26C`) has installed the sector callback through `FUN_80091F38`; CD reads are instant, so the INT1 is always ahead of the timer | `game/cd/sector_ready_order.cpp` overrides of `FUN_8008F850` (deliver the class-2 completion before the first sector), `FUN_800842E0` (run the CD ISR first) and `FUN_8006C26C` (drop a late class 2); no drive timing anywhere | `completionPrecedesTheFirstSector`, `pendingSectorIsServicedBeforeTheFlush`, `lateCompletionIsDropped` (`tests/sector_ready_order_contract.cpp`) |
+
+Decompiled hops, all from `SLUS_004.02`: submit `FUN_8008F08C` (queue), controller command `FUN_80090D88`
+region, INT `FUN_800833A8` (flag decode), ISR `FUN_80084A30`, command-complete hook `FUN_80090128` ->
+`FUN_80090650`, class-2 completion `FUN_8008E928` (timer-driven from `FUN_8008FDE8`) -> `FUN_8006C26C`,
+install `FUN_80091F38` (slot `0x8009B8D0`, flag `0x8009B8E8`), ready hook `FUN_8008F850` ->
+`FUN_80092034`, sector callback `FUN_8006C2A0` -> DMA3 `FUN_80084838`.
+
+The sections below are the investigation record before the fix; its claim that the sector dispatch was
+"armed but never driven" is true of the overridden path only.
 
 ## Answer
 
@@ -27,7 +48,7 @@ jal  0x8008F08C;              // submit to the CD chain
 // 0x8006C26C — the chain's completion callback. This is not a clock question.
 void ChainCompletion(uint8_t eventClass) {
   if (eventClass == 2) {                          // 0x8006C278  bne $a0,2
-    InstallSectorCallback(0x8007C2A0, -1);        // 0x8006C288  jal 0x80091F38
+    InstallSectorCallback(0x8006C2A0, -1);        // 0x8006C288  jal 0x80091F38
   }
 }
 

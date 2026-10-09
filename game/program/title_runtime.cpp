@@ -1,6 +1,6 @@
 #include "program/title_runtime.h"
 
-#include "cd/cd_protocol.h"
+#include "cd/sector_ready_order.h"
 #include "core.h"
 #include "frame/finite_frame.h"
 #include "game.h"

@@ -150,7 +150,7 @@ declared host-architecture performance.
   field-25,030 capture: the callback value `0x8006C26C` is present at **exactly one** address in the
   whole 2 MB, `0x800A3DD0`, and `0x8007C2A0` at **0 of 524,288** words; a 1,200-field traced run
   delivered **4,458 of 4,458** interrupts on `I_STAT&I_MASK=0x001` and **0** on the CD bit, with
-  `I_MASK` bit 2 set. Owner: `game/cd/cd_protocol.cpp`, whose `kCdControl` and `kCdQueueStart` overrides
+  `I_MASK` bit 2 set. Owner (then): `game/cd/cd_protocol.cpp`, whose `kCdControl` and `kCdQueueStart` overrides
   complete each CD operation inline and never invoke the registered callback, so
   `cd_ready_callback_pointer()` is 0 here (direct runtime, `core.cfg` null, layout not overridden) and
   the framework's own `cd_drive_stock_read` loop returns at its first line. **This supersedes T3-04's
@@ -190,3 +190,21 @@ declared host-architecture performance.
 - evidence: `widescreen::WidescreenProjection` publishes the shared plan at `FUN_80080A40`, preserves vertical extent/H ownership, widens the view 384->512 at 16:9, and feeds the corresponding 492-pixel draw width to readable wide-only ports of the two measured stage/effect clippers. The 4:3 route calls each authenticated original guest body through Lightrec. `tekken3_widescreen_contract` proves both measured display/view pairs plus stage/effect primitives in the added margin.
 - where: `game/widescreen/*`; `tests/widescreen_contract.cpp`; shared `guest_widescreen_projection.*`
 - gap: The product still has no completed frame, so final sampling, 4:3 pixel identity, and actual added scene coverage are unverified. A real A/B must also determine whether the authored 600/780 stage-tile visibility wedge culls needed wide-margin tiles; any adjustment must derive from the resolved projection. **Issue 0022 adds a second, independent reason there is no frame to widen: the 11 mode handlers at or above `0x800C0000` hold no code at this frontier. A whole-window word-for-word diff against the authenticated image measures 0 of 256 words differing at each of those 11 handlers, against 9 of 9 in-disc handlers byte-identical, and mode 0's loader writes nothing to any handler address — so the geometry a wider projection would reveal is not resident yet, independently of the CD completion.** Tekken 3 already runs at 60 fps: there remains no native renderer, fps60 mode, interpolation/lerp, or interpolation-supporting temporal pipeline in this title's target scope.
+
+### T3-05 — The CD completion chain, the DMA3 sector tail and the first-sector ordering (resolved)
+
+- RE: the linked libcd is a polling design. The ISR `FUN_80084A30` reads the controller flag in
+  `FUN_800833A8` and calls the command-complete hook (`0x80099750` = `FUN_80090128`) or the ready hook
+  (`0x80099754` = `FUN_8009073C` -> `FUN_8008F850` -> `FUN_80092034`); class-2 completions (`FUN_8006C26C`)
+  are delivered later from the VBlank timer callback `FUN_8008FDE8` -> `FUN_8008E928`. `FUN_80084838` is the
+  polled DMA3 burst the sector callback uses (`MADR`, `BCR = words | 0x10000`, `CHCR = 0x11000000`).
+- Mode 1 (`0x80052CC4`) is a loader-list mode: it submits the record list at `0x80098120` through
+  `FUN_800529CC` and waits on `FUN_8006C23C`. Modes 3 (`0x800DB1B8`), 6 (`0x800D3228`) and the later
+  window handlers now execute from the disc-loaded window.
+- Measured: a 355-sector load (`0x8010BE40`, `0xB1188` bytes) whose last sector is a 98-word DMA; the
+  mesh `+0x380` pointer lands in that tail. The loader record at `0x800A06B8` is `{flags, msf, dest, aux, size}`.
+- Measured on instant CD: the first ReadN sector's INT1 is pending before the timer delivers class 2, and
+  the command writer `FUN_8008FCC0` flushes (`FUN_800842E0`, ack-loop that discards pending INT flags) ahead of
+  the next GetStat, so the INT1 is lost and the load stalls. The ready hook `FUN_8008F850` installs nothing
+  itself; it relies on `FUN_80091F38` (flag `0x8009B8E8 != 1`) having run from the class-2 completion.
+- Not done: no fight input beyond menu navigation; no other file-load sizes enumerated for S011.

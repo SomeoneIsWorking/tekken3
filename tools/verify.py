@@ -37,7 +37,7 @@ def main() -> int:
             test_regex=(
                 r"^tekken3_(product_help_contract|runtime_seam|runtime_contract|"
                 r"finite_frame_contract|bounded_guest_call|finite_guest_call_contract|"
-                r"cd_protocol_contract|gpu_queue_timeout_contract|"
+                r"sector_ready_order_contract|gpu_queue_timeout_contract|"
                 r"widescreen_contract|widescreen_stage_wedge_contract|irq_oracle_selftest|"
                 r"launcher_selftest|launcher_help_contract)$"
             ),

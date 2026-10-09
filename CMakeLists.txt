@@ -16,7 +16,7 @@ add_subdirectory("${PSXPORT_DIR}" psxport_build)
 
 add_library(
   tekken3_runtime STATIC
-  game/cd/cd_protocol.cpp
+  game/cd/sector_ready_order.cpp
   game/execution/finite_guest_call.cpp
   game/fieldclock/field_clock.cpp
   game/frame/finite_frame.cpp
@@ -106,13 +106,13 @@ add_custom_target(
   USES_TERMINAL
   VERBATIM)
 
-add_executable(tekken3_cd_protocol_contract tests/cd_protocol_contract.cpp)
-target_link_libraries(tekken3_cd_protocol_contract PRIVATE tekken3_runtime)
-add_test(NAME tekken3_cd_protocol_contract COMMAND tekken3_cd_protocol_contract)
+add_executable(tekken3_sector_ready_order_contract tests/sector_ready_order_contract.cpp)
+target_link_libraries(tekken3_sector_ready_order_contract PRIVATE tekken3_runtime)
+add_test(NAME tekken3_sector_ready_order_contract COMMAND tekken3_sector_ready_order_contract)
 add_custom_target(
-  tekken3_cd_protocol_contract_check
-  COMMAND "$<TARGET_FILE:tekken3_cd_protocol_contract>"
-  DEPENDS tekken3_cd_protocol_contract
+  tekken3_sector_ready_order_contract_check
+  COMMAND "$<TARGET_FILE:tekken3_sector_ready_order_contract>"
+  DEPENDS tekken3_sector_ready_order_contract
   USES_TERMINAL
   VERBATIM)
 
@@ -201,7 +201,7 @@ add_custom_target(
           "[verify] aggregate: product composition, policy and title contract checks"
   DEPENDS
     cpp_policy
-    tekken3_cd_protocol_contract_check
+    tekken3_sector_ready_order_contract_check
     tekken3_finite_guest_call_contract_check
     tekken3_finite_frame_contract_check
     tekken3_bounded_guest_call_check

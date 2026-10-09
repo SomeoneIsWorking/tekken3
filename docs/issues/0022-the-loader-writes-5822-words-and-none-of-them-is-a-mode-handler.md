@@ -6,8 +6,16 @@ symptom: psxport issue 0050 measured that an interior-word write cannot revoke a
 state_items: S003
 tags: tekken3,invalidation,interior-word,loader,measured-absence
 created: 2026-09-29
-updated: 2026-09-29
+updated: 2026-10-09
 ---
+
+## Update 2026-10-09
+
+The card is past. The window handlers are resident and execute: modes 3 (`0x800DB1B8`), 6 (`0x800D3228`)
+and the later modes ran through a 16,534-field run with `faults=0`, `revoked_blocks=1233` and
+`invalidations_by_source: cpu=176,704,893 mapped_store=355,982 dma=26,939`. No stale-block execution has
+been observed, but the overlap of written ranges with translated first words is still not measured from
+outside the executor, so the question stays open.
 
 ## Question
 

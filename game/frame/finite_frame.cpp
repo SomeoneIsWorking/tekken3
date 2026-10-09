@@ -6,6 +6,7 @@
 #include "execution_services.h"
 #include "game.h"
 #include "native_dispatch.h"
+#include "segment_clock.h"
 
 #include <array>
 #include <cstddef>
@@ -15,6 +16,7 @@
 namespace tekken3::frame {
 namespace {
 
+const auto kFieldTurn = psx::cpu::ExecutionBudget::fromCycles(FiniteFrame::kFieldTurnCycles);
 constexpr std::uint32_t kFirstInitializer = 0x80079D10u;
 constexpr std::uint32_t kSecondInitializer = 0x800B0548u;
 constexpr std::uint32_t kFrameTimerEventClass = 0xF2000002u;
@@ -68,8 +70,8 @@ constexpr std::array<std::uint32_t, 20> kModeFunctions{
 
 class CoreMachine final : public Machine {
 public:
-  CoreMachine(Game &game, Core &core, psx::cpu::ResumableGuestCall &modeCall)
-      : game_(game), core_(core), modeCall_(modeCall) {}
+  CoreMachine(Game &game, Core &core, psx::cpu::ResumableGuestCall &spanningCall)
+      : game_(game), core_(core), spanningCall_(spanningCall) {}
 
   void call(std::uint32_t address, std::uint32_t returnPc) override {
     core_.r[31] = returnPc;
@@ -89,20 +91,20 @@ public:
     call(address, returnPc);
   }
 
-  bool startModeCall(std::uint32_t address, std::uint32_t returnPc) override {
-    modeCall_.begin(core_, "Tekken3 frame mode call", address, returnPc, psx::cpu::kUnboundedCallTurns);
+  bool beginSpanningCall(std::uint32_t address, std::uint32_t returnPc) override {
+    spanningCall_.begin(core_, "Tekken3 spanning guest call", address, returnPc, psx::cpu::kUnboundedCallTurns);
     return settled(step());
   }
 
-  bool resumeModeCall() override {
+  bool resumeSpanningCall() override {
     return settled(step());
   }
 
-  // Mode 0 (resource decompress) and mode 2 (sector wait) span fields; the frame state bounds the wait.
+  // CdInit, mode 0 (resource decompress) and mode 2 (sector wait) span fields; the frame state bounds the wait.
   bool settled(const psx::cpu::CallStep &step) {
     if (step.outcome == psx::cpu::CallOutcome::Refused) {
       lucent::error("tekken3-guest",
-                    "Tekken3 frame mode call refused after {} host turn(s) and {} cycles at 0x{:08X}: {}",
+                    "Tekken3 spanning guest call refused after {} host turn(s) and {} cycles at 0x{:08X}: {}",
                     step.turns,
                     step.cycles,
                     step.guestPc,
@@ -113,7 +115,7 @@ public:
   }
 
   psx::cpu::CallStep step() {
-    return modeCall_.advance();
+    return spanningCall_.advance({}, kFieldTurn);
   }
 
   void deliverEvent(std::uint32_t eventClass, std::uint32_t spec) override {
@@ -171,7 +173,7 @@ public:
 private:
   Game &game_;
   Core &core_;
-  psx::cpu::ResumableGuestCall &modeCall_;
+  psx::cpu::ResumableGuestCall &spanningCall_;
 };
 
 void finishFrame(Machine &machine, std::uint32_t buffer) {
@@ -197,14 +199,37 @@ void FiniteFrame::runBootPrefix(Machine &machine) {
   machine.write32(stack + 20u, machine.readRegister(kS1));
   machine.write32(stack + 16u, machine.readRegister(kS0));
   machine.tick(6);
-  machine.call(kFirstInitializer, 0x80028BB8u);
-  machine.writeRegister(kS1, 0x800B0000u);
-  machine.tick(2);
-  machine.call(kSecondInitializer, 0x80028BC0u);
-  machine.writeRegister(kS0, 0x800B0000u);
-  machine.writeRegister(kV0, 0x800B0000u);
-  machine.writeRegister(kS2, 0x800AE040u);
-  machine.tick(3);
+}
+
+void FiniteFrame::stepBoot(Machine &machine, StepState &state) {
+  machine.commitPresentation();
+  machine.serviceAudioSink();
+  for (;;) {
+    bool returned = false;
+    if (state.callPending) {
+      returned = machine.resumeSpanningCall();
+    } else if (state.stage == Stage::FirstInitializer) {
+      returned = machine.beginSpanningCall(kFirstInitializer, 0x80028BB8u);
+    } else {
+      returned = machine.beginSpanningCall(kSecondInitializer, 0x80028BC0u);
+    }
+    state.callPending = !returned;
+    if (!returned) {
+      return;
+    }
+    if (state.stage == Stage::FirstInitializer) {
+      machine.writeRegister(kS1, 0x800B0000u);
+      machine.tick(2);
+      state.stage = Stage::SecondInitializer;
+      continue;
+    }
+    machine.writeRegister(kS0, 0x800B0000u);
+    machine.writeRegister(kV0, 0x800B0000u);
+    machine.writeRegister(kS2, 0x800AE040u);
+    machine.tick(3);
+    state.stage = Stage::Running;
+    return;
+  }
 }
 
 bool FiniteFrame::runBarrier(Machine &machine) {
@@ -276,15 +301,19 @@ void FiniteFrame::runDisplayInit(Machine &machine) {
 }
 
 void FiniteFrame::step(Machine &machine, StepState &state) {
-  if (state.modeCallPending) {
+  if (state.stage != Stage::Running) {
+    stepBoot(machine, state);
+    return;
+  }
+  if (state.callPending) {
     // Barrier not reached: repeat the held image, advance audio, resume the same call next field.
     machine.servicePad();
     machine.commitPresentation();
     machine.serviceAudioSink();
-    if (!machine.resumeModeCall()) {
+    if (!machine.resumeSpanningCall()) {
       return;
     }
-    state.modeCallPending = false;
+    state.callPending = false;
     machine.tick(2);
     finishFrame(machine, state.buffer);
     return;
@@ -326,10 +355,10 @@ void FiniteFrame::step(Machine &machine, StepState &state) {
     const auto address = kModeFunctions[static_cast<std::size_t>(mode)];
     const auto returnPc = 0x80028C9Cu + static_cast<std::uint32_t>(mode) * 0x10u;
     // Every mode body may outlive a field (mode 2, 0x8004FA60, spins in FUN_8006BEA8 on 0x800A069E
-    // until a later sector completion), so it enters through the resumable `startModeCall`.
+    // until a later sector completion), so it enters through the spanning call.
     state.buffer = buffer;
-    if (!machine.startModeCall(address, returnPc)) {
-      state.modeCallPending = true;
+    if (!machine.beginSpanningCall(address, returnPc)) {
+      state.callPending = true;
       return;
     }
     machine.tick(mode == 19 ? 1u : 2u);
@@ -361,7 +390,7 @@ void FrameDriver::mainOverride(Core *core) {
     lucent::error("boot", "Tekken 3 finite main reached outside its one boot dispatch");
     std::abort();
   }
-  CoreMachine machine(driver.game_, *core, driver.modeCall_);
+  CoreMachine machine(driver.game_, *core, driver.spanningCall_);
   FiniteFrame::runBootPrefix(machine);
   driver.bootComplete_ = true;
   psx::cpu::requestExecutionExit(*core, psx::cpu::ExecutionExitReason::HostService);
@@ -369,7 +398,7 @@ void FrameDriver::mainOverride(Core *core) {
 
 void FrameDriver::barrierOverride(Core *core) {
   FrameDriver &driver = from(*core);
-  CoreMachine machine(driver.game_, *core, driver.modeCall_);
+  CoreMachine machine(driver.game_, *core, driver.spanningCall_);
   if (!FiniteFrame::runBarrier(machine)) {
     lucent::error("frame",
                   "Tekken 3 RCntCNT2 event class 0x{:08X} spec 0x{:08X} did not release the frame barrier",
@@ -381,7 +410,7 @@ void FrameDriver::barrierOverride(Core *core) {
 
 void FrameDriver::displayInitOverride(Core *core) {
   FrameDriver &driver = from(*core);
-  CoreMachine machine(driver.game_, *core, driver.modeCall_);
+  CoreMachine machine(driver.game_, *core, driver.spanningCall_);
   FiniteFrame::runDisplayInit(machine);
 }
 
@@ -420,15 +449,15 @@ void FrameDriver::stepFrame(Core &core, std::uint32_t frame) {
     lucent::error("frame", "Tekken 3 frame {} ran before its finite boot prefix", frame);
     std::abort();
   }
-  if (stepState_.modeCallPending != modeCall_.pending()) {
-    lucent::error("frame", "Tekken 3 mode call and frame continuation disagree at field {}", frame);
+  if (stepState_.callPending != spanningCall_.pending()) {
+    lucent::error("frame", "Tekken 3 spanning call and frame continuation disagree at field {}", frame);
     std::abort();
   }
-  if (!stepState_.modeCallPending) {
+  if (!stepState_.callPending) {
     game_.timing.logicFrame = frame;
     game_.core.rsub.otAttr.beginLogicFrame(frame);
   }
-  CoreMachine machine(game_, core, modeCall_);
+  CoreMachine machine(game_, core, spanningCall_);
   FiniteFrame::step(machine, stepState_);
 }
 

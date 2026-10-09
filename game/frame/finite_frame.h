@@ -19,8 +19,9 @@ public:
   virtual void call1(std::uint32_t address, std::uint32_t returnPc, std::uint32_t a0) = 0;
   virtual void
   call3(std::uint32_t address, std::uint32_t returnPc, std::uint32_t a0, std::uint32_t a1, std::uint32_t a2) = 0;
-  virtual bool startModeCall(std::uint32_t address, std::uint32_t returnPc) = 0;
-  virtual bool resumeModeCall() = 0;
+  // A guest call that may outlive the field it starts on; both return true once it has returned.
+  virtual bool beginSpanningCall(std::uint32_t address, std::uint32_t returnPc) = 0;
+  virtual bool resumeSpanningCall() = 0;
   virtual void deliverEvent(std::uint32_t eventClass, std::uint32_t spec) = 0;
   virtual std::uint32_t returnValue() const = 0;
   virtual std::uint32_t readRegister(std::uint32_t index) const = 0;
@@ -38,23 +39,35 @@ public:
   virtual void servicePad() = 0;
 };
 
-// A mode body that outlived the field it started on.
+// The two retail initializers run as spanning calls so the guest's own interrupt service and libcd
+// wait loops get host turns; every later field is a Running field.
+enum class Stage : std::uint8_t { FirstInitializer, SecondInitializer, Running };
+
+// What a field must remember: the stage, and a spanning call (initializer or mode body) still running.
 struct StepState {
-  bool modeCallPending = false;
+  Stage stage = Stage::FirstInitializer;
+  bool callPending = false;
   std::uint32_t buffer = 0;
 };
 
 // The three overridden entries and the field step, reproducing the guest bodies they replace.
 class FiniteFrame {
 public:
+  // One NTSC field (59.94 Hz) of CPU ticks at two executor cycles each; a shorter turn lets a CD deadline land on
+  // VBlank.
+  static constexpr std::uint32_t kFieldTurnCycles = 565046u * 2u;
   static constexpr std::uint32_t kMain = 0x80028BA0u;
   static constexpr std::uint32_t kFrameBarrier = 0x800296C4u;
   static constexpr std::uint32_t kDisplayInit = 0x800B0954u;
 
+  // The non-returning 0x80028BA0 prologue; the initializers it calls run from `step`.
   static void runBootPrefix(Machine &machine);
   [[nodiscard]] static bool runBarrier(Machine &machine);
   static void runDisplayInit(Machine &machine);
   static void step(Machine &machine, StepState &state);
+
+private:
+  static void stepBoot(Machine &machine, StepState &state);
 };
 
 class FrameDriver final : public ::FrameDriver {
@@ -73,7 +86,7 @@ private:
 
   Game &game_;
   StepState stepState_;
-  psx::cpu::ResumableGuestCall modeCall_;
+  psx::cpu::ResumableGuestCall spanningCall_;
   bool bootStarted_ = false;
   bool bootComplete_ = false;
 };
