@@ -176,10 +176,10 @@ over and asks for a host transfer. There is no second boot path.
    `TitleRuntime::renderCapabilities`) `RecordRasterizer` replays the record into the VRAM image;
    at 16:9 `gpu_vk_latch_record_display` adds a margin per side of the 368-wide display (62 columns)
    as a canvas around the buffer. `psx::FrameLoopShell::step` then enforces one presentation per
-   field. `PSXPORT_DEBUG=recordcheck` compares each present with the device.
+   field. `PSXPORT_DEBUG=recordcheck` compares each present with the device. A record the device drew one
+   field of (480-line interlace, E1 bit 10 clear) is presented as that field (`RecordRasterizer::selectField`).
 7. Tekken 3 runs at 60 fps, so there is no 60 fps in-between path and no temporal state: the title
    declares `temporalInterpolation = false`. Widescreen is the only rendering enhancement in scope.
-   Issue 0023 records why the margins are still black on the record path.
 
 ### CD and streaming
 

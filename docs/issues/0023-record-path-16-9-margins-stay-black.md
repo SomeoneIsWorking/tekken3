@@ -1,12 +1,12 @@
 ---
 id: 23
 title: On the record path Tekken 3's 16:9 margins stay black — its draw area is letterboxed and its widening is shaped for the old GTE canvas
-status: open
+status: resolved
 symptom: At 16:9 on RenderPath::Record the 62-column margins are black; the only reachable frame is the NAMCO PRESENTS card, so no 3D exists to fill them
 state_items: S005,S007
 tags: widescreen,record-path,render,canvas,draw-area
 created: 2026-10-07
-updated: 2026-10-07
+updated: 2026-10-10
 ---
 
 ## Reproduction
@@ -52,3 +52,13 @@ RAM at field 1200 (`PSXPORT_RAMDUMP`, both aspects):
   original guest bodies.
 - Both need a fight frame to prove (issues 0020, 0022); until then the 16:9 picture is the 4:3
   picture centred with black margins, never stretched.
+
+## Update 2026-10-10
+
+Not black any more. At 16:9 (sink 1280x720 and 640x360, `config/aspect_16x9.ini`) the intro scenes at fields 3,200 and
+6,000 and an attract fight at 12,000 draw stage geometry into both margins, projected wider, not stretched, and
+`recordcheck` reports mismatched=0 on 13,010 of 13,010 presents. The black margins' cause 1 is gone
+(psxport's letterboxed-draw rule and its per-buffer canvases); which of the widened owners produces the margin
+geometry on the record path (cause 2) is not re-measured. Still open from this issue: gameplay's 3D centre owner (issue 0022) and what a fight frame at the widened
+edges needs; a guest 2D element drawn left of the buffer now shows in the left margin (a portrait at field 12,000).
+The ranking and second attract fight at 16:9 draw garbage textures: issue 0025.
