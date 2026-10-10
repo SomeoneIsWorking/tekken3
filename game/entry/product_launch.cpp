@@ -8,7 +8,6 @@
 #include "machine.h"
 #include "program/title_runtime.h"
 #include "psx_exe_image.h"
-#include "render_mode.h"
 
 #include <cstdint>
 #include <memory>
@@ -38,7 +37,6 @@ int launchProduct(TitleRuntime &runtime, int argc, char **argv) {
 
   psx::Machine machine{*game};
   machine.bindDevices();
-  render_path_install(core);
   machine.prepare();
   runtime.bootInit(*core);
 
